@@ -56,6 +56,61 @@ Rules (`rules/poison.js`):
 
 Poison lives on the character, not the fight, so it carries between fights. The save format is now version 2, and its migration adds the poison fields to older saves.
 
+### Mercenaries and reinforcements
+
+**Combat engine.** Fights are your side (`you` plus `combat.allies`) against `combat.enemies`. `combat.monsterId` is still the opponent you chose, and its enemy has `main: true`.
+
+- **Turns:** each side acts as a group on its initiative: you, then each mercenary in order, or each enemy in order.
+- **Targeting:**
+  - You choose a target by clicking an enemy card (`combat.target`), and mercenaries attack your target.
+  - Each enemy attack picks a random living fighter on your side.
+  - Breath hits everyone on your side, and each fighter saves separately.
+- **Events:** every event names who acted (`actor`, `target`, `by: player | ally | enemy`). Events that change hit points carry `hp: { uid, hp }` or a `hits[]` list, so a presenter can update the right bar.
+- **Solo fights:** a solo fight against one monster plays exactly as before. The balance table is unchanged.
+- **Save format:** version 3, whose migration converts a fight saved mid-round.
+
+**Mercenaries** (`data/mercs.js`):
+
+| Tier | Hit points | AC | THAC0 | Weapon | Attacks | Wage |
+|---|---:|---:|---:|---|---:|---:|
+| Militia | 8 | 7 | 20 | Club | 1 | 10 gp |
+| Sellsword | 20 | 5 | 18 | Long Sword | 1 | 40 gp |
+| Veteran | 35 | 3 | 16 | Long Sword +1 | 1 | 150 gp |
+| Knight | 55 | 1 | 13 | Bastard Sword +1 | 3/2 | 500 gp |
+| Champion | 75 | −1 | 10 | Long Sword +2 | 3/2 | 1,500 gp |
+
+- **Hiring:** the Battlerings screen has a Hire help panel. Wages are paid up front with no refunds, and there's no limit on crew size.
+- **One fight only:** the crew disbands after every fight. "Fight another … with the same crew" and "Same crew as last time" re-hire in one click.
+- **Afflictions:** mercenaries can be poisoned and paralyzed during the fight. A Wight's drain does an extra 1d8 damage to them instead of taking a level.
+- **Persistence:** they keep nothing between fights.
+- **Captain ending:** with hired help, Captain of the Guard requires your own killing blow on the Red Dragon.
+- **Large crews:** above 3 mercenaries, each run of mercenary attacks is condensed into one log line.
+
+**Reinforcements:**
+
+- **When:** only when mercenaries are hired, decided in `reinforcementsDue()`.
+  - Help comes only from the opponent you chose, and only while it's alive.
+  - The first time it drops below 50% hp, it summons at once.
+  - Otherwise there's a 10% chance per living mercenary each round (at most 50%), announced a round ahead.
+- **Cap:** summoned enemies on the field or on the way never exceed the number of mercenaries hired.
+- **Who comes:** each monster's `calls` is `kin`, a monster id, or `arena`. The arena master sends the monster 3 places weaker on the list. The Hydra, Earth Elemental and dragons never call.
+- **Winning:** every enemy must be defeated. XP from all of them is split evenly among everyone who fought, and the mercenaries' shares are lost. Gold comes only from the chosen opponent.
+
+The "lopsided solo fight" summon rule is tracked in `TODO.md`.
+
+**Balance findings** (from the hiring simulation in `tests/index.html`, fighting two levels below each opponent's solo 50% level):
+
+- **Hiring helps a lot.** One mercenary of the matching tier typically lifts the win rate from about 20% to 55-90%. Two lift it to 75-100%.
+- **Dragons can be farmed early.** They never summon, so they're the extreme case. A level 5 fighter with one Champion beats the Black Dragon about 92% of the time. Each win nets 1,500 gold after wages and 3,000 XP.
+- **Arena step-down surprises:** the Giant Scorpion's arena helper is a Wight, which can drain levels.
+
+Possible fixes, still to be decided:
+
+- Mercenaries won't fight for an employer far below their own level.
+- XP is weighted by level instead of split evenly.
+- Higher wages for the top tiers.
+- Dragons summon too, for example "the arena sends the dragon's brood".
+
 ### Player guide
 
 The in-game **Guide** (`js/ui/screens/guide.js`) explains the goal, character creation, what each stat does, leveling, stat points and Tomes, combat math, every monster, special abilities, gear, the inn, saving, and keyboard shortcuts. You can open it from the title screen, the town map, the Battlerings screen, or with the <kbd>G</kbd> key in town.

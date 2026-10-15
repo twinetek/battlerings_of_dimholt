@@ -128,6 +128,23 @@ frame.addEventListener('load', async () => {
       await click('#nav [data-to="town"]');
       log(screen() === 'town' && !navLink(), 'top bar link returns to town');
 
+      // Hire a mercenary for a fight.
+      await click('[data-to="arena"]');
+      await click('tr[data-id="kobold"]');
+      await click('[data-action="more"][data-merc="militia"]');
+      log(q('[data-action="fight"]').textContent.includes('1 mercenary'), 'fight button shows the hired crew');
+      const goldBefore = JSON.parse(w.localStorage.getItem('dimholt.save.auto')).state.character.gold;
+      await click('[data-action="fight"]');
+      const hiredState = JSON.parse(w.localStorage.getItem('dimholt.save.auto')).state;
+      log(screen() === 'combat' && d.querySelectorAll('.fighter.ally').length === 1 && hiredState.character.gold === goldBefore - 10, 'mercenary joins and wages are paid');
+      log(q('#combat-log').textContent.includes('Fighting at your side'), 'log names the crew');
+      for (let i = 0; i < 60 && q('[data-action="fight"]'); i++) {
+        await click('[data-action="fight"]');
+        await wait(30);
+      }
+      log(!!q('[data-action="leave"]'), 'fight with a mercenary finishes');
+      await click('[data-action="leave"]');
+
       // Lingering poison: warning on the Battlerings screen, a confirm before fighting, and the opening log line.
       const pSave = JSON.parse(w.localStorage.getItem('dimholt.save.auto'));
       pSave.state.character.poison = 3;

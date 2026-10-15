@@ -5,6 +5,7 @@
 // is wrapped and the game keeps running without it.
 
 import { SAVE_VERSION, summarize } from './state.js';
+import { MONSTER_BY_ID } from '../data/monsters.js';
 
 const PREFIX = 'dimholt.save.';
 const FORMAT = 'dimholt-save';
@@ -19,6 +20,21 @@ const MIGRATIONS = {
     c.poison ??= 0;
     c.poisonSource ??= null;
     c.poisonRecord ??= {};
+    return state;
+  },
+  // Version 3: fights became your side against a list of enemies.
+  2: state => {
+    const cb = state.combat;
+    if (cb && !cb.enemies) {
+      state.combat = {
+        monsterId: cb.monsterId, round: cb.round, paralyzed: cb.paralyzed ?? 0,
+        over: cb.over, result: cb.result, cause: cb.cause ?? null,
+        enemies: [{ uid: 'e1', monsterId: cb.monsterId, name: MONSTER_BY_ID[cb.monsterId]?.name ?? 'Opponent', hp: cb.hp, maxHp: cb.maxHp,
+          breathLeft: cb.breathLeft ?? 0, regenBlocked: !!cb.regenBlocked, main: true, summoned: false, killedBy: null }],
+        allies: [], nextEnemy: 1, hired: 0, wages: 0, crew: {}, target: 'e1',
+        summon: { halfDone: false, pending: 0 }, log: cb.log ?? [],
+      };
+    }
     return state;
   },
 };

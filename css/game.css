@@ -251,3 +251,27 @@ td.act button.step + button.step { margin-left: 4px; }
 .thac0-table td:first-child { white-space: normal; min-width: 9em; }
 .thac0-table td:last-child { min-width: 13em; }
 code, kbd { font-family: ui-monospace, Consolas, monospace; font-size: 0.88em; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+
+/* ---- Mercenaries and groups of enemies ---- */
+.side { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.crew { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.fighter.mini { padding: 8px 10px; }
+.fighter.mini p { margin: 4px 0 0; }
+.mini-head { display: flex; gap: 6px; align-items: center; font-size: 0.92rem; }
+.mini-art { font-size: 1.3rem; }
+.fighter.down { opacity: 0.5; }
+.fighter.ally .bar span { background: var(--magic); }
+button.fighter { display: block; width: 100%; text-align: right; font: inherit; color: inherit; cursor: pointer; }
+button.fighter:hover:not(:disabled) { border-color: var(--accent); }
+.fighter.targeted { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+.small-portrait { font-size: 2.2rem; }
+.target-hint { margin: 0; text-align: right; }
+.incoming { display: inline-block; justify-self: end; }
+.log .ally { color: var(--magic); }
+.hire-table .count { display: inline-block; min-width: 1.6em; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+.hire-table td.act { white-space: nowrap; }
+.block { display: block; }
+@media (max-width: 600px) {
+  button.fighter, .target-hint { text-align: left; }
+  .incoming { justify-self: start; }
+}

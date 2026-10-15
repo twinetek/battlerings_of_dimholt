@@ -2,7 +2,8 @@
 
 import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
 import { weaponOf, armorClass, rollToHit, maxHp } from '../../rules/character.js';
-import { startCombat, canHurt } from '../../rules/combat.js';
+import { startCombat, canHurt, summonKind } from '../../rules/combat.js';
+import { MERCS, crewCost, crewSize, crewText } from '../../data/mercs.js';
 import { rangeText } from '../../engine/dice.js';
 import { button, backToTown, esc, gp, d20Chance } from '../format.js';
 import { confirmPoisoned } from './combat.js';
@@ -16,7 +17,70 @@ export function specialText(m) {
   if (m.breath) notes.push(`Breathes ${m.breath.name}`);
   if (m.immune.length) notes.push(`Immune to ${m.immune.join(', ')}`);
   for (const a of m.attacks.filter(x => x.poison)) notes.push(`Poison ${a.poison} on its ${a.name}`);
+  if (m.calls) {
+    const kind = MONSTER_BY_ID[summonKind(m)].name;
+    notes.push(m.calls === 'arena' ? `With mercenaries: the arena sends a ${kind}` : `With mercenaries: calls ${kind}s`);
+  }
   return notes.join('. ') || 'None';
+}
+
+export function callsText(m) {
+  if (!m.calls) return '';
+  const kind = MONSTER_BY_ID[summonKind(m)].name;
+  return m.calls === 'arena'
+    ? `If you bring mercenaries, the arena master sends in a ${kind}`
+    : `If you bring mercenaries, it calls ${m.calls === 'kin' ? 'its own kind' : `${kind}s`} for help`;
+}
+
+const staged = params => params.crew ?? {};
+
+function hirePanel(ctx, m, crew) {
+  const c = ctx.state.character;
+  const n = crewSize(crew);
+  const cost = crewCost(crew);
+  const rows = MERCS.map(t => {
+    const count = crew[t.id] ?? 0;
+    const cantHurt = t.weapon.plus < m.magicReq;
+    return `
+      <tr>
+        <td><span aria-hidden="true">${t.art}</span> ${esc(t.name)}${cantHurt ? ` <span class="tag bad">can't hurt it</span>` : ''}
+          <span class="muted small block">${esc(t.desc)}</span></td>
+        <td class="num">${t.hp}</td>
+        <td class="num">${t.ac}</td>
+        <td class="num">${rangeText(t.weapon.dmg, t.weapon.plus + t.dmgBonus)}</td>
+        <td class="num">${gp(t.wage)}</td>
+        <td class="act">
+          ${button('−', 'fewer', { merc: t.id }, { cls: 'step', disabled: !count, title: `One fewer ${t.name}` })}
+          <span class="count">${count}</span>
+          ${button('+', 'more', { merc: t.id }, { cls: 'step', disabled: c.gold < cost + t.wage, title: `Hire a ${t.name}` })}
+        </td>
+      </tr>`;
+  }).join('');
+  const last = ctx.state.lastCrew;
+  return `
+    <div class="panel hire">
+      <h3>Hire help <span class="muted small">(optional, paid per fight)</span></h3>
+      <p class="muted small">Mercenaries fight beside you for one fight, then leave. Wages are paid up front and aren't refunded.
+        Experience is split evenly among everyone who fights, and the mercenaries' shares are lost.
+        ${m.calls ? `<strong>${esc(callsText(m))}</strong>, up to one helper per mercenary.` : `The ${esc(m.name)} never calls for help.`}</p>
+      <div class="table-wrap"><table class="hire-table">
+        <thead><tr><th>Mercenary</th><th class="num">HP</th><th class="num">AC</th><th class="num">Damage</th><th class="num">Wage</th><th class="act">Hire</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <p>${n
+        ? `Crew: ${esc(crewText(crew))}. Wages <strong>${gp(cost)}</strong> against an award of ${gp(m.gold)}. You'd earn 1/${n + 1} of the experience.`
+        : 'No crew: you fight alone and keep all the experience.'}
+        ${n ? button('Clear', 'clearCrew', {}, { cls: 'link small' }) : ''}
+        ${!n && last && crewSize(last) ? button(`Same crew as last time (${gp(crewCost(last))})`, 'lastCrew', {}, { cls: 'link small', disabled: c.gold < crewCost(last) }) : ''}</p>
+    </div>`;
+}
+
+function fightButton(ctx, m) {
+  const crew = staged(ctx.params);
+  const n = crewSize(crew);
+  const cost = crewCost(crew);
+  const label = n ? `Fight the ${esc(m.name)} with ${n} mercenar${n === 1 ? 'y' : 'ies'} (${gp(cost)})` : `Fight the ${esc(m.name)}`;
+  return button(label, 'fight', { id: m.id }, { cls: 'primary', disabled: cost > ctx.state.character.gold });
 }
 
 function details(ctx, m) {
@@ -51,7 +115,7 @@ function details(ctx, m) {
         : `<span class="warn-text">Your ${esc(w.name)} can't harm it. You need a +${m.magicReq} weapon or offensive magic.</span>`}</p>
       ${lowHp ? '<p class="small warn-text">You are badly hurt. Consider a night at the inn first.</p>' : ''}
       ${c.poison > 0 ? `<p class="small warn-text">☠ You are still poisoned (strength ${c.poison}). It will keep hurting you every round. Cure it with a Potion of Neutralize Poison or a night at the inn.</p>` : ''}
-      <div class="row">${button(`Fight the ${esc(m.name)}`, 'fight', { id: m.id }, { cls: 'primary' })}</div>
+      <div class="row">${fightButton(ctx, m)}</div>
     </div>`;
 }
 
@@ -77,18 +141,40 @@ export function render(ctx, params) {
         </div>
         <div class="panel">${details(ctx, selected)}</div>
       </div>
+      ${hirePanel(ctx, selected, staged(params))}
       <div class="row">${backToTown()}</div>
     </section>`;
 }
 
 export const actions = {
   select: (ctx, d) => ctx.setParams({ id: d.id }),
+  more(ctx, d) {
+    const crew = { ...staged(ctx.params) };
+    crew[d.merc] = (crew[d.merc] ?? 0) + 1;
+    ctx.setParams({ crew });
+  },
+  fewer(ctx, d) {
+    const crew = { ...staged(ctx.params) };
+    crew[d.merc] = Math.max(0, (crew[d.merc] ?? 0) - 1);
+    if (!crew[d.merc]) delete crew[d.merc];
+    ctx.setParams({ crew });
+  },
+  clearCrew: ctx => ctx.setParams({ crew: {} }),
+  lastCrew: ctx => ctx.setParams({ crew: { ...ctx.state.lastCrew } }),
   fight(ctx, d) {
     if (!confirmPoisoned(ctx.state.character)) return;
-    ctx.mutate(s => {
+    const crew = staged(ctx.params);
+    const result = ctx.mutate(s => {
       s.lastFoe = d.id;
-      startCombat(s, d.id);
+      const r = startCombat(s, d.id, crew);
+      if (r.ok && crewSize(crew)) s.lastCrew = { ...crew };
+      return r;
     });
+    if (!result.ok) {
+      ctx.flash(result.msg, 'err');
+      ctx.render();
+      return;
+    }
     ctx.go('combat');
   },
 };

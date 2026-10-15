@@ -13,6 +13,8 @@ import { rangeText, span } from '../../engine/dice.js';
 import { button, esc, gp, signed, d20Chance } from '../format.js';
 import { specialText } from './arena.js';
 import { poisonTotal } from '../../rules/poison.js';
+import { MERCS } from '../../data/mercs.js';
+import { summonKind, SUMMON_CHANCE_PER_MERC, SUMMON_CHANCE_MAX } from '../../rules/combat.js';
 
 const SECTIONS = [
   ['g-goal', 'The goal'],
@@ -24,6 +26,8 @@ const SECTIONS = [
   ['g-monsters', 'Monsters'],
   ['g-specials', 'Special abilities'],
   ['g-poison', 'Poison'],
+  ['g-mercs', 'Mercenaries'],
+  ['g-reinforce', 'Reinforcements'],
   ['g-weapons', 'Weapons'],
   ['g-armor', 'Armor'],
   ['g-magic', 'Magic items'],
@@ -86,6 +90,22 @@ function monsterTable() {
   });
   return table(['Opponent', num('AC'), 'Hit points', num('THAC0'), num('Speed'), 'Attacks per round',
     'Weapon needed', 'Special', num('XP'), num('Award'), num('Fine')], rows, 'monster-table');
+}
+
+function mercTable() {
+  return table(['Mercenary', num('HP'), num('AC'), num('THAC0'), 'Weapon', num('Damage'), num('Attacks'), num('Saves as level'), num('Wage')],
+    MERCS.map(t => tr([`<span aria-hidden="true">${t.art}</span> ${esc(t.name)}`, n(t.hp), n(t.ac), n(t.thac0), esc(t.weapon.name),
+      n(rangeText(t.weapon.dmg, t.weapon.plus + t.dmgBonus)), n(attacksLabel(t.level)), n(t.level), n(gp(t.wage))])));
+}
+
+function callsTable() {
+  return table(['Opponent', 'Calls for help', 'Who comes'], MONSTERS.map(m => {
+    if (!m.calls) return tr([`<span aria-hidden="true">${m.art}</span> ${esc(m.name)}`, '<span class="muted">Never</span>', '']);
+    const kind = MONSTER_BY_ID[summonKind(m)];
+    return tr([`<span aria-hidden="true">${m.art}</span> ${esc(m.name)}`,
+      m.calls === 'arena' ? 'The arena master sends help' : 'Calls for help',
+      `<span aria-hidden="true">${kind.art}</span> ${esc(kind.name)}`]);
+  }));
 }
 
 function poisonTable() {
@@ -224,6 +244,9 @@ export function render(ctx) {
       <ul>
         <li><strong>Armor class</strong> = 10 + armor adjustment + Dexterity adjustment − your best Ring of Protection.</li>
         <li><strong>Use</strong> takes your whole action for the round, and the monster still attacks.</li>
+        <li><strong>More than one enemy?</strong> Click an enemy's card to make it your target. Your attacks, wands, and potions
+          of fiery breath go to your target, and your mercenaries attack it too. When it falls, you move on to the next enemy automatically.
+          Each enemy attack picks a random living fighter on your side.</li>
         <li><strong>Surrender</strong> ends the fight immediately. The arena fines you 10% of the opponent's award, or all your gold if you have less.</li>
         <li><strong>Death</strong> is permanent for that character. The game autosaves after every round, so reloading can't undo a fight,
           but you can load one of your manual save slots.</li>
@@ -273,6 +296,41 @@ export function render(ctx) {
           how often you resisted, and how much damage its poison did.</li>
       </ul>
       ${poisonTable()}
+
+      <h3 id="g-mercs">Mercenaries</h3>
+      <p>On the Battlerings screen you can hire fellow fighters for a single fight. Pick your opponent, use + and − in the
+        <strong>Hire help</strong> panel, then press Fight.</p>
+      <ul>
+        <li><strong>Wages</strong> are paid when the fight starts and are never refunded, even if you surrender or a mercenary falls.
+          You can hire as many as you can afford.</li>
+        <li><strong>One fight only.</strong> Your crew leaves after every fight, and they don't gain experience or keep anything.
+          "Fight another … with the same crew" and "Same crew as last time" re-hire them in one click, at full price.</li>
+        <li><strong>How they fight.</strong> Your side acts on your initiative: you first, then each mercenary.
+          Mercenaries always attack your target. They can be poisoned and paralyzed like you. A Wight's draining touch
+          does an extra 1-8 damage to them instead of taking a level. Dragon breath hits every fighter on your side.</li>
+        <li><strong>Magic weapons count.</strong> A mercenary whose weapon isn't magic enough can't hurt Gargoyles, Wights,
+          or Earth Elementals, and the hiring panel says so.</li>
+        <li><strong>Experience is split</strong> evenly among everyone who fought, alive or fallen, and the mercenaries' shares
+          are lost. With two mercenaries you earn a third. The opponent's gold award is all yours.</li>
+        <li><strong>The Red Dragon.</strong> With hired help, you only become Captain of the Guard if you land the killing blow yourself.</li>
+        <li>If you fall, the fight is lost no matter who is still standing.</li>
+      </ul>
+      ${mercTable()}
+
+      <h3 id="g-reinforce">Reinforcements</h3>
+      <p>Bring help, and your opponent may bring some too. Solo fights are always one on one.</p>
+      <ul>
+        <li><strong>At half health.</strong> The first time your opponent drops below half its hit points, it summons help at once.</li>
+        <li><strong>Each round</strong> there's a ${Math.round(SUMMON_CHANCE_PER_MERC * 100)}% chance per living mercenary
+          (at most ${Math.round(SUMMON_CHANCE_MAX * 100)}%) that it calls for help. The log warns you, and help arrives at the start of the next round.</li>
+        <li><strong>Limit.</strong> There are never more summoned enemies on the sand (or on their way) than mercenaries you hired.</li>
+        <li>Only the opponent you chose can call for help, and only while it's alive.</li>
+        <li><strong>Every enemy must be defeated</strong> to win, summoned ones included. They add their experience to the split,
+          but they don't pay any gold.</li>
+        <li>Pack creatures call their own kind. Loners get help from the arena master, who sends a creature a few places weaker on the list.
+          The Hydra, Earth Elemental, and dragons never call for help.</li>
+      </ul>
+      ${callsTable()}
 
       <h3 id="g-weapons">Weapons</h3>
       <p>You can carry up to ${MAX_WEAPONS} weapons and switch between them at the Equipment screen. Damage includes the

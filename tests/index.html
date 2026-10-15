@@ -27,7 +27,9 @@ import { MONSTERS } from '../js/data/monsters.js';
 import { createCharacter, maxHp, armorClass, gainXp, drainLevel, spendStatPoints, readTome } from '../js/rules/character.js';
 import { buyWeapon, buyArmor, buyItem, sellWeapon, stayAtInn, useItemInTown } from '../js/rules/town.js';
 import { startCombat, playRound } from '../js/rules/combat.js';
-import { newGameState } from '../js/engine/state.js';
+import { newGameState, SAVE_VERSION } from '../js/engine/state.js';
+import { reinforcementsDue, setTarget, summonKind } from '../js/rules/combat.js';
+import { MONSTER_BY_ID } from '../js/data/monsters.js';
 import { XP_FOR_LEVEL, strBonus, dexAc, conHp } from '../js/rules/tables.js';
 
 const out = document.getElementById('out');
@@ -152,7 +154,117 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   localStorage.setItem('dimholt.save.migtest', JSON.stringify({ format: 'dimholt-save', version: 1, state: old }));
   const loaded = readSlot('migtest');
   deleteSlot('migtest');
-  check('version 1 save migrates', loaded && loaded.state.version === 2 && loaded.state.character.poison === 0 && typeof loaded.state.character.poisonRecord === 'object');
+  check('version 1 save migrates', loaded && loaded.state.version === SAVE_VERSION && loaded.state.character.poison === 0 && typeof loaded.state.character.poisonRecord === 'object');
+  setRng(seeded(42));
+}
+
+// Mercenaries and reinforcements
+{
+  const fresh = () => {
+    const st = newGameState(createCharacter('Boss', { str: 16, int: 10, wis: 10, dex: 15, con: 15, cha: 10 }));
+    st.character.gold = 100000; st.character.hp = 9999;
+    buyWeapon(st.character, 'long-sword-2');
+    return st;
+  };
+  setRng(seeded(11));
+
+  let st = fresh();
+  const before = st.character.gold;
+  check('hiring pays wages up front', startCombat(st, 'orc', { militia: 2, veteran: 1 }).ok && st.character.gold === before - 170);
+  check('crew joins with names', st.combat.allies.length === 3 && st.combat.hired === 3 && st.combat.allies.every(a => a.name && a.hp === a.maxHp));
+  st.character.gold = 5;
+  check("can't hire what you can't afford", !startCombat(st, 'orc', { champion: 1 }).ok);
+
+  // Mercenaries act on your side.
+  st = fresh();
+  startCombat(st, 'hill-giant', { knight: 2 });
+  let allyActed = false, allyTargeted = false;
+  for (let i = 0; i < 30 && !st.combat.over; i++) {
+    const ev = playRound(st, { type: 'fight' });
+    allyActed ||= ev.some(e => e.t === 'attack' && e.by === 'ally');
+    allyTargeted ||= ev.some(e => e.t === 'attack' && e.by === 'enemy' && !e.you);
+  }
+  check('mercenaries attack', allyActed);
+  check('monsters attack mercenaries too', allyTargeted);
+
+  // Solo fights never summon.
+  st = fresh();
+  startCombat(st, 'kobold');
+  st.combat.enemies[0].hp = 1; st.combat.enemies[0].maxHp = 100;
+  check('solo fights never summon', JSON.stringify(reinforcementsDue(st)) === '{"now":0,"warn":0}');
+
+  // Below half health: an immediate summon, once, within the cap.
+  st = fresh();
+  startCombat(st, 'orc', { militia: 1 });
+  const main = st.combat.enemies[0];
+  main.maxHp = 100; main.hp = 40;
+  setRng(() => 0.99); // no random summon on top
+  check('below half summons at once', reinforcementsDue(st).now === 1 && st.combat.summon.halfDone);
+  check('the half-health summon happens once', reinforcementsDue(st).now === 0);
+
+  // The cap: never more helpers than mercenaries hired.
+  st = fresh();
+  startCombat(st, 'orc', { militia: 1 });
+  st.combat.enemies.push({ uid: 'e9', monsterId: 'orc', name: 'Orc 2', hp: 5, maxHp: 5, summoned: true });
+  setRng(() => 0); // the random check always passes
+  check('summons are capped at crew size', reinforcementsDue(st).warn === 0);
+  st.combat.enemies[1].hp = 0;
+  check('room opens when a helper falls', reinforcementsDue(st).warn === 1);
+  setRng(seeded(12));
+
+  check('kin, named, and arena summons pick the right kind',
+    summonKind(MONSTER_BY_ID.kobold) === 'kobold' && summonKind(MONSTER_BY_ID.wight) === 'ghoul' && summonKind(MONSTER_BY_ID['hill-giant']) !== 'hill-giant');
+  check('dragons never call for help', !MONSTER_BY_ID['red-dragon'].calls && !MONSTER_BY_ID['black-dragon'].calls);
+
+  // Every enemy must fall; XP is split; helpers pay no gold.
+  st = fresh();
+  startCombat(st, 'kobold', { militia: 1 });
+  st.combat.enemies.push({ uid: 'e2', monsterId: 'kobold', name: 'Kobold 2', hp: 999, maxHp: 999, breathLeft: 0, regenBlocked: false, main: false, summoned: true, killedBy: null });
+  st.combat.enemies[0].hp = 1;
+  setTarget(st.combat, 'e1');
+  let r = 0;
+  while (st.combat.enemies[0].hp > 0 && r++ < 50) playRound(st, { type: 'fight' });
+  check('victory waits until every enemy falls', !st.combat.over && st.combat.enemies[1].hp > 0);
+  check('your target moves on when it falls', st.combat.target === 'e2');
+  st.combat.enemies[1].hp = 1;
+  const gold0 = st.character.gold, xp0 = st.character.xp;
+  let win = [];
+  r = 0;
+  while (!st.combat.over && r++ < 50) win = playRound(st, { type: 'fight' });
+  const v = win.find(e => e.t === 'victory');
+  check('XP is split among the party', v && v.totalXp === 180 && v.party === 2 && st.character.xp - xp0 === 90);
+  check("only the chosen opponent's gold is paid", st.character.gold - gold0 === 20);
+
+  // Red Dragon: with help, Captain needs your killing blow.
+  st = fresh();
+  startCombat(st, 'red-dragon', { champion: 1 });
+  st.combat.allies[0].hp = 9999;
+  st.combat.enemies[0].hp = 1;
+  st.combat.paralyzed = 3; // you can't act, so the Champion lands the blow
+  setRng(() => 0.99);
+  const dr = playRound(st, { type: 'fight' });
+  check('a mercenary killing blow does not make you Captain', dr.some(e => e.t === 'captainDenied') && !st.flags.captain);
+  setRng(seeded(13));
+
+  // Breath hits the whole party.
+  st = fresh();
+  startCombat(st, 'black-dragon', { sellsword: 2 });
+  st.combat.allies.forEach(a => { a.hp = 9999; a.maxHp = 9999; });
+  setRng(() => 0); // breath chance passes, saves fail
+  st.combat.paralyzed = 1;
+  const br = playRound(st, { type: 'fight' }).find(e => e.t === 'breath');
+  check('breath hits you and every mercenary', br && br.hits.length === 3);
+  setRng(seeded(14));
+
+  // Fights saved mid-round in version 2 still load.
+  const v2 = newGameState(createCharacter('Mid', { str: 12, int: 10, wis: 10, dex: 12, con: 12, cha: 10 }));
+  v2.version = 2;
+  v2.combat = { monsterId: 'troll', hp: 20, maxHp: 50, round: 3, paralyzed: 0, breathLeft: 0, regenBlocked: true, over: false, result: null, log: [] };
+  localStorage.setItem('dimholt.save.migtest2', JSON.stringify({ format: 'dimholt-save', version: 2, state: v2 }));
+  const up = readSlot('migtest2');
+  deleteSlot('migtest2');
+  const uc = up?.state.combat;
+  check('version 2 fight migrates', uc && uc.enemies.length === 1 && uc.enemies[0].hp === 20 && uc.enemies[0].regenBlocked && uc.enemies[0].name === 'Troll' && uc.allies.length === 0);
   setRng(seeded(42));
 }
 
@@ -172,7 +284,7 @@ check('rat fight ends', cs.combat.over);
 startCombat(cs, 'gargoyle');
 cs.character.hp = 999;
 let landed = false;
-for (let i = 0; i < 20; i++) landed ||= playRound(cs, { type: 'fight' }).some(e => e.t === 'attack' && e.who === 'player' && e.hit);
+for (let i = 0; i < 20; i++) landed ||= playRound(cs, { type: 'fight' }).some(e => e.t === 'attack' && e.by === 'player' && e.hit);
 check('non-magic weapon cannot hit gargoyle', !landed);
 cs.character.gold = 5000; buyItem(cs.character, 'wand-magic-missiles');
 const ev = playRound(cs, { type: 'use', index: cs.character.items.length - 1 });
@@ -194,8 +306,8 @@ const GEAR = [
 ].map(([id, ...rest]) => [MONSTERS.findIndex(m => m.id === id), ...rest]);
 const gearFor = i => GEAR.filter(([k]) => k <= i).pop();
 
-function winRate(mi, level, trials = 300) {
-  let wins = 0;
+function simulate(mi, level, crew = {}, trials = 300) {
+  let wins = 0, summoned = 0, xp = 0;
   const [, w, a, ring] = gearFor(mi);
   for (let t = 0; t < trials; t++) {
     const s = newGameState(createCharacter('Sim', stats));
@@ -204,13 +316,16 @@ function winRate(mi, level, trials = 300) {
     buyWeapon(ch, w); buyArmor(ch, a); if (ring) buyItem(ch, ring);
     if (level > 1) gainXp(ch, XP_FOR_LEVEL[level]);
     ch.hp = maxHp(ch);
-    startCombat(s, MONSTERS[mi].id);
+    const xpBefore = ch.xp;
+    startCombat(s, MONSTERS[mi].id, crew);
     let n = 0;
     while (!s.combat.over && n++ < 300) playRound(s, { type: 'fight' });
-    if (s.combat.result === 'victory') wins++;
+    if (s.combat.result === 'victory') { wins++; xp += ch.xp - xpBefore; }
+    summoned += s.combat.enemies.length - 1;
   }
-  return wins / trials;
+  return { win: wins / trials, summoned: summoned / trials, xp: wins ? Math.round(xp / wins) : 0 };
 }
+const winRate = (mi, level) => simulate(mi, level).win;
 
 const rows = MONSTERS.map((m, i) => {
   const cells = [];
@@ -225,6 +340,24 @@ const rows = MONSTERS.map((m, i) => {
 }).join('');
 document.getElementById('sim').innerHTML =
   `<table id="balance"><thead><tr><th>Opponent</th><th>Level for 50%</th><th>Level for 80%</th><th>Gear assumed</th></tr></thead><tbody>${rows}</tbody></table>`;
+
+// ---- Hiring simulation ----
+// Two levels below each opponent's solo 50% level, with no crew, then with 1
+// and 2 mercenaries of a tier suited to that part of the list.
+const TIER_FOR = i => (i < 5 ? 'militia' : i < 9 ? 'sellsword' : i < 15 ? 'veteran' : i < 20 ? 'knight' : 'champion');
+const firstFifty = [...document.querySelectorAll('#balance tbody tr')].map(tr => Number(tr.cells[1].textContent) || 16);
+const hireRows = MONSTERS.map((m, i) => {
+  const level = Math.max(1, firstFifty[i] - 2);
+  const tier = TIER_FOR(i);
+  const solo = simulate(i, level, {}, 200);
+  const one = simulate(i, level, { [tier]: 1 }, 200);
+  const two = simulate(i, level, { [tier]: 2 }, 200);
+  const pct = x => `${Math.round(x.win * 100)}%`;
+  return `<tr><td>${m.name}</td><td>${level}</td><td>${tier}</td><td>${pct(solo)}</td><td>${pct(one)} (${one.summoned.toFixed(1)})</td><td>${pct(two)} (${two.summoned.toFixed(1)})</td><td>${solo.xp} / ${one.xp} / ${two.xp}</td></tr>`;
+}).join('');
+document.getElementById('sim').insertAdjacentHTML('beforeend',
+  `<h2>Hiring help</h2><p>Win rate two levels below the solo 50% level. In brackets: average summoned helpers per fight. Last column: XP you earn per win (solo / 1 merc / 2 mercs).</p>
+   <table id="hiring"><thead><tr><th>Opponent</th><th>Level</th><th>Tier</th><th>Solo</th><th>+1 merc</th><th>+2 mercs</th><th>Your XP per win</th></tr></thead><tbody>${hireRows}</tbody></table>`);
 document.body.dataset.done = 'yes';
 </script>
 </body>
