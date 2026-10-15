@@ -246,4 +246,8 @@ td.act button.step + button.step { margin-left: 4px; }
 .guide-table th, .guide-table td { padding: 4px 8px; }
 .guide-table.compact-rows td { padding-top: 2px; padding-bottom: 2px; }
 .guide-table td:first-child, .nowrap { white-space: nowrap; }
+.guide-table thead th.num { white-space: normal; }
+.thac0-table thead th.num { max-width: 7.5em; }
+.thac0-table td:first-child { white-space: normal; min-width: 9em; }
+.thac0-table td:last-child { min-width: 13em; }
 code, kbd { font-family: ui-monospace, Consolas, monospace; font-size: 0.88em; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }

@@ -38,7 +38,7 @@ frame.addEventListener('load', async () => {
     log(screen() === 'title', 'title screen shows');
     log(!navLink(), 'no town link on the title screen');
     await click('[data-action="go"][data-to="guide"]');
-    log(screen() === 'guide' && d.querySelectorAll('.guide-table')[2].tBodies[0].rows.length === 24, 'guide opens from the title and lists all 24 monsters');
+    log(screen() === 'guide' && q('.monster-table').tBodies[0].rows.length === 24, 'guide opens from the title and lists all 24 monsters');
     await click('[data-action="jump"][data-id="g-monsters"]');
     await click('[data-action="go"][data-to="title"]');
     log(screen() === 'title', 'guide returns to the title');

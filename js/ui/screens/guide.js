@@ -1,8 +1,8 @@
 // The player's guide. Every number in the tables is read from the game's
 // data and rule files, so the guide stays correct when balance changes.
 
-import { MONSTERS } from '../../data/monsters.js';
-import { WEAPONS, ARMOR, ITEMS } from '../../data/equipment.js';
+import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
+import { WEAPONS, WEAPON_BY_ID, ARMOR, ITEMS } from '../../data/equipment.js';
 import {
   STATS, strBonus, dexAc, conHp, XP_FOR_LEVEL, MAX_LEVEL, FIRST_LEVEL_HP, HIT_DIE, HP_AFTER_NINE,
   thac0, attacksLabel, saveTarget, STARTING_GOLD, INN_PRICE, MAX_WEAPONS, MAX_ITEMS,
@@ -10,7 +10,7 @@ import {
 } from '../../rules/tables.js';
 import { earnsStatPoint } from '../../rules/stats.js';
 import { rangeText, span } from '../../engine/dice.js';
-import { button, esc, gp, signed } from '../format.js';
+import { button, esc, gp, signed, d20Chance } from '../format.js';
 import { specialText } from './arena.js';
 import { poisonTotal } from '../../rules/poison.js';
 
@@ -85,7 +85,7 @@ function monsterTable() {
     ]);
   });
   return table(['Opponent', num('AC'), 'Hit points', num('THAC0'), num('Speed'), 'Attacks per round',
-    'Weapon needed', 'Special', num('XP'), num('Award'), num('Fine')], rows);
+    'Weapon needed', 'Special', num('XP'), num('Award'), num('Fine')], rows, 'monster-table');
 }
 
 function poisonTable() {
@@ -98,6 +98,40 @@ function poisonTable() {
     }
   }
   return table(['Monster', 'Poisoned attack', num('Strength'), 'Damage each round', num('Total')], rows);
+}
+
+// Worked THAC0 examples, computed from the real rules so they stay correct.
+function thac0Examples() {
+  const you = (level, str, weaponId, monsterId, note) => {
+    const w = WEAPON_BY_ID[weaponId];
+    const m = MONSTER_BY_ID[monsterId];
+    const bonus = strBonus(str).hit + w.plus;
+    return { who: `You: level ${level}, Strength ${str}, ${w.name}`, target: m.name,
+      t0: thac0(level), ac: m.ac, bonus, note };
+  };
+  const them = (monsterId, yourAc, note) => {
+    const m = MONSTER_BY_ID[monsterId];
+    return { who: m.name, target: 'You', t0: m.thac0, ac: yourAc, bonus: 0, note };
+  };
+  const rows = [
+    you(1, 12, 'long-sword', 'giant-rat', "A typical first fight. No bonuses, so it's just THAC0 minus AC."),
+    you(5, 17, 'long-sword-1', 'gargoyle', 'Strength 17 adds 1 and the +1 sword adds 1 more.'),
+    you(8, 18, 'long-sword-2', 'quickling', 'A negative AC makes you need more: subtracting −3 adds 3.'),
+    you(1, 12, 'long-sword', 'quickling', 'Above 20, only a natural 20 hits.'),
+    them('hill-giant', 2, 'Monsters use the same formula against your AC.'),
+    them('hill-giant', -2, 'Four points of better armor cut its chance by 20%.'),
+    them('red-dragon', 6, 'Needs 1 or less: everything but a natural 1 hits.'),
+  ].map(x => {
+    const need = x.t0 - x.ac - x.bonus;
+    const paren = v => (v < 0 ? `(${String(v).replace('-', '−')})` : `${v}`);
+    const math = `${x.t0} − ${paren(x.ac)} − ${x.bonus} = <strong>${String(need).replace('-', '−')}</strong>`;
+    return tr([
+      esc(x.who), esc(x.target), n(x.t0), n(String(x.ac).replace('-', '−')), n(x.bonus ? signed(x.bonus) : '0'),
+      n(math), n(`${d20Chance(need)}%`), `<span class="muted small">${esc(x.note)}</span>`,
+    ]);
+  });
+  return table(['Attacker', 'Target', num("Attacker's THAC0"), num("Target's AC"), num("Attacker's Bonuses"),
+    num("Attacker's Roll Needed"), num('Chance'), 'Why'], rows, 'thac0-table');
 }
 
 function weaponTable() {
@@ -179,7 +213,11 @@ export function render(ctx) {
           The monster rolls 1d10 plus its speed. The lower total acts first, and ties go to you.</li>
         <li><strong>To hit.</strong> The attacker rolls 1d20 and needs at least: <code>THAC0 − target's AC − bonuses</code>.
           Your bonuses are Strength's to-hit bonus plus your weapon's magic bonus. A natural 20 always hits and a natural 1 always misses.
-          The Battlerings screen shows your chance to hit each opponent and its chance to hit you.</li>
+          The Battlerings screen shows your chance to hit each opponent and its chance to hit you.
+          <p>THAC0 means "To Hit Armor Class 0": the d20 roll you need to hit a target with AC 0. Every point of AC above 0
+            makes the target easier to hit, and every point below 0 makes it harder. Lower THAC0 is better, and yours
+            drops by 1 each level. Each point of the roll you need is worth 5% chance.</p>
+          ${thac0Examples()}</li>
         <li><strong>Damage.</strong> Your damage is the weapon's dice plus Strength's damage bonus plus the weapon's magic bonus, at least 1.</li>
         <li>After every blow, check whether anyone has fallen. Then the other side acts.</li>
       </ol>
