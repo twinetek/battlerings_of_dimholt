@@ -34,6 +34,9 @@ export function createCharacter(name, stats) {
     armor: null,               // armor id
     items: [],                 // { id, charges? }
     wins: {},                  // monster id -> times beaten
+    poison: 0,                 // poison strength; see poison.js
+    poisonSource: null,        // monster id of the latest dose
+    poisonRecord: {},          // monster id -> { poisoned, resisted, damage }
     dead: false,
   };
   c.hp = maxHp(c);

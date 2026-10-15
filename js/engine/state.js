@@ -1,7 +1,7 @@
 // The whole game is one plain JSON object. Saving is JSON.stringify,
 // loading is JSON.parse plus migrations (see save.js).
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 export function newGameState(character) {
   return {

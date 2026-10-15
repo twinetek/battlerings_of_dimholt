@@ -11,6 +11,7 @@
 // magicReq weapon bonus needed to land a blow (0 = any weapon)
 // immune   damage types that do nothing (fire, lightning, acid)
 // special  paralyze | drain | regen: n | heads: n
+// poison   on an attack: the poison strength it inflicts (see rules/poison.js)
 // breath   { name, type, uses, chance } (damage is half the dragon's current hp)
 // art      placeholder portrait until real sprites exist (see DESIGN.md)
 
@@ -21,6 +22,9 @@ export const MONSTERS = [
   { id: 'kobold', name: 'Kobold', art: '🦎', hp: '1d4+1', ac: 7, thac0: 20, speed: 5,
     attacks: [{ name: 'spear', dmg: '1d6' }], xp: 90, gold: 20,
     desc: 'A small, scaly, yapping humanoid with a sharpened spear.' },
+  { id: 'giant-centipede', name: 'Giant Centipede', art: '🐛', hp: '1d6', ac: 9, thac0: 20, speed: 3,
+    attacks: [{ name: 'bite', dmg: '1d2', poison: 2 }], xp: 100, gold: 22,
+    desc: 'A yard of chittering legs. Its bite is weak, but the venom stings.' },
   { id: 'goblin', name: 'Goblin', art: '👺', hp: '1d8', ac: 6, thac0: 20, speed: 5,
     attacks: [{ name: 'short sword', dmg: '1d6' }], xp: 110, gold: 25,
     desc: 'Cruel and cowardly, but quick with a blade.' },
@@ -43,6 +47,9 @@ export const MONSTERS = [
     attacks: [{ name: 'claw', dmg: '1d3' }, { name: 'claw', dmg: '1d3' }, { name: 'bite', dmg: '1d6' }, { name: 'horn', dmg: '1d4' }],
     xp: 400, gold: 180,
     desc: 'Living stone. Ordinary steel glances off its hide.' },
+  { id: 'giant-spider', name: 'Giant Spider', art: '🕷️', hp: '4d8+4', ac: 4, thac0: 15, speed: 4,
+    attacks: [{ name: 'bite', dmg: '2d4', poison: 4 }], xp: 450, gold: 250,
+    desc: 'Patient, hairy, and venomous. Bring an antidote.' },
   { id: 'ghoul', name: 'Ghoul', art: '🧟', hp: '3d8', ac: 6, thac0: 16, speed: 4, special: { paralyze: true },
     attacks: [{ name: 'claw', dmg: '1d3' }, { name: 'claw', dmg: '1d3' }, { name: 'bite', dmg: '1d6' }],
     xp: 500, gold: 400,
@@ -57,6 +64,10 @@ export const MONSTERS = [
   { id: 'hydra', name: 'Hydra', art: '🐍', hpFixed: 48, ac: 5, thac0: 13, speed: 6, special: { heads: 6 },
     attacks: [{ name: 'head', dmg: '1d6' }], xp: 800, gold: 700,
     desc: 'Six snapping heads. Each wound you deal silences another one.' },
+  { id: 'giant-scorpion', name: 'Giant Scorpion', art: '🦂', hp: '5d8+5', ac: 3, thac0: 13, speed: 5,
+    attacks: [{ name: 'claw', dmg: '1d10' }, { name: 'claw', dmg: '1d10' }, { name: 'sting', dmg: '1d4', poison: 5 }],
+    xp: 1000, gold: 750,
+    desc: 'Two crushing claws, and a stinger that keeps hurting long after it lands.' },
   { id: 'hill-giant', name: 'Hill Giant', art: '🪨', hp: '8d8+2', ac: 4, thac0: 12, speed: 7,
     attacks: [{ name: 'club', dmg: '2d8' }], xp: 1200, gold: 800,
     desc: 'Dim, slow, and enormous. One swing can flatten a novice.' },
@@ -73,6 +84,9 @@ export const MONSTERS = [
     attacks: [{ name: 'claw', dmg: '1d4+4' }, { name: 'claw', dmg: '1d4+4' }, { name: 'bite', dmg: '2d6' }],
     xp: 1800, gold: 1500,
     desc: 'Regenerates 3 hit points a round. Fire stops it from healing.' },
+  { id: 'wyvern', name: 'Wyvern', art: '🪽', hp: '7d8+7', ac: 3, thac0: 12, speed: 4,
+    attacks: [{ name: 'bite', dmg: '2d8' }, { name: 'tail sting', dmg: '1d6', poison: 7 }], xp: 2400, gold: 1800,
+    desc: "A dragon's lesser cousin with a deadly poisoned tail." },
   { id: 'black-dragon', name: 'Black Dragon', art: '🐉', hp: '10d8', ac: 2, thac0: 10, speed: 4, immune: ['acid'],
     breath: { name: 'acid', type: 'acid', uses: 3, chance: 0.33 },
     attacks: [{ name: 'claw', dmg: '1d6' }, { name: 'claw', dmg: '1d6' }, { name: 'bite', dmg: '3d6' }],

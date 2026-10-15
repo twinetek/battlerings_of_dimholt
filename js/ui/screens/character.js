@@ -1,7 +1,7 @@
 // The equipment dialog: stats, combat numbers, gear, and items.
 
 import { WEAPON_BY_ID, ITEM_BY_ID } from '../../data/equipment.js';
-import { MONSTERS } from '../../data/monsters.js';
+import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
 import { STATS, strBonus, dexAc, conHp, thac0, attacksLabel } from '../../rules/tables.js';
 import { weaponOf, armorOf, armorClass, ringBonus, maxHp, toHitBonus, damageBonus } from '../../rules/character.js';
 import { equipWeapon, useItemInTown } from '../../rules/town.js';
@@ -52,6 +52,16 @@ export function render(ctx) {
     : '<li class="muted">No training or Tomes yet.</li>';
   const points = c.statPoints.length;
 
+  const poisonRows = Object.entries(c.poisonRecord).map(([id, r]) => ({ m: MONSTER_BY_ID[id], ...r }));
+  const totals = poisonRows.reduce((t, r) => ({ poisoned: t.poisoned + r.poisoned, resisted: t.resisted + r.resisted, damage: t.damage + r.damage }), { poisoned: 0, resisted: 0, damage: 0 });
+  const poisonHistory = poisonRows.length
+    ? `<div class="table-wrap"><table>
+        <thead><tr><th>Source</th><th class="num">Poisoned</th><th class="num">Resisted</th><th class="num">Damage</th></tr></thead>
+        <tbody>${poisonRows.map(r => `<tr><td>${r.m.art} ${esc(r.m.name)}</td><td class="num">${r.poisoned}</td><td class="num">${r.resisted}</td><td class="num">${r.damage}</td></tr>`).join('')}
+        <tr class="total"><th>Total</th><td class="num">${totals.poisoned}</td><td class="num">${totals.resisted}</td><td class="num">${totals.damage}</td></tr></tbody>
+      </table></div>`
+    : '<p class="muted">Never poisoned.</p>';
+
   const wins = MONSTERS.filter(m => c.wins[m.id])
     .map(m => `<li><span>${m.art} ${esc(m.name)}</span><span class="num">${c.wins[m.id]}</span></li>`).join('')
     || '<li class="muted">No victories yet.</li>';
@@ -85,6 +95,9 @@ export function render(ctx) {
         <div class="panel"><h3>Magic items</h3><ul class="list">${items}</ul></div>
         <div class="panel"><h3>Arena record</h3><ul class="list">${wins}</ul></div>
         <div class="panel"><h3>Stat history</h3><ul class="list">${history}</ul></div>
+        <div class="panel"><h3>Poison history</h3>
+          ${c.poison > 0 ? `<p class="warn-text small">☠ Poisoned right now (strength ${c.poison}).</p>` : ''}
+          ${poisonHistory}</div>
       </div>
       <div class="row">${backToTown()}</div>
     </section>`;

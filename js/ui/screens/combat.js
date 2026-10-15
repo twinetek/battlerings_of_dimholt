@@ -12,6 +12,13 @@ import { button, esc, bar, gp } from '../format.js';
 import { itemLabel } from './shops.js';
 
 const presenter = new TextPresenter();
+
+// Warn before starting a fight while poison lingers.
+export function confirmPoisoned(c) {
+  return c.poison <= 0 || window.confirm(
+    `You are still poisoned (strength ${c.poison}). It will keep hurting you every round of the next fight. `
+    + 'A Potion of Neutralize Poison or a night at the inn cures it.\n\nFight anyway?');
+}
 let busy = false;
 
 const DELAYS = { instant: 0, fast: 60, normal: 160 };
@@ -80,6 +87,7 @@ export function render(ctx, params) {
             <div><dt>${esc(w.name)}</dt><dd>${rangeText(w.dmg, damageBonus(c))}</dd></div>
           </dl>
           ${cb.paralyzed > 0 ? '<p class="tag bad">Paralyzed</p>' : ''}
+          ${c.poison > 0 ? `<p class="tag bad">☠ Poisoned ${c.poison}</p>` : ''}
         </div>
         <div class="versus" aria-hidden="true">vs</div>
         <div class="fighter monster">
@@ -164,6 +172,7 @@ export const actions = {
   },
   again(ctx) {
     const id = ctx.state.combat.monsterId;
+    if (!confirmPoisoned(ctx.state.character)) return;
     ctx.mutate(s => startCombat(s, id));
     ctx.go('combat');
   },
@@ -183,7 +192,11 @@ export function mount(ctx, root) {
   if (logEl) logEl.scrollTop = logEl.scrollHeight;
   if (!ctx.state.combat?.log.length) {
     // First render of a new fight: log the opening line.
-    ctx.mutate(s => { s.combat.log.push(...describeAll([{ t: 'start' }], { monster: MONSTER_BY_ID[s.combat.monsterId].name })); });
+    ctx.mutate(s => {
+      const opening = [{ t: 'start' }];
+      if (s.character.poison > 0) opening.push({ t: 'poisonCarried', strength: s.character.poison });
+      s.combat.log.push(...describeAll(opening, { monster: MONSTER_BY_ID[s.combat.monsterId].name }));
+    });
     logEl?.insertAdjacentHTML('beforeend', logHtml(ctx.state.combat.log));
   }
 }

@@ -29,6 +29,33 @@ A new fan-created game that builds on *Darkwood* (1992), the Macintosh shareware
 - **Re-earning:** a drained level gives its point back when you reach it again.
 - **Visible history:** revoked raises stay in the history list on the Equipment screen, crossed out.
 
+### Poison
+
+Four venomous monsters, adapted from D&D, are slotted into the difficulty order:
+
+| Monster | Placed after | Poisoned attack | Strength | XP | Award |
+|---|---|---|---:|---:|---:|
+| Giant Centipede | Kobold | bite | 2 | 100 | 22 |
+| Giant Spider | Gargoyle | bite | 4 | 450 | 250 |
+| Giant Scorpion | Hydra | sting (its claws aren't poisoned) | 5 | 1,000 | 750 |
+| Wyvern | Troll | tail sting | 7 | 2,400 | 1,800 |
+
+Rules (`rules/poison.js`):
+
+- **Saving throw.** When a poisoned attack hits, the fighter rolls a saving throw against poison (the paralysis table). A success blocks the poison, but the attack's damage still lands.
+- **Strength.** A failed save sets `character.poison` to the attack's strength.
+  - At the end of each round the character takes that much damage, then the strength drops by 1. Total damage is S(S+1)/2.
+  - Poison can kill; the death screen and log say so (`combat.cause = 'poison'`).
+- **Stacking.** A new dose while already poisoned sets the strength to the higher of the two, plus 1.
+- **After a fight.** On a win or surrender, the remaining poison is applied at once.
+  - It can't take the character below 1 hp. Anything that would is left in `character.poison` and **lingers** into the next fight.
+  - The status bar shows "Poisoned N".
+  - The Battlerings screen warns, and starting a fight while poisoned asks for confirmation.
+- **Cures.** The Potion of Neutralize Poison (150 gp) works in town or in a fight. One night at the inn also cures it.
+- **History.** `character.poisonRecord[monsterId] = { poisoned, resisted, damage }` is shown as "Poison history" on the Equipment screen.
+
+Poison lives on the character, not the fight, so it carries between fights. The save format is now version 2, and its migration adds the poison fields to older saves.
+
 ### Player guide
 
 The in-game **Guide** (`js/ui/screens/guide.js`) explains the goal, character creation, what each stat does, leveling, stat points and Tomes, combat math, every monster, special abilities, gear, the inn, saving, and keyboard shortcuts. You can open it from the title screen, the town map, the Battlerings screen, or with the <kbd>G</kbd> key in town.

@@ -38,7 +38,7 @@ frame.addEventListener('load', async () => {
     log(screen() === 'title', 'title screen shows');
     log(!navLink(), 'no town link on the title screen');
     await click('[data-action="go"][data-to="guide"]');
-    log(screen() === 'guide' && d.querySelectorAll('.guide-table')[2].tBodies[0].rows.length === 20, 'guide opens from the title and lists all 20 monsters');
+    log(screen() === 'guide' && d.querySelectorAll('.guide-table')[2].tBodies[0].rows.length === 24, 'guide opens from the title and lists all 24 monsters');
     await click('[data-action="jump"][data-id="g-monsters"]');
     await click('[data-action="go"][data-to="title"]');
     log(screen() === 'title', 'guide returns to the title');
@@ -127,6 +127,28 @@ frame.addEventListener('load', async () => {
       log(d.querySelectorAll('.list li').length > 0 && q('#screen').textContent.includes('Level 2 point'), 'stat history lists the raises');
       await click('#nav [data-to="town"]');
       log(screen() === 'town' && !navLink(), 'top bar link returns to town');
+
+      // Lingering poison: warning on the Battlerings screen, a confirm before fighting, and the opening log line.
+      const pSave = JSON.parse(w.localStorage.getItem('dimholt.save.auto'));
+      pSave.state.character.poison = 3;
+      pSave.state.character.poisonSource = 'giant-spider';
+      pSave.state.character.poisonRecord = { 'giant-spider': { poisoned: 2, resisted: 1, damage: 9 } };
+      w.localStorage.setItem('dimholt.save.3', JSON.stringify(pSave));
+      await click('[data-to="saves"]');
+      await click('[data-action="load"][data-slot="3"]');
+      log(q('#status').textContent.includes('Poisoned 3'), 'status bar shows lingering poison');
+      await click('[data-to="character"]');
+      log(q('#screen').textContent.includes('Poison history') && q('#screen').textContent.includes('Giant Spider'), 'poison history lists the spider');
+      await click('#nav [data-to="town"]');
+      await click('[data-to="arena"]');
+      log(q('#screen').textContent.includes('still poisoned'), 'Battlerings screen warns about lingering poison');
+      let asked = '';
+      w.confirm = msg => { asked = msg; return false; };
+      await click('[data-action="fight"]');
+      log(asked.includes('still poisoned') && screen() === 'arena', 'declining the poison warning stays out of the fight');
+      w.confirm = () => true;
+      await click('[data-action="fight"]');
+      log(screen() === 'combat' && q('#combat-log').textContent.includes('still burns'), 'fight opens with the lingering poison line');
     } else {
       await click('[data-action="leave"]');
       log(screen() === 'dead', 'death screen shows');

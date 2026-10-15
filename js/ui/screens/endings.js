@@ -6,12 +6,16 @@ export const dead = {
     const s = ctx.state;
     const c = s.character;
     const name = s.combat ? MONSTER_BY_ID[s.combat.monsterId].name : null;
-    const killer = name ? `${/^[AEIOU]/.test(name) ? 'an' : 'a'} ${name}` : 'the arena';
+    const article = n => `${/^[AEIOU]/.test(n) ? 'an' : 'a'} ${n}`;
+    const killer = name ? article(name) : 'the arena';
+    const poisoner = c.poisonSource ? article(MONSTER_BY_ID[c.poisonSource].name) : null;
     return `
       <section class="panel narrow center">
         <div class="portrait big" aria-hidden="true">🪦</div>
         <h2>Here lies ${esc(c.name)}</h2>
-        <p>Level ${c.level} gladiator, slain by ${esc(killer)} on day ${s.day}.</p>
+        <p>Level ${c.level} gladiator, ${s.combat?.cause === 'poison'
+          ? `who succumbed to poison${poisoner ? ` from ${esc(poisoner)}` : ''}`
+          : s.combat?.cause === 'drain' ? `drained of life by ${esc(killer)}` : `slain by ${esc(killer)}`} on day ${s.day}.</p>
         <p class="muted">The crowd has already forgotten. Perhaps a saved game remembers you.</p>
         <div class="row center">
           ${button('Load a saved game', 'go', { to: 'saves' }, { cls: 'primary' })}

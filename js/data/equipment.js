@@ -50,6 +50,7 @@ export const ITEMS = [
   { id: 'potion-extra-healing',    name: 'Potion of Extra Healing',    cost: 200,  kind: 'potion', use: 'any',    heal: '4d6',  effect: 'Heals 4-24 hit points' },
   // The original listed this one as "Potion of Extra Healing" too.
   { id: 'potion-superior-healing', name: 'Potion of Superior Healing', cost: 1000, kind: 'potion', use: 'any',    heal: '8d10', effect: 'Heals 8-80 hit points' },
+  { id: 'potion-neutralize-poison', name: 'Potion of Neutralize Poison', cost: 150, kind: 'potion', use: 'any', cure: 'poison', effect: 'Cures poison' },
   { id: 'potion-fiery-breath',     name: 'Potion of Fiery Breath',     cost: 200,  kind: 'potion', use: 'combat', damage: '4d6', dtype: 'fire',
     verb: 'You breathe a gout of flame at', effect: 'Breathe fire for 4-24 damage' },
   { id: 'ring-protection-1', name: 'Ring of Protection +1', cost: 800,  kind: 'ring', use: 'passive', ac: 1, effect: 'Improves armor class by 1' },

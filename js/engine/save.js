@@ -13,7 +13,14 @@ export const SLOTS = ['auto', '1', '2', '3'];
 // MIGRATIONS[n] upgrades a version-n state to version n+1. When the state
 // shape changes, bump SAVE_VERSION and add a step here so old saves load.
 const MIGRATIONS = {
-  // 1: state => { state.newField = default; return state; },
+  // Version 2 added poison.
+  1: state => {
+    const c = state.character;
+    c.poison ??= 0;
+    c.poisonSource ??= null;
+    c.poisonRecord ??= {};
+    return state;
+  },
 };
 
 function migrate(state) {

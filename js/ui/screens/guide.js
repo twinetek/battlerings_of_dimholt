@@ -12,6 +12,7 @@ import { earnsStatPoint } from '../../rules/stats.js';
 import { rangeText, span } from '../../engine/dice.js';
 import { button, esc, gp, signed } from '../format.js';
 import { specialText } from './arena.js';
+import { poisonTotal } from '../../rules/poison.js';
 
 const SECTIONS = [
   ['g-goal', 'The goal'],
@@ -22,6 +23,7 @@ const SECTIONS = [
   ['g-combat', 'How combat works'],
   ['g-monsters', 'Monsters'],
   ['g-specials', 'Special abilities'],
+  ['g-poison', 'Poison'],
   ['g-weapons', 'Weapons'],
   ['g-armor', 'Armor'],
   ['g-magic', 'Magic items'],
@@ -65,7 +67,7 @@ function levelTable() {
     ]));
   }
   return table(['Level', num('XP needed'), 'Hit points gained', num('THAC0'), num('Attacks'),
-    num('Save: paralysis'), num('Save: breath'), 'Stat point'], rows, 'compact-rows');
+    num('Save: paralysis & poison'), num('Save: breath'), 'Stat point'], rows, 'compact-rows');
 }
 
 function monsterTable() {
@@ -84,6 +86,18 @@ function monsterTable() {
   });
   return table(['Opponent', num('AC'), 'Hit points', num('THAC0'), num('Speed'), 'Attacks per round',
     'Weapon needed', 'Special', num('XP'), num('Award'), num('Fine')], rows);
+}
+
+function poisonTable() {
+  const rows = [];
+  for (const m of MONSTERS) {
+    for (const a of m.attacks.filter(x => x.poison)) {
+      const s = a.poison;
+      const ticks = Array.from({ length: s }, (_, i) => s - i).join(' + ');
+      rows.push(tr([`<span aria-hidden="true">${m.art}</span> ${esc(m.name)}`, esc(a.name), n(s), `${ticks}`, n(poisonTotal(s))]));
+    }
+  }
+  return table(['Monster', 'Poisoned attack', num('Strength'), 'Damage each round', num('Total')], rows);
 }
 
 function weaponTable() {
@@ -196,7 +210,31 @@ export function render(ctx) {
           The breath deals half the dragon's current hit points, so wounding it weakens the breath. A successful saving throw halves the damage again.</li>
         <li><strong>Immunities</strong>: Fire Giants and Red Dragons ignore fire, Storm Giants ignore lightning, and Black Dragons ignore acid.</li>
         <li><strong>Speed</strong> (Quickling): it almost always strikes first, and its AC of −3 makes it very hard to hit.</li>
+        <li><strong>Poison</strong> (Giant Centipede, Giant Spider, Giant Scorpion, Wyvern): see the next section.</li>
       </ul>
+
+      <h3 id="g-poison">Poison</h3>
+      <p>Some attacks are venomous. Poison keeps hurting you after the blow lands, and it can outlast the fight.</p>
+      <ul>
+        <li><strong>Saving throw.</strong> Each time a poisoned attack hits you, you roll a saving throw against poison
+          (the same number as against paralysis; see the level table). Succeed and you shrug off the venom, though the
+          attack's normal damage still lands. Higher levels resist more often.</li>
+        <li><strong>Strength.</strong> Fail and you are <strong>Poisoned</strong> with that attack's strength. At the end of
+          every round you take damage equal to the strength, then it drops by 1. Strength 4 deals 4, 3, 2, then 1: 10 in all.</li>
+        <li><strong>Stacking.</strong> Poisoned again while already poisoned? Your strength becomes the higher of the two, plus 1.
+          Repeated stings get worse, but they don't simply add up.</li>
+        <li><strong>After the fight.</strong> When you win or surrender, any poison left is applied all at once as you leave.
+          It can't drop you below 1 hit point after a fight. If it would, you stop at 1 and the rest of the poison
+          <strong>lingers</strong> into your next fight, where it starts burning again from the first round.</li>
+        <li><strong>Warning.</strong> The status bar shows <span class="tag bad">☠ Poisoned</span> while poison lingers, and the
+          game asks you to confirm before you start a fight while poisoned.</li>
+        <li><strong>Cures.</strong> A Potion of Neutralize Poison (${gp(ITEMS.find(i => i.cure).cost)}, Magic Shop) works in town or
+          in a fight (it uses your turn). One night at the inn also cures it. Healing potions don't.</li>
+        <li><strong>Death.</strong> Poison can kill you during a fight. The log will say "You succumb to the poison."</li>
+        <li><strong>History.</strong> The Equipment screen keeps a poison record: how often each monster poisoned you,
+          how often you resisted, and how much damage its poison did.</li>
+      </ul>
+      ${poisonTable()}
 
       <h3 id="g-weapons">Weapons</h3>
       <p>You can carry up to ${MAX_WEAPONS} weapons and switch between them at the Equipment screen. Damage includes the
@@ -216,7 +254,7 @@ export function render(ctx) {
 
       <h3 id="g-town">Town, healing, and saving</h3>
       <ul>
-        <li><strong>The Griffin Inn</strong>: each night costs ${gp(INN_PRICE)} and heals 1 hit point. "Stay until healed" sleeps as many nights as you need, or as many as you can afford.</li>
+        <li><strong>The Griffin Inn</strong>: each night costs ${gp(INN_PRICE)}, heals 1 hit point, and cures poison. "Stay until healed" sleeps as many nights as you need, or as many as you can afford.</li>
         <li><strong>Healing potions</strong> heal faster and work in the arena too, but cost more.</li>
         <li><strong>Saving</strong>: the game autosaves in your browser after every action. Save / Load has 3 extra slots,
           and you can export your game to a file as a backup or to move it to another device. Clearing your browser data erases saves that aren't exported.</li>

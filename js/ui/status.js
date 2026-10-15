@@ -11,8 +11,9 @@ export function renderStatus(state) {
   const badge = points && !state.combat && !c.dead
     ? ` <button type="button" class="link points-badge" data-action="go" data-to="training">${points} stat point${points === 1 ? '' : 's'} to spend</button>`
     : '';
+  const poisoned = c.poison > 0 && !c.dead ? ` <span class="tag bad">☠ Poisoned ${c.poison}</span>` : '';
   return `
-    <div class="status-name"><strong>${esc(c.name)}</strong> <span class="muted">${rank}</span>${badge}</div>
+    <div class="status-name"><strong>${esc(c.name)}</strong> <span class="muted">${rank}</span>${poisoned}${badge}</div>
     <dl class="status-grid">
       <div><dt>Level</dt><dd>${c.level}</dd></div>
       <div><dt>XP</dt><dd>${c.xp.toLocaleString()}${next ? `<span class="muted"> / ${next.toLocaleString()}</span>` : ''}</dd></div>

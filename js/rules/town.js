@@ -5,6 +5,7 @@ import { roll } from '../engine/dice.js';
 import { WEAPON_BY_ID, ARMOR_BY_ID, ITEM_BY_ID } from '../data/equipment.js';
 import { MAX_WEAPONS, MAX_ITEMS, TOME_MAX, INN_PRICE, STATS } from './tables.js';
 import { maxHp, heal, armorOf, readTome } from './character.js';
+import { curePoison } from './poison.js';
 
 const ok = msg => ({ ok: true, msg });
 const fail = msg => ({ ok: false, msg });
@@ -106,6 +107,12 @@ export function useItemInTown(c, index) {
   if (!it) return fail('No such item.');
   if (it.use === 'combat') return fail(`The ${it.name} can only be used in the arena.`);
   if (it.use === 'passive') return fail(`The ${it.name} works on its own while you carry it.`);
+  if (it.cure) {
+    if (c.poison <= 0) return fail("You aren't poisoned.");
+    c.items.splice(index, 1);
+    curePoison(c);
+    return ok(`You drink the ${it.name}. The poison is gone.`);
+  }
   if (it.heal) {
     if (c.hp >= maxHp(c)) return fail('You are already at full health.');
     c.items.splice(index, 1);
@@ -122,10 +129,10 @@ export function useItemInTown(c, index) {
   return fail('Nothing happens.');
 }
 
-// ---- The inn: one night heals one hit point ----
+// ---- The inn: one night heals one hit point and cures poison ----
 
 export function innQuote(c) {
-  const missing = maxHp(c) - c.hp;
+  const missing = Math.max(maxHp(c) - c.hp, c.poison > 0 ? 1 : 0); // nights needed
   const affordable = Math.floor(c.gold / INN_PRICE);
   const nights = Math.min(missing, affordable);
   return { missing, nights, cost: nights * INN_PRICE };
@@ -138,8 +145,13 @@ export function stayAtInn(state, nightsWanted) {
   const nights = Math.min(nightsWanted, missing, Math.floor(c.gold / INN_PRICE));
   if (nights <= 0) return fail(`A night costs ${INN_PRICE} gold, and you can't pay.`);
   c.gold -= nights * INN_PRICE;
-  heal(c, nights);
+  const healed = heal(c, nights);
+  const cured = curePoison(c) > 0;
   state.day += nights;
-  const tail = c.hp >= maxHp(c) ? ' You are fully healed.' : '';
-  return ok(`You sleep ${nights} night${nights === 1 ? '' : 's'} for ${nights * INN_PRICE} gold and recover ${nights} hit point${nights === 1 ? '' : 's'}.${tail}`);
+  const parts = [`You sleep ${nights} night${nights === 1 ? '' : 's'} for ${nights * INN_PRICE} gold`];
+  if (healed) parts.push(` and recover ${healed} hit point${healed === 1 ? '' : 's'}`);
+  let msg = parts.join('') + '.';
+  if (cured) msg += ' The poison has left your body.';
+  if (c.hp >= maxHp(c)) msg += ' You are fully healed.';
+  return ok(msg);
 }

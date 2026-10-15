@@ -18,6 +18,7 @@ export function render(ctx) {
       <p class="muted">"A bed's ${INN_PRICE} gold a night, friend. You'll mend a little each night you sleep."</p>
       <p>Hit points: <strong>${c.hp} / ${max}</strong></p>
       ${bar(c.hp, max)}
+      ${c.poison > 0 ? `<p class="warn-text">☠ You are poisoned (strength ${c.poison}). One night's rest will cure it.</p>` : ''}
       <p>${fullText}</p>
       <div class="row">
         ${button(`Stay one night (${gp(INN_PRICE)})`, 'night')}

@@ -65,6 +65,7 @@ export const attacksLabel = level => (level >= 13 ? '2' : level >= 7 ? '3/2' : '
 // Fighter saving throws by level (index 0 = level 1).
 const SAVES = {
   paralysis: [14, 14, 13, 13, 11, 11, 10, 10, 8, 8, 7, 7, 5, 5, 4, 4, 3],
+  poison:    [14, 14, 13, 13, 11, 11, 10, 10, 8, 8, 7, 7, 5, 5, 4, 4, 3], // AD&D shares one table for both
   breath:    [17, 17, 16, 16, 13, 13, 12, 12, 9, 9, 8, 8, 5, 5, 4, 4, 4],
 };
 export function saveTarget(type, level) {

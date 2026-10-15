@@ -51,7 +51,20 @@ export function describe(e, names) {
     case 'victory': return { text: `${Mcap} falls! You earn ${e.xp} experience and ${e.gold} gold.`, cls: 'win' };
     case 'levelUp': return { text: `You have reached level ${e.level}! (+${e.gain} max hit points${e.statPoint ? ', and a stat point to spend at the Training Yard' : ''})`, cls: 'win' };
     case 'captain': return { text: 'The crowd is on its feet. You have bested the mightiest creature the Battlerings could host. Dimholt has a new Captain of the Guard!', cls: 'win' };
-    case 'death': return { text: `You have been slain by ${M}...`, cls: 'bad' };
+    case 'death': return e.cause === 'poison'
+      ? { text: 'You succumb to the poison...', cls: 'bad' }
+      : { text: `You have been slain by ${M}...`, cls: 'bad' };
+    case 'poisoned': return e.stacked
+      ? { text: `More venom! The poison grows stronger (strength ${e.strength}).`, cls: 'bad' }
+      : { text: `You are poisoned! (strength ${e.strength})`, cls: 'bad' };
+    case 'poisonResisted': return { text: `You resist the venom of ${M}'s ${e.attack}.`, cls: 'good' };
+    case 'poisonTick': return { text: `Poison burns you for ${e.dmg} damage.`, cls: 'bad' };
+    case 'poisonEnds': return { text: 'The poison wears off.', cls: 'sys' };
+    case 'poisonCarried': return { text: `The poison in your blood still burns (strength ${e.strength}).`, cls: 'warn' };
+    case 'cured': return { text: e.had ? `You drink the ${e.item}. The poison is gone.` : `You drink the ${e.item}, but you weren't poisoned.`, cls: e.had ? 'good' : 'muted' };
+    case 'sweat': return e.lingering
+      ? { text: `The venom burns on as you leave the ring (-${e.dmg} hp). You're down to 1 hp and the poison lingers (strength ${e.lingering}). Cure it before your next fight!`, cls: 'warn' }
+      : { text: `You sweat out the rest of the venom (-${e.dmg} hp).`, cls: 'warn' };
     case 'surrender': return { text: `You yield. The arena master collects a fine of ${e.fine} gold.`, cls: 'warn' };
     default: return null;
   }

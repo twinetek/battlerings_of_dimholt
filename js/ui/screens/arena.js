@@ -5,6 +5,7 @@ import { weaponOf, armorClass, rollToHit, maxHp } from '../../rules/character.js
 import { startCombat, canHurt } from '../../rules/combat.js';
 import { rangeText } from '../../engine/dice.js';
 import { button, backToTown, esc, gp, d20Chance } from '../format.js';
+import { confirmPoisoned } from './combat.js';
 
 export function specialText(m) {
   const notes = [];
@@ -14,6 +15,7 @@ export function specialText(m) {
   if (m.special.heads) notes.push(`${m.special.heads} heads, one attack each`);
   if (m.breath) notes.push(`Breathes ${m.breath.name}`);
   if (m.immune.length) notes.push(`Immune to ${m.immune.join(', ')}`);
+  for (const a of m.attacks.filter(x => x.poison)) notes.push(`Poison ${a.poison} on its ${a.name}`);
   return notes.join('. ') || 'None';
 }
 
@@ -48,6 +50,7 @@ function details(ctx, m) {
         ? `With your ${esc(w.name)} you hit it about <strong>${youHit}%</strong> of the time. It hits you about <strong>${itHits}%</strong> of the time.`
         : `<span class="warn-text">Your ${esc(w.name)} can't harm it. You need a +${m.magicReq} weapon or offensive magic.</span>`}</p>
       ${lowHp ? '<p class="small warn-text">You are badly hurt. Consider a night at the inn first.</p>' : ''}
+      ${c.poison > 0 ? `<p class="small warn-text">☠ You are still poisoned (strength ${c.poison}). It will keep hurting you every round. Cure it with a Potion of Neutralize Poison or a night at the inn.</p>` : ''}
       <div class="row">${button(`Fight the ${esc(m.name)}`, 'fight', { id: m.id }, { cls: 'primary' })}</div>
     </div>`;
 }
@@ -81,6 +84,7 @@ export function render(ctx, params) {
 export const actions = {
   select: (ctx, d) => ctx.setParams({ id: d.id }),
   fight(ctx, d) {
+    if (!confirmPoisoned(ctx.state.character)) return;
     ctx.mutate(s => {
       s.lastFoe = d.id;
       startCombat(s, d.id);

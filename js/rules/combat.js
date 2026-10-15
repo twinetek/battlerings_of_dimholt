@@ -13,6 +13,7 @@ import { MONSTER_BY_ID } from '../data/monsters.js';
 import { ITEM_BY_ID } from '../data/equipment.js';
 import { attacksThisRound, saveTarget, strBonus, ITEM_SPEED } from './tables.js';
 import { weaponOf, armorClass, rollToHit, gainXp, drainLevel, heal } from './character.js';
+import { exposeToPoison, notePoisonDamage, sweatOut, curePoison } from './poison.js';
 
 export function startCombat(state, monsterId) {
   const m = MONSTER_BY_ID[monsterId];
@@ -47,6 +48,7 @@ export function playRound(state, action) {
     c.gold -= fine;
     finish(cb, 'surrender');
     ev.push({ t: 'surrender', fine });
+    afterFight(state, ev);
     return ev;
   }
 
@@ -115,6 +117,11 @@ function useItem(state, m, index, ev) {
     ev.push({ t: 'heal', item: it.name, amount, playerHp: c.hp });
     return;
   }
+  if (it.cure) {
+    c.items.splice(index, 1);
+    ev.push({ t: 'cured', item: it.name, had: curePoison(c) });
+    return;
+  }
   // Damage items: potions are used up, wands spend a charge.
   if (it.charges) {
     entry.charges--;
@@ -171,6 +178,11 @@ function monsterTurn(state, m, action, ev) {
     hurtPlayer(state, Math.max(1, roll(a.dmg)), ev, { t: 'attack', who: 'monster', hit: true, attack: a.name });
     if (cb.over) return;
 
+    if (a.poison) {
+      const p = exposeToPoison(c, m.id, a.poison);
+      ev.push(p.resisted ? { t: 'poisonResisted', attack: a.name } : { t: 'poisoned', strength: p.strength, stacked: p.stacked });
+    }
+
     if (m.special.paralyze && cb.paralyzed === 0) {
       if (die(20) < saveTarget('paralysis', c.level)) {
         cb.paralyzed = die(3);
@@ -180,18 +192,18 @@ function monsterTurn(state, m, action, ev) {
     if (m.special.drain) {
       const { died, lostPoint, lostStat, value } = drainLevel(c);
       ev.push({ t: 'drain', level: c.level, playerHp: c.hp, lostPoint, lostStat, value });
-      if (died) defeat(state, ev);
+      if (died) defeat(state, ev, 'drain');
     }
   }
 }
 
-function hurtPlayer(state, dmg, ev, event) {
+function hurtPlayer(state, dmg, ev, event, cause = 'wounds') {
   const c = state.character;
   c.hp = Math.max(0, c.hp - dmg);
   event.dmg = dmg;
   event.playerHp = c.hp;
   ev.push(event);
-  if (c.hp <= 0) defeat(state, ev);
+  if (c.hp <= 0) defeat(state, ev, cause);
 }
 
 function endOfRound(state, m, ev) {
@@ -201,6 +213,22 @@ function endOfRound(state, m, ev) {
     cb.hp += amount;
     ev.push({ t: 'regen', amount, monsterHp: cb.hp });
   }
+  const c = state.character;
+  if (c.poison > 0) {
+    const dmg = c.poison;
+    c.poison--;
+    notePoisonDamage(c, dmg);
+    hurtPlayer(state, dmg, ev, { t: 'poisonTick' }, 'poison');
+    if (!cb.over && c.poison === 0) ev.push({ t: 'poisonEnds' });
+  }
+}
+
+// Leftover poison is applied when you walk out of the ring.
+function afterFight(state, ev) {
+  const c = state.character;
+  if (c.poison <= 0 || c.dead) return;
+  const { dmg, lingering } = sweatOut(c);
+  ev.push({ t: 'sweat', dmg, lingering, playerHp: c.hp });
 }
 
 function victory(state, m, ev) {
@@ -214,13 +242,15 @@ function victory(state, m, ev) {
     state.flags.captain = true;
     ev.push({ t: 'captain' });
   }
+  afterFight(state, ev);
 }
 
-function defeat(state, ev) {
+function defeat(state, ev, cause = 'wounds') {
   if (state.combat.over) return;
   finish(state.combat, 'death');
+  state.combat.cause = cause;
   state.character.dead = true;
-  ev.push({ t: 'death' });
+  ev.push({ t: 'death', cause });
 }
 
 function finish(cb, result) {

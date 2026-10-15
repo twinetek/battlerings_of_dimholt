@@ -21,6 +21,8 @@
 <div id="sim"></div>
 <script type="module">
 import { setRng, seeded, roll, parse, rangeText } from '../js/engine/dice.js';
+import { exposeToPoison, sweatOut } from '../js/rules/poison.js';
+import { readSlot, deleteSlot } from '../js/engine/save.js';
 import { MONSTERS } from '../js/data/monsters.js';
 import { createCharacter, maxHp, armorClass, gainXp, drainLevel, spendStatPoints, readTome } from '../js/rules/character.js';
 import { buyWeapon, buyArmor, buyItem, sellWeapon, stayAtInn, useItemInTown } from '../js/rules/town.js';
@@ -102,6 +104,58 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   check('re-earning a drained level gives the point back', JSON.stringify(d.statPoints) === '[2]');
 }
 
+// Poison
+{
+  const p = createCharacter('Venom', { str: 12, int: 10, wis: 10, dex: 12, con: 12, cha: 10 });
+  setRng(() => 0.99); // every d20 is a 20
+  check('poison save resists', exposeToPoison(p, 'giant-spider', 4).resisted && p.poison === 0 && p.poisonRecord['giant-spider'].resisted === 1);
+  setRng(() => 0);    // every d20 is a 1
+  check('failed save poisons at the dose', exposeToPoison(p, 'giant-spider', 4).strength === 4 && p.poisonSource === 'giant-spider');
+  check('stacking takes the higher plus 1', exposeToPoison(p, 'giant-centipede', 2).strength === 5 && p.poisonRecord['giant-spider'].poisoned === 1);
+  p.hp = 20; p.poison = 4;
+  check('sweat out applies all remaining poison', JSON.stringify(sweatOut(p)) === '{"dmg":10,"lingering":0}' && p.hp === 10);
+  p.hp = 5; p.poison = 4;
+  check('sweat out stops at 1 hp and lingers', JSON.stringify(sweatOut(p)) === '{"dmg":4,"lingering":3}' && p.hp === 1);
+
+  const ps = newGameState(createCharacter('Ticker', { str: 12, int: 10, wis: 10, dex: 12, con: 12, cha: 10 }));
+  ps.character.hp = 999; ps.character.poison = 3;
+  startCombat(ps, 'gargoyle');
+  const tick = playRound(ps, { type: 'fight' }); // all rolls are 1: everyone misses
+  check('poison ticks at the end of a round and fades', tick.some(e => e.t === 'poisonTick' && e.dmg === 3) && ps.character.poison === 2);
+  playRound(ps, { type: 'fight' }); playRound(ps, { type: 'fight' });
+  check('poison wears off', ps.character.poison === 0);
+  ps.character.hp = 2; ps.character.poison = 5;
+  playRound(ps, { type: 'fight' });
+  check('poison can kill, and the death says so', ps.combat.result === 'death' && ps.combat.cause === 'poison');
+
+  const sc = newGameState(createCharacter('Stung', { str: 12, int: 10, wis: 10, dex: 12, con: 12, cha: 10 }));
+  sc.character.hp = 999;
+  startCombat(sc, 'giant-scorpion');
+  setRng(seeded(7));
+  let poisonedOnce = false;
+  for (let i = 0; i < 40 && !sc.combat.over; i++) poisonedOnce ||= playRound(sc, { type: 'fight' }).some(e => e.t === 'poisoned');
+  check('scorpion sting can poison', poisonedOnce && sc.character.poisonRecord['giant-scorpion'].poisoned > 0);
+
+  const cureState = newGameState(createCharacter('Cured', { str: 12, int: 10, wis: 10, dex: 12, con: 12, cha: 10 }));
+  const cc = cureState.character;
+  cc.gold = 1000; cc.poison = 3;
+  buyItem(cc, 'potion-neutralize-poison');
+  check('antidote cures in town', useItemInTown(cc, 0).ok && cc.poison === 0 && cc.items.length === 0);
+  check('antidote refuses when not poisoned', buyItem(cc, 'potion-neutralize-poison').ok && !useItemInTown(cc, 0).ok);
+  cc.poison = 2;
+  check('one night at the inn cures poison at full hp', stayAtInn(cureState, Infinity).ok && cc.poison === 0 && cureState.day === 2);
+
+  // Saves from before poison existed still load.
+  const old = newGameState(createCharacter('Old', { str: 12, int: 10, wis: 10, dex: 12, con: 12, cha: 10 }));
+  old.version = 1;
+  delete old.character.poison; delete old.character.poisonSource; delete old.character.poisonRecord;
+  localStorage.setItem('dimholt.save.migtest', JSON.stringify({ format: 'dimholt-save', version: 1, state: old }));
+  const loaded = readSlot('migtest');
+  deleteSlot('migtest');
+  check('version 1 save migrates', loaded && loaded.state.version === 2 && loaded.state.character.poison === 0 && typeof loaded.state.character.poisonRecord === 'object');
+  setRng(seeded(42));
+}
+
 // Inn
 const st = newGameState(createCharacter('Inn', stats));
 st.character.hp = 1; st.character.gold = 7;
@@ -131,13 +185,13 @@ check('surrender fines 500', cs.character.gold === fine - 500 && cs.combat.resul
 out.insertAdjacentHTML('beforeend', `\n${passed} passed, ${failed} failed\n`);
 
 // ---- Balance simulation ----
-// Gear a gladiator might own when they reach each opponent (index into MONSTERS).
+// Gear a gladiator might own by the time they reach each opponent.
 const GEAR = [
-  [0, 'long-sword', 'leather', null], [4, 'long-sword', 'chain', null], [6, 'bastard-sword', 'splint', null],
-  [8, 'long-sword-1', 'plate', null], [11, 'long-sword-1', 'plate', 'ring-protection-1'],
-  [13, 'long-sword-2', 'field-plate', 'ring-protection-2'], [16, 'long-sword-2', 'full-plate', 'ring-protection-3'],
-  [18, 'long-sword-3', 'full-plate-1', 'ring-protection-3'], [19, 'long-sword-3', 'full-plate-2', 'ring-protection-3'],
-];
+  ['giant-rat', 'long-sword', 'leather', null], ['bugbear', 'long-sword', 'chain', null], ['minotaur', 'bastard-sword', 'splint', null],
+  ['gargoyle', 'long-sword-1', 'plate', null], ['quickling', 'long-sword-1', 'plate', 'ring-protection-1'],
+  ['hill-giant', 'long-sword-2', 'field-plate', 'ring-protection-2'], ['earth-elemental', 'long-sword-2', 'full-plate', 'ring-protection-3'],
+  ['black-dragon', 'long-sword-3', 'full-plate-1', 'ring-protection-3'], ['red-dragon', 'long-sword-3', 'full-plate-2', 'ring-protection-3'],
+].map(([id, ...rest]) => [MONSTERS.findIndex(m => m.id === id), ...rest]);
 const gearFor = i => GEAR.filter(([k]) => k <= i).pop();
 
 function winRate(mi, level, trials = 300) {
