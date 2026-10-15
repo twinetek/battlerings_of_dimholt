@@ -13,7 +13,8 @@
 //      speed; lower goes first. Each side then acts as a group: you first,
 //      then your mercenaries in order; or each enemy in order.
 //   3. After every blow, check who has fallen.
-//   4. End of round: regeneration, poison, then the reinforcement check.
+//   4. End of round: regeneration, poison (enemies, you, mercenaries), then
+//      the reinforcement check.
 //
 // Every unit has a uid: 'you', allies 'a1', 'a2' ..., enemies 'e1', 'e2' ...
 // Events that change hit points carry hp: { uid, hp } (or a list in hits[])
@@ -24,7 +25,9 @@ import { MONSTERS, MONSTER_BY_ID } from '../data/monsters.js';
 import { ITEM_BY_ID } from '../data/equipment.js';
 import { MERCS, MERC_BY_ID, MERC_NAMES, crewCost, crewText } from '../data/mercs.js';
 import { attacksThisRound, saveTarget, strBonus, ITEM_SPEED } from './tables.js';
-import { weaponOf, armorClass, rollToHit, gainXp, drainLevel, heal } from './character.js';
+import { weaponOf, weaponEntry, armorClass, rollToHit, gainXp, drainLevel, heal } from './character.js';
+import { rollLoot, liveCoatings, venomName } from './loot.js';
+import { LOOT_BY_ID } from '../data/loot.js';
 import { exposeToPoison, notePoisonDamage, sweatOut, curePoison } from './poison.js';
 
 export const PLAYER = 'you';
@@ -44,7 +47,7 @@ function addEnemy(cb, monsterId, opts = {}) {
   cb.nextEnemy++;
   const e = {
     uid: `e${cb.nextEnemy}`, monsterId, name: sameKind ? `${m.name} ${sameKind + 1}` : m.name,
-    hp, maxHp: hp, breathLeft: m.breath?.uses ?? 0, regenBlocked: false,
+    hp, maxHp: hp, breathLeft: m.breath?.uses ?? 0, regenBlocked: false, poison: 0,
     main: !!opts.main, summoned: !!opts.summoned, killedBy: null,
   };
   cb.enemies.push(e);
@@ -79,6 +82,7 @@ export function startCombat(state, monsterId, crew = {}) {
     log: [],
   };
   state.combat = cb;
+  state.arenaVisit = true; // leaving the Battlerings later ends the visit (one clock tick)
   cb.target = addEnemy(cb, monsterId, { main: true }).uid;
 
   const tiers = MERCS.flatMap(m => Array(crew[m.id] || 0).fill(m));
@@ -203,8 +207,44 @@ function playerTurn(state, action, ev) {
     }
     const dmg = Math.max(1, roll(w.dmg) + strBonus(c.stats.str).dmg + w.plus);
     hurtEnemy(state, e, dmg, ev, { t: 'attack', by: 'player', hit: true, weapon: w.name }, PLAYER);
+    if (e.hp > 0) envenom(state, e, ev);
   }
 }
+
+// Monsters save against poison like a fighter of level 21 - THAC0.
+export const monsterSaveLevel = m => Math.max(1, 21 - m.thac0);
+
+// Each live coating on your weapon gets its own chance to poison the enemy
+// you just hit. Undead and earth creatures are immune, and no monster can be
+// poisoned by its own kind's venom.
+function envenom(state, e, ev) {
+  const coatings = liveCoatings(state, weaponEntry(state.character));
+  if (!coatings.length) return;
+  const m = MONSTER_BY_ID[e.monsterId];
+  if (m.immune.includes('poison')) {
+    if (!e.toldImmune) ev.push({ t: 'venomImmune', target: e.name });
+    e.toldImmune = true;
+    return;
+  }
+  const results = [];
+  for (const ct of coatings) {
+    const venom = venomName(ct.source);
+    if (ct.source === e.monsterId) {
+      if (!e.toldOwn) results.push({ venom, outcome: 'own' });
+      e.toldOwn = true;
+      continue;
+    }
+    if (die(20) >= saveTarget('poison', monsterSaveLevel(m))) {
+      results.push({ venom, outcome: 'resisted' });
+      continue;
+    }
+    e.poison = e.poison > 0 ? Math.max(e.poison, ct.now) + 1 : ct.now;
+    results.push({ venom, outcome: 'takes' });
+  }
+  if (results.length) ev.push({ t: 'venom', target: e.name, results, strength: e.poison });
+}
+
+const resisted = (m, type, dmg) => (m.resist.includes(type) ? Math.ceil(dmg / 2) : dmg);
 
 function allyTurn(state, a, ev) {
   const cb = state.combat;
@@ -267,7 +307,7 @@ function useItem(state, index, ev) {
   if (m.immune.includes(it.dtype)) {
     ev.push({ t: 'itemImmune', item: it.name, dtype: it.dtype, target: e.name });
   } else {
-    hurtEnemy(state, e, roll(it.damage), ev, { t: 'itemHit', item: it.name, verb: it.verb }, PLAYER);
+    hurtEnemy(state, e, resisted(m, it.dtype, roll(it.damage)), ev, { t: 'itemHit', item: it.name, verb: it.verb }, PLAYER);
   }
   if (it.charges && entry.charges <= 0) ev.push({ t: 'wandEmpty', item: it.name });
 }
@@ -282,6 +322,9 @@ function hurtEnemy(state, e, dmg, ev, event, killer) {
   if (e.hp <= 0) {
     e.killedBy = killer;
     ev.push({ t: 'enemyDown', name: e.name, crowd: cb.enemies.length > 1 || cb.hired > 0 });
+    for (const g of rollLoot(state, e.monsterId)) {
+      ev.push({ t: 'loot', from: e.name, item: LOOT_BY_ID[g.id].name, potency: g.potency });
+    }
     if (living(cb.enemies).length === 0) victory(state, ev);
   } else if (m.special.heads && headsLeft(e, m) < headsBefore) {
     ev.push({ t: 'heads', actor: e.name, left: headsLeft(e, m) });
@@ -441,6 +484,15 @@ function endOfRound(state, ev) {
       e.hp += amount;
       ev.push({ t: 'regen', actor: e.name, amount, hp: { uid: e.uid, hp: e.hp } });
     }
+  }
+  for (const e of living(cb.enemies)) {
+    if (!(e.poison > 0)) continue;
+    const m = MONSTER_BY_ID[e.monsterId];
+    const dmg = resisted(m, 'poison', e.poison);
+    e.poison--;
+    hurtEnemy(state, e, dmg, ev, { t: 'enemyPoisonTick', resists: m.resist.includes('poison') }, PLAYER);
+    if (cb.over) return;
+    if (e.hp > 0 && e.poison === 0) ev.push({ t: 'enemyPoisonEnds', target: e.name });
   }
   if (c.poison > 0) {
     const dmg = c.poison;

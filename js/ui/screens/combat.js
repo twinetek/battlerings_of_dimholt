@@ -5,13 +5,14 @@
 import { MONSTER_BY_ID } from '../../data/monsters.js';
 import { ITEM_BY_ID } from '../../data/equipment.js';
 import { MERC_BY_ID, crewCost, crewSize } from '../../data/mercs.js';
-import { weaponOf, armorClass, maxHp, damageBonus } from '../../rules/character.js';
+import { weaponOf, weaponEntry, armorClass, maxHp, damageBonus } from '../../rules/character.js';
+import { endArenaVisit } from '../../rules/loot.js';
 import { playRound, startCombat, headsLeft, setTarget, openingEvents, PLAYER } from '../../rules/combat.js';
 import { attacksLabel, COMBAT_LOG_LIMIT } from '../../rules/tables.js';
 import { rangeText } from '../../engine/dice.js';
 import { TextPresenter, describeAll, SUMMARIZE_ABOVE } from '../presenter.js';
 import { button, esc, bar, gp } from '../format.js';
-import { itemLabel } from './shops.js';
+import { itemLabel, coatingTag } from './shops.js';
 
 const presenter = new TextPresenter();
 
@@ -60,6 +61,7 @@ function playerCard(s) {
       </dl>
       ${cb.paralyzed > 0 ? '<p class="tag bad">Paralyzed</p>' : ''}
       ${c.poison > 0 ? `<p class="tag bad">☠ Poisoned ${c.poison}</p>` : ''}
+      ${coatingTag(s, weaponEntry(c)) ? `<p class="small">Blade venom:${coatingTag(s, weaponEntry(c))}</p>` : ''}
     </div>`;
 }
 
@@ -86,7 +88,7 @@ function enemyCard(cb, e, many) {
   const body = `
       <div class="portrait${e.main ? '' : ' small-portrait'}" aria-hidden="true">${m.art}</div>
       <h3>${esc(e.name)}</h3>
-      <div class="hp-line muted small">${down ? 'Defeated' : targeted ? '🎯 Your target' : e.summoned ? 'Summoned' : ''}</div>
+      <div class="hp-line muted small">${down ? 'Defeated' : targeted ? '🎯 Your target' : e.summoned ? 'Summoned' : ''}${!down && e.poison > 0 ? ` <span class="tag bad">☠ Poisoned ${e.poison}</span>` : ''}</div>
       <div id="hp-${e.uid}">${bar(e.hp, e.maxHp)}</div>
       <dl class="facts compact">
         <div><dt>AC</dt><dd>${m.ac}</dd></div>
@@ -230,8 +232,16 @@ export const actions = {
     }
   },
   leave(ctx, d) {
-    ctx.mutate(s => { if (!s.character.dead) s.combat = null; });
+    const spoiled = ctx.mutate(s => {
+      if (s.character.dead) return [];
+      s.combat = null;
+      return endArenaVisit(s); // one clock tick per arena visit
+    });
     ctx.go(d.to);
+    if (spoiled.length) {
+      ctx.flash(`Your venom has spoiled: ${spoiled.join(', ')}.`, 'err');
+      ctx.render();
+    }
   },
   again(ctx, d) {
     const s = ctx.state;

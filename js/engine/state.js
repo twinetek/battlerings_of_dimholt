@@ -1,13 +1,15 @@
 // The whole game is one plain JSON object. Saving is JSON.stringify,
 // loading is JSON.parse plus migrations (see save.js).
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 export function newGameState(character) {
   return {
     version: SAVE_VERSION,
     character,
     day: 1,
+    clock: 0,           // ticks once per arena visit and once per inn night
+    arenaVisit: false,  // true after a fight, until you leave the Battlerings
     combat: null,       // set while a fight is in progress
     flags: {},          // story flags, such as captain
     settings: { combatSpeed: 'normal' },

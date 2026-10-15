@@ -1,7 +1,9 @@
 // The weaponsmith, the armorer, and the magic shop.
 
 import { WEAPONS, WEAPON_BY_ID, ARMOR, ITEMS, ITEM_BY_ID } from '../../data/equipment.js';
-import { MAX_WEAPONS, MAX_ITEMS } from '../../rules/tables.js';
+import { MAX_WEAPONS } from '../../rules/tables.js';
+import { LOOT_BY_ID } from '../../data/loot.js';
+import { coatingLabel, glandPotency, glandValue, freshness, sellLoot } from '../../rules/loot.js';
 import { armorOf } from '../../rules/character.js';
 import * as town from '../../rules/town.js';
 import { rangeText } from '../../engine/dice.js';
@@ -13,6 +15,12 @@ const goldLine = c => `<p class="purse">You have <strong>${gp(c.gold)}</strong>.
 const confirmSale = (name, price) => price < 100 || window.confirm(`Sell the ${name} for ${price} gold?`);
 
 const weaponName = w => (w.plus ? `<span class="magic">${esc(w.name)}</span>` : esc(w.name));
+
+// "☠ Wyvern 6, Scorpion 3" for a coated weapon, or ''.
+export function coatingTag(state, entry) {
+  const label = coatingLabel(state, entry);
+  return label ? ` <span class="tag bad" title="Venom coating (fades each night and each arena visit)">☠ ${esc(label)}</span>` : '';
+}
 
 export const weapons = {
   render(ctx) {
@@ -27,12 +35,12 @@ export const weapons = {
         <td class="act">${button('Buy', 'buy', { id: w.id }, { disabled: full || c.gold < w.cost })}</td>
       </tr>`).join('');
     const owned = c.weapons.length
-      ? c.weapons.map((id, i) => {
-        const w = WEAPON_BY_ID[id];
+      ? c.weapons.map((entry, i) => {
+        const w = WEAPON_BY_ID[entry.id];
         const eq = i === c.equipped;
         return `
           <tr class="${eq ? 'equipped' : ''}">
-            <td>${weaponName(w)}${eq ? ' <span class="tag">in hand</span>' : ''}</td>
+            <td>${weaponName(w)}${eq ? ' <span class="tag">in hand</span>' : ''}${coatingTag(ctx.state, entry)}</td>
             <td class="num">${rangeText(w.dmg, w.plus)}</td>
             <td class="num">${w.speed}</td>
             <td class="num">${gp(town.sellPrice(w))}</td>
@@ -72,8 +80,14 @@ export const weapons = {
     buy: (ctx, d) => ctx.commit(s => town.buyWeapon(s.character, d.id)),
     equip: (ctx, d) => ctx.commit(s => town.equipWeapon(s.character, Number(d.index))),
     sell(ctx, d) {
-      const w = WEAPON_BY_ID[ctx.state.character.weapons[d.index]];
-      if (w && confirmSale(w.name, town.sellPrice(w))) ctx.commit(s => town.sellWeapon(s.character, Number(d.index)));
+      const entry = ctx.state.character.weapons[d.index];
+      const w = WEAPON_BY_ID[entry?.id];
+      if (!w) return;
+      const coated = coatingLabel(ctx.state, entry);
+      const okToSell = coated
+        ? window.confirm(`Sell the ${w.name} for ${town.sellPrice(w)} gold? Its venom coating (${coated}) will be lost.`)
+        : confirmSale(w.name, town.sellPrice(w));
+      if (okToSell) ctx.commit(s => town.sellWeapon(s.character, Number(d.index)));
     },
   },
 };
@@ -125,16 +139,42 @@ export function itemLabel(entry) {
   return it.charges ? `${esc(it.name)} <span class="muted">(${entry.charges} charges)</span>` : esc(it.name);
 }
 
+// The alchemist's counter: venom sells for gold per point of its current potency.
+function venomPanel(state) {
+  const loot = state.character.loot;
+  if (!loot.length) return '';
+  const rows = loot.map((g, i) => {
+    const item = LOOT_BY_ID[g.id];
+    const p = glandPotency(state, g);
+    return `
+      <tr>
+        <td>${esc(item.name)}</td>
+        <td>${freshness(p, item.potency)} <span class="muted small">(potency ${p} of ${item.potency})</span></td>
+        <td class="num">${gp(glandValue(state, g))}</td>
+        <td class="act">${button('Sell', 'sellVenom', { index: i }, { cls: 'ghost' })}</td>
+      </tr>`;
+  }).join('');
+  return `
+    <div class="panel">
+      <h3>Sell venom to the alchemist</h3>
+      <p class="muted small">The alchemist pays by potency, so venom is worth less as it fades.
+        You can also coat a weapon with it from the Equipment screen.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Venom</th><th>Condition</th><th class="num">Pays</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+}
+
 export const magic = {
   render(ctx) {
     const c = ctx.state.character;
-    const full = c.items.length >= MAX_ITEMS;
     const forSale = ITEMS.map(it => `
       <tr>
         <td><span class="magic">${esc(it.name)}</span></td>
         <td class="muted">${esc(it.effect)}${it.charges ? `, ${it.charges} charges` : ''}</td>
         <td class="num">${gp(it.cost)}</td>
-        <td class="act">${button('Buy', 'buy', { id: it.id }, { disabled: full || c.gold < it.cost })}</td>
+        <td class="act">${button('Buy', 'buy', { id: it.id }, { disabled: c.gold < it.cost })}</td>
       </tr>`).join('');
     const owned = c.items.length
       ? c.items.map((entry, i) => {
@@ -166,18 +206,24 @@ export const magic = {
             </table></div>
           </div>
           <div class="panel">
-            <h3>Your items <span class="muted small">(${c.items.length}/${MAX_ITEMS})</span></h3>
+            <h3>Your items</h3>
             <div class="table-wrap"><table>
               <thead><tr><th>Item</th><th class="num">Sells for</th><th></th></tr></thead>
               <tbody>${owned}</tbody>
             </table></div>
           </div>
         </div>
+        ${venomPanel(ctx.state)}
         <div class="row">${backToTown()}</div>
       </section>`;
   },
   actions: {
     buy: (ctx, d) => ctx.commit(s => town.buyItem(s.character, d.id)),
+    sellVenom(ctx, d) {
+      const s = ctx.state;
+      const g = s.character.loot[d.index];
+      if (g && confirmSale(LOOT_BY_ID[g.id].name, glandValue(s, g))) ctx.commit(st => sellLoot(st, Number(d.index)));
+    },
     use: (ctx, d) => ctx.commit(s => town.useItemInTown(s.character, Number(d.index))),
     sell(ctx, d) {
       const entry = ctx.state.character.items[d.index];

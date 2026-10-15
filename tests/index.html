@@ -22,6 +22,7 @@
 <script type="module">
 import { setRng, seeded, roll, parse, rangeText } from '../js/engine/dice.js';
 import { exposeToPoison, sweatOut } from '../js/rules/poison.js';
+import { glandPotency, coatingStrength, applyVenom, sellLoot, rollLoot, endArenaVisit, advanceClock, liveCoatings } from '../js/rules/loot.js';
 import { readSlot, deleteSlot } from '../js/engine/save.js';
 import { MONSTERS } from '../js/data/monsters.js';
 import { createCharacter, maxHp, armorClass, gainXp, drainLevel, spendStatPoints, readTome } from '../js/rules/character.js';
@@ -268,6 +269,109 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   setRng(seeded(42));
 }
 
+// Loot and venom
+{
+  const fresh = () => {
+    const st = newGameState(createCharacter('Venomist', { str: 16, int: 10, wis: 10, dex: 15, con: 15, cha: 10 }));
+    st.character.gold = 100000; st.character.hp = 9999;
+    buyWeapon(st.character, 'long-sword');
+    buyWeapon(st.character, 'dagger');
+    return st;
+  };
+  let st = fresh();
+
+  setRng(() => 0); // every drop roll succeeds
+  check('poisonous monsters drop venom', rollLoot(st, 'wyvern').length === 1 && st.character.loot[0].id === 'wyvern-venom' && st.character.loot[0].potency === 7);
+  check('other monsters drop nothing', rollLoot(st, 'orc').length === 0);
+  setRng(seeded(21));
+
+  const g = st.character.loot[0];
+  advanceClock(st, 19);
+  check('venom in the pack holds for 19 ticks', glandPotency(st, g) === 7);
+  advanceClock(st, 1);
+  check('then fades 1 per 20 ticks', glandPotency(st, g) === 6);
+  check('alchemist pays by current potency', JSON.stringify(sellLoot(st, 0)).includes('720') && st.character.loot.length === 0);
+
+  // Applying, stacking, refreshing, the cap.
+  st = fresh();
+  const give = id => st.character.loot.push({ id, potency: { 'wyvern-venom': 7, 'scorpion-venom': 5, 'spider-venom': 4, 'centipede-venom': 2 }[id], gotAt: st.clock });
+  give('wyvern-venom');
+  check('apply venom to a weapon', applyVenom(st, 0, 0).ok && st.character.weapons[0].coatings.length === 1 && st.character.loot.length === 0);
+  give('scorpion-venom'); applyVenom(st, 0, 0);
+  check('different venoms stack on one weapon', liveCoatings(st, st.character.weapons[0]).length === 2);
+  advanceClock(st, 2);
+  check('coatings fade 1 per tick', liveCoatings(st, st.character.weapons[0]).find(c => c.source === 'wyvern').now === 5);
+  give('wyvern-venom'); applyVenom(st, 0, 0);
+  check('same venom refreshes to the stronger', liveCoatings(st, st.character.weapons[0]).length === 2
+    && liveCoatings(st, st.character.weapons[0]).find(c => c.source === 'wyvern').now === 7);
+  give('spider-venom'); applyVenom(st, 0, 0);
+  give('centipede-venom');
+  check('at most 3 venoms per weapon', !applyVenom(st, 0, 0).ok && st.character.loot.length === 1);
+  check('any weapon can be coated, not just the one in hand', applyVenom(st, 0, 1).ok && st.character.weapons[1].coatings.length === 1);
+  advanceClock(st, 10);
+  check('spent coatings are cleared', st.character.weapons[0].coatings.length === 0);
+
+  // The clock: one tick per arena visit, one per night.
+  st = fresh();
+  startCombat(st, 'orc'); st.combat = null; startCombat(st, 'orc'); st.combat = null;
+  const c0 = st.clock;
+  endArenaVisit(st); endArenaVisit(st);
+  check('an arena visit is one tick, however many fights', st.clock === c0 + 1);
+  st.character.hp = 1;
+  stayAtInn(st, 5);
+  check('each inn night is one tick', st.clock === c0 + 6);
+
+  // Venom in combat.
+  const coat = (state, source, strength) => { state.character.weapons[0].coatings = [{ source, item: `${source}-venom`, strength, appliedAt: state.clock }]; };
+  // A level 15 fighter (THAC0 6) hits almost anything; every d20 here is a 7,
+  // which lands the hit and fails the Hill Giant's save (8, as a level 9 fighter).
+  const veteran = () => { const v = fresh(); gainXp(v.character, XP_FOR_LEVEL[15]); v.character.hp = 9999; return v; };
+  st = veteran();
+  coat(st, 'wyvern', 6);
+  startCombat(st, 'hill-giant');
+  st.combat.enemies[0].hp = 9999; st.combat.enemies[0].maxHp = 9999;
+  setRng(() => 0.3);
+  let ev = playRound(st, { type: 'fight' });
+  check('a hit with a coated weapon poisons the monster', ev.some(e => e.t === 'venom' && e.results[0].outcome === 'takes') && st.combat.enemies[0].poison > 0);
+  check('poisoned monsters burn at the end of the round', ev.some(e => e.t === 'enemyPoisonTick'));
+
+  st = veteran();
+  coat(st, 'giant-scorpion', 5);
+  startCombat(st, 'giant-scorpion');
+  st.combat.enemies[0].hp = 9999; st.combat.enemies[0].maxHp = 9999;
+  ev = playRound(st, { type: 'fight' });
+  check("a monster can't be poisoned by its own kind's venom", st.combat.enemies[0].poison === 0 && ev.some(e => e.t === 'venom' && e.results[0].outcome === 'own'));
+
+  st = veteran();
+  coat(st, 'wyvern', 6);
+  startCombat(st, 'ghoul');
+  st.combat.enemies[0].hp = 9999; st.combat.enemies[0].maxHp = 9999;
+  ev = playRound(st, { type: 'fight' });
+  check('undead are immune to weapon venom', st.combat.enemies[0].poison === 0 && ev.some(e => e.t === 'venomImmune'));
+
+  st = fresh();
+  startCombat(st, 'red-dragon');
+  st.combat.enemies[0].hp = 9999; st.combat.enemies[0].maxHp = 9999; st.combat.enemies[0].poison = 7; st.combat.enemies[0].breathLeft = 0;
+  st.combat.paralyzed = 1;
+  ev = playRound(st, { type: 'fight' });
+  const tick = ev.find(e => e.t === 'enemyPoisonTick');
+  check('dragons resist poison: half damage, rounded up', tick && tick.dmg === 4 && tick.resists && st.combat.enemies[0].poison === 6);
+  setRng(seeded(22));
+
+  // Version 3 saves still load.
+  const v3 = newGameState(createCharacter('Old', { str: 12, int: 10, wis: 10, dex: 12, con: 12, cha: 10 }));
+  v3.version = 3;
+  v3.character.weapons = ['long-sword', 'dagger']; v3.character.equipped = 0;
+  delete v3.character.loot; delete v3.clock; delete v3.arenaVisit;
+  localStorage.setItem('dimholt.save.migtest3', JSON.stringify({ format: 'dimholt-save', version: 3, state: v3 }));
+  const up3 = readSlot('migtest3');
+  deleteSlot('migtest3');
+  const c3 = up3?.state.character;
+  check('version 3 save migrates weapons, loot, and the clock',
+    c3 && c3.weapons[0].id === 'long-sword' && Array.isArray(c3.weapons[1].coatings) && Array.isArray(c3.loot) && up3.state.clock === 0);
+  setRng(seeded(42));
+}
+
 // Inn
 const st = newGameState(createCharacter('Inn', stats));
 st.character.hp = 1; st.character.gold = 7;
@@ -306,8 +410,9 @@ const GEAR = [
 ].map(([id, ...rest]) => [MONSTERS.findIndex(m => m.id === id), ...rest]);
 const gearFor = i => GEAR.filter(([k]) => k <= i).pop();
 
-function simulate(mi, level, crew = {}, trials = 300) {
-  let wins = 0, summoned = 0, xp = 0;
+// coatings: [[venom source, strength], ...] applied to the weapon in hand.
+function simulate(mi, level, crew = {}, trials = 300, coatings = []) {
+  let wins = 0, summoned = 0, xp = 0, rounds = 0, envenomed = 0;
   const [, w, a, ring] = gearFor(mi);
   for (let t = 0; t < trials; t++) {
     const s = newGameState(createCharacter('Sim', stats));
@@ -316,14 +421,22 @@ function simulate(mi, level, crew = {}, trials = 300) {
     buyWeapon(ch, w); buyArmor(ch, a); if (ring) buyItem(ch, ring);
     if (level > 1) gainXp(ch, XP_FOR_LEVEL[level]);
     ch.hp = maxHp(ch);
+    ch.weapons[0].coatings = coatings.map(([source, strength]) => ({ source, item: `${source}-venom`, strength, appliedAt: s.clock }));
     const xpBefore = ch.xp;
     startCombat(s, MONSTERS[mi].id, crew);
-    let n = 0;
-    while (!s.combat.over && n++ < 300) playRound(s, { type: 'fight' });
-    if (s.combat.result === 'victory') { wins++; xp += ch.xp - xpBefore; }
+    let n = 0, tookHold = false;
+    while (!s.combat.over && n++ < 300) {
+      const ev = playRound(s, { type: 'fight' }); // always play the round; don't short-circuit it away
+      if (ev.some(e => e.t === 'venom' && e.results.some(r => r.outcome === 'takes'))) tookHold = true;
+    }
+    if (s.combat.result === 'victory') { wins++; xp += ch.xp - xpBefore; rounds += s.combat.round; }
+    if (tookHold) envenomed++;
     summoned += s.combat.enemies.length - 1;
   }
-  return { win: wins / trials, summoned: summoned / trials, xp: wins ? Math.round(xp / wins) : 0 };
+  return {
+    win: wins / trials, summoned: summoned / trials, xp: wins ? Math.round(xp / wins) : 0,
+    rounds: wins ? rounds / wins : 0, envenomed: envenomed / trials,
+  };
 }
 const winRate = (mi, level) => simulate(mi, level).win;
 
@@ -358,6 +471,36 @@ const hireRows = MONSTERS.map((m, i) => {
 document.getElementById('sim').insertAdjacentHTML('beforeend',
   `<h2>Hiring help</h2><p>Win rate two levels below the solo 50% level. In brackets: average summoned helpers per fight. Last column: XP you earn per win (solo / 1 merc / 2 mercs).</p>
    <table id="hiring"><thead><tr><th>Opponent</th><th>Level</th><th>Tier</th><th>Solo</th><th>+1 merc</th><th>+2 mercs</th><th>Your XP per win</th></tr></thead><tbody>${hireRows}</tbody></table>`);
+// ---- Venom simulation ----
+// Same levels as the hiring table (two below the solo 50% level), fighting
+// alone with a plain weapon, then with each coating at full strength.
+const VENOMS = [
+  ['Spider 4', [['giant-spider', 4]]],
+  ['Scorpion 5', [['giant-scorpion', 5]]],
+  ['Wyvern 7', [['wyvern', 7]]],
+  ['Wyvern 7 + Scorpion 5', [['wyvern', 7], ['giant-scorpion', 5]]],
+];
+const gains = VENOMS.map(() => []);
+const venomRows = MONSTERS.map((m, i) => {
+  const level = Math.max(1, firstFifty[i] - 2);
+  const plain = simulate(i, level, {}, 200);
+  const cell = r => `${Math.round(r.win * 100)}%${r.rounds ? ` · ${r.rounds.toFixed(1)} rds` : ''}`;
+  const coated = VENOMS.map(([, coatings], k) => {
+    const r = simulate(i, level, {}, 200, coatings);
+    gains[k].push(r.win - plain.win);
+    return `<td>${cell(r)}<span class="muted"> (${Math.round(r.envenomed * 100)}% poisoned)</span></td>`;
+  }).join('');
+  const note = m.immune.includes('poison') ? 'immune' : m.resist.includes('poison') ? 'resists' : m.loot.length ? 'own venom immune' : '';
+  return `<tr><td>${m.name}${note ? ` <span class="muted">(${note})</span>` : ''}</td><td>${level}</td><td>${cell(plain)}</td>${coated}</tr>`;
+}).join('');
+const avgGain = k => `${gains[k].reduce((a, b) => a + b, 0) / gains[k].length >= 0 ? '+' : ''}${Math.round(100 * gains[k].reduce((a, b) => a + b, 0) / gains[k].length)}`;
+document.getElementById('sim').insertAdjacentHTML('beforeend',
+  `<h2>Coated weapons</h2>
+   <p>Solo, two levels below the solo 50% level. Each cell: win rate · average rounds to win (in brackets: share of fights where the venom took hold at least once).
+     Coatings are fresh; in play they fade by 1 every arena visit and every inn night.</p>
+   <table id="venom"><thead><tr><th>Opponent</th><th>Level</th><th>Plain weapon</th>${VENOMS.map(([name]) => `<th>${name}</th>`).join('')}</tr></thead>
+   <tbody>${venomRows}</tbody>
+   <tfoot><tr><th colspan="3">Average change in win rate (points)</th>${VENOMS.map((_, k) => `<th>${avgGain(k)}</th>`).join('')}</tr></tfoot></table>`);
 document.body.dataset.done = 'yes';
 </script>
 </body>

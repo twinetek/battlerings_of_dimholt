@@ -275,3 +275,8 @@ button.fighter:hover:not(:disabled) { border-color: var(--accent); }
   button.fighter, .target-hint { text-align: left; }
   .incoming { justify-self: start; }
 }
+
+/* ---- Loot ---- */
+.loot-row { flex-wrap: wrap; }
+.apply-choose { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 0 2px; }
+.apply-choose p { flex-basis: 100%; margin: 0; }

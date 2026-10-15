@@ -111,6 +111,53 @@ Possible fixes, still to be decided:
 - Higher wages for the top tiers.
 - Dragons summon too, for example "the arena sends the dragon's brood".
 
+### Loot, starting with venom
+
+Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and selling venom), and venom in `rules/combat.js` (`envenom`, enemy poison ticks, loot rolls on each kill). The Guide's "Loot and venom" section is generated from the same data.
+
+**Drops.**
+
+| Monster | Loot | Starting potency | Drop chance |
+|---|---|---:|---:|
+| Giant Centipede | Centipede venom sac | 2 | 30% |
+| Giant Spider | Spider venom gland | 4 | 30% |
+| Giant Scorpion | Scorpion stinger gland | 5 | 35% |
+| Wyvern | Wyvern venom bladder | 7 | 40% |
+
+- Summoned helpers can drop loot too. Glands can be sold to the Magic Shop for gold, priced by current potency.
+- Drops come from a general `loot` list on each monster, such as `[{ item, chance }]`, so later loot plugs into the same system.
+
+**The clock.** `state.clock` ticks once per **arena visit**, meaning one tick when you leave the Battlerings after fighting, however many fights that was. It also ticks once per **night** at the inn.
+
+**Decay.** Potency is calculated from the clock, never stored tick by tick:
+
+- **Glands in your pack** lose 1 potency every **20 ticks**, so they survive long inn stays. A wyvern gland lasts about 140 ticks and a centipede sac about 40.
+- **Coatings on a weapon** lose 1 strength every tick. A coating lasts a whole arena visit but fades fast at the inn, so apply venom right before you fight.
+
+**Coating weapons.**
+
+- **Applying:** "Apply to…" any weapon you own uses up the gland, and the coating starts at the gland's current potency.
+- **Stacking:** different venoms stack on one weapon, up to 3. The same venom again refreshes it to the higher strength.
+- **Selling** a weapon loses its coatings.
+
+**Poisoning monsters.**
+
+- **On each hit,** every coating gets its own chance to poison. The monster saves against poison as a fighter of level 21 − THAC0, using the same table as yours.
+- **A failed save** poisons the monster with the coating's strength. It takes that much damage at the end of each round, then the strength drops by 1.
+- **Stacking:** a new dose while already poisoned becomes the higher of the two, plus 1. This is tracked per enemy, for that fight only.
+- **Immune:** undead (Ghoul, Wight) and stone or earth creatures (Gargoyle, Earth Elemental).
+- **Own venom:** a monster can never be poisoned by its own kind's venom, so a scorpion can't be killed with scorpion poison.
+- **Resistance (new, general mechanic):** monsters can list damage types they resist. Resisted damage is halved, rounded up. Dragons resist poison, so each round's poison damage is halved, while the duration stays the same. Fire, lightning and acid resistance can use the same field later.
+- **Mercenaries' weapons** are never coated.
+
+**Pack limit:** removed, for magic items and loot alike.
+
+**Save format version 4:**
+
+- Weapons change from ids to `{ id, coatings: [] }`.
+- `character.loot` and `state.clock` are added.
+- Enemies in a fight gain `poison`.
+
 ### Player guide
 
 The in-game **Guide** (`js/ui/screens/guide.js`) explains the goal, character creation, what each stat does, leveling, stat points and Tomes, combat math, every monster, special abilities, gear, the inn, saving, and keyboard shortcuts. You can open it from the title screen, the town map, the Battlerings screen, or with the <kbd>G</kbd> key in town.

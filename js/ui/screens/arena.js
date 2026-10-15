@@ -4,6 +4,7 @@ import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
 import { weaponOf, armorClass, rollToHit, maxHp } from '../../rules/character.js';
 import { startCombat, canHurt, summonKind } from '../../rules/combat.js';
 import { MERCS, crewCost, crewSize, crewText } from '../../data/mercs.js';
+import { LOOT_BY_ID } from '../../data/loot.js';
 import { rangeText } from '../../engine/dice.js';
 import { button, backToTown, esc, gp, d20Chance } from '../format.js';
 import { confirmPoisoned } from './combat.js';
@@ -16,7 +17,9 @@ export function specialText(m) {
   if (m.special.heads) notes.push(`${m.special.heads} heads, one attack each`);
   if (m.breath) notes.push(`Breathes ${m.breath.name}`);
   if (m.immune.length) notes.push(`Immune to ${m.immune.join(', ')}`);
+  if (m.resist.length) notes.push(`Resists ${m.resist.join(', ')} (half damage)`);
   for (const a of m.attacks.filter(x => x.poison)) notes.push(`Poison ${a.poison} on its ${a.name}`);
+  for (const drop of m.loot) notes.push(`May drop a ${LOOT_BY_ID[drop.item].name} (${Math.round(drop.chance * 100)}%)`);
   if (m.calls) {
     const kind = MONSTER_BY_ID[summonKind(m)].name;
     notes.push(m.calls === 'arena' ? `With mercenaries: the arena sends a ${kind}` : `With mercenaries: calls ${kind}s`);

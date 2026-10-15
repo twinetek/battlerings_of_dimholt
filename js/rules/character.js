@@ -29,10 +29,11 @@ export function createCharacter(name, stats) {
     hpRolls: [FIRST_LEVEL_HP], // raw hit die per level; Con bonus is added when computing max hp
     hp: 0,
     gold: roll(STARTING_GOLD) * 10,
-    weapons: [],               // weapon ids, at most MAX_WEAPONS
+    weapons: [],               // { id, coatings: [] }, at most MAX_WEAPONS
     equipped: -1,              // index into weapons, -1 for bare hands
     armor: null,               // armor id
     items: [],                 // { id, charges? }
+    loot: [],                  // { id, potency, gotAt } (see rules/loot.js)
     wins: {},                  // monster id -> times beaten
     poison: 0,                 // poison strength; see poison.js
     poisonSource: null,        // monster id of the latest dose
@@ -48,7 +49,8 @@ export function maxHp(c) {
   return c.hpRolls.reduce((sum, r, i) => sum + (i < 9 ? Math.max(1, r + bonus) : r), 0);
 }
 
-export const weaponOf = c => (c.equipped >= 0 && WEAPON_BY_ID[c.weapons[c.equipped]]) || UNARMED;
+export const weaponEntry = c => (c.equipped >= 0 ? c.weapons[c.equipped] : null);
+export const weaponOf = c => WEAPON_BY_ID[weaponEntry(c)?.id] ?? UNARMED;
 export const armorOf = c => (c.armor ? ARMOR_BY_ID[c.armor] : null);
 
 export function ringBonus(c) {

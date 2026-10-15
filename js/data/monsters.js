@@ -15,6 +15,8 @@
 // calls    who answers when it calls for help (only when you hire mercenaries):
 //          'kin' (its own kind), a monster id, or 'arena' (the arena master sends
 //          something weaker). No calls = it never summons.
+// loot     [{ item, chance }] dropped when it dies (see data/loot.js)
+// resist   damage types it takes half damage from (rounded up)
 // breath   { name, type, uses, chance } (damage is half the dragon's current hp)
 // art      placeholder portrait until real sprites exist (see DESIGN.md)
 
@@ -29,6 +31,7 @@ export const MONSTERS = [
     desc: 'A small, scaly, yapping humanoid with a sharpened spear.' },
   { id: 'giant-centipede', name: 'Giant Centipede', art: '🐛', hp: '1d6', ac: 9, thac0: 20, speed: 3,
     calls: 'kin',
+    loot: [{ item: 'centipede-venom', chance: 0.3 }],
     attacks: [{ name: 'bite', dmg: '1d2', poison: 2 }], xp: 100, gold: 22,
     desc: 'A yard of chittering legs. Its bite is weak, but the venom stings.' },
   { id: 'goblin', name: 'Goblin', art: '👺', hp: '1d8', ac: 6, thac0: 20, speed: 5,
@@ -57,20 +60,24 @@ export const MONSTERS = [
     desc: 'A two-headed giant. Each head controls one arm, and each arm holds a club.' },
   { id: 'gargoyle', name: 'Gargoyle', art: '🗿', hp: '4d8+4', ac: 5, thac0: 15, speed: 4, magicReq: 1,
     calls: 'kin',
+    immune: ['poison'],
     attacks: [{ name: 'claw', dmg: '1d3' }, { name: 'claw', dmg: '1d3' }, { name: 'bite', dmg: '1d6' }, { name: 'horn', dmg: '1d4' }],
     xp: 400, gold: 180,
     desc: 'Living stone. Ordinary steel glances off its hide.' },
   { id: 'giant-spider', name: 'Giant Spider', art: '🕷️', hp: '4d8+4', ac: 4, thac0: 15, speed: 4,
     calls: 'giant-centipede',
+    loot: [{ item: 'spider-venom', chance: 0.3 }],
     attacks: [{ name: 'bite', dmg: '2d4', poison: 4 }], xp: 450, gold: 250,
     desc: 'Patient, hairy, and venomous. Bring an antidote.' },
   { id: 'ghoul', name: 'Ghoul', art: '🧟', hp: '3d8', ac: 6, thac0: 16, speed: 4, special: { paralyze: true },
     calls: 'kin',
+    immune: ['poison'],
     attacks: [{ name: 'claw', dmg: '1d3' }, { name: 'claw', dmg: '1d3' }, { name: 'bite', dmg: '1d6' }],
     xp: 500, gold: 400,
     desc: 'Its touch can paralyze. A paralyzed gladiator is an easy meal.' },
   { id: 'wight', name: 'Wight', art: '👻', hp: '4d8+3', ac: 5, thac0: 15, speed: 4, magicReq: 1, special: { drain: true },
     calls: 'ghoul',
+    immune: ['poison'],
     attacks: [{ name: 'chilling touch', dmg: '1d4' }], xp: 700, gold: 500,
     desc: 'Each touch drains a level of experience. Pays well for good reason.' },
   { id: 'quickling', name: 'Quickling', art: '⚡', hp: '2d8+2', ac: -3, thac0: 13, speed: -10,
@@ -83,6 +90,7 @@ export const MONSTERS = [
     desc: 'Six snapping heads. Each wound you deal silences another one.' },
   { id: 'giant-scorpion', name: 'Giant Scorpion', art: '🦂', hp: '5d8+5', ac: 3, thac0: 13, speed: 5,
     calls: 'arena',
+    loot: [{ item: 'scorpion-venom', chance: 0.35 }],
     attacks: [{ name: 'claw', dmg: '1d10' }, { name: 'claw', dmg: '1d10' }, { name: 'sting', dmg: '1d4', poison: 5 }],
     xp: 1000, gold: 750,
     desc: 'Two crushing claws, and a stinger that keeps hurting long after it lands.' },
@@ -99,6 +107,7 @@ export const MONSTERS = [
     attacks: [{ name: 'greatsword', dmg: '2d10+4' }], xp: 1600, gold: 1000,
     desc: 'The noblest of giants, and lightning means nothing to it.' },
   { id: 'earth-elemental', name: 'Earth Elemental', art: '⛰️', hp: '12d8', ac: 2, thac0: 9, speed: 8, magicReq: 2,
+    immune: ['poison'],
     attacks: [{ name: 'fist', dmg: '4d8' }], xp: 2000, gold: 1500,
     desc: 'A walking landslide. Only a +2 weapon can harm it.' },
   { id: 'troll', name: 'Troll', art: '🧌', hp: '8d8+8', ac: 4, thac0: 12, speed: 4, special: { regen: 3 },
@@ -108,15 +117,18 @@ export const MONSTERS = [
     desc: 'Regenerates 3 hit points a round. Fire stops it from healing.' },
   { id: 'wyvern', name: 'Wyvern', art: '🪽', hp: '7d8+7', ac: 3, thac0: 12, speed: 4,
     calls: 'arena',
+    loot: [{ item: 'wyvern-venom', chance: 0.4 }],
     attacks: [{ name: 'bite', dmg: '2d8' }, { name: 'tail sting', dmg: '1d6', poison: 7 }], xp: 2400, gold: 1800,
     desc: "A dragon's lesser cousin with a deadly poisoned tail." },
   { id: 'black-dragon', name: 'Black Dragon', art: '🐉', hp: '10d8', ac: 2, thac0: 10, speed: 4, immune: ['acid'],
     breath: { name: 'acid', type: 'acid', uses: 3, chance: 0.33 },
+    resist: ['poison'],
     attacks: [{ name: 'claw', dmg: '1d6' }, { name: 'claw', dmg: '1d6' }, { name: 'bite', dmg: '3d6' }],
     xp: 6000, gold: 3000,
     desc: 'Spits acid. Its breath weakens as it is wounded.' },
   { id: 'red-dragon', name: 'Red Dragon', art: '🐲', hp: '14d8', ac: -1, thac0: 6, speed: 3, immune: ['fire'], final: true,
     breath: { name: 'fire', type: 'fire', uses: 3, chance: 0.25 },
+    resist: ['poison'],
     attacks: [{ name: 'claw', dmg: '1d10' }, { name: 'claw', dmg: '1d10' }, { name: 'bite', dmg: '3d10' }],
     xp: 12000, gold: 5000,
     desc: 'The mightiest creature the arena can host. No one has beaten it in 24 seasons.' },
@@ -127,6 +139,8 @@ for (const m of MONSTERS) {
   m.immune ??= [];
   m.special ??= {};
   m.calls ??= null;
+  m.loot ??= [];
+  m.resist ??= [];
   m.fine = Math.ceil(m.gold / 10); // the original's surrender fine: 10% of the award
 }
 

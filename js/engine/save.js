@@ -37,6 +37,16 @@ const MIGRATIONS = {
     }
     return state;
   },
+  // Version 4: loot, venom coatings, and the clock.
+  3: state => {
+    const c = state.character;
+    c.weapons = c.weapons.map(w => (typeof w === 'string' ? { id: w, coatings: [] } : w));
+    c.loot ??= [];
+    state.clock ??= 0;
+    state.arenaVisit ??= false;
+    for (const e of state.combat?.enemies ?? []) e.poison ??= 0;
+    return state;
+  },
 };
 
 function migrate(state) {

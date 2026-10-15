@@ -89,6 +89,7 @@ frame.addEventListener('load', async () => {
     if (state.combat.result !== 'death') {
       await click('[data-action="leave"]');
       log(screen() === 'town', 'returned to town');
+      log(JSON.parse(w.localStorage.getItem('dimholt.save.auto')).state.clock === 1, 'leaving the Battlerings ticks the clock once');
       await click('[data-to="inn"]');
       await click('[data-action="full"]');
       await click('[data-to="town"]');
@@ -150,12 +151,28 @@ frame.addEventListener('load', async () => {
       pSave.state.character.poison = 3;
       pSave.state.character.poisonSource = 'giant-spider';
       pSave.state.character.poisonRecord = { 'giant-spider': { poisoned: 2, resisted: 1, damage: 9 } };
+      pSave.state.character.loot = [
+        { id: 'spider-venom', potency: 4, gotAt: pSave.state.clock },
+        { id: 'wyvern-venom', potency: 7, gotAt: pSave.state.clock },
+      ];
       w.localStorage.setItem('dimholt.save.3', JSON.stringify(pSave));
       await click('[data-to="saves"]');
       await click('[data-action="load"][data-slot="3"]');
       log(q('#status').textContent.includes('Poisoned 3'), 'status bar shows lingering poison');
       await click('[data-to="character"]');
       log(q('#screen').textContent.includes('Poison history') && q('#screen').textContent.includes('Giant Spider'), 'poison history lists the spider');
+
+      // Loot: coat a weapon from the Equipment screen, sell the rest to the alchemist.
+      log(q('#screen').textContent.includes('Spider Venom Gland') && q('#screen').textContent.includes('Wyvern Venom Bladder'), 'loot panel lists the venom');
+      await click('[data-action="startApply"][data-index="0"]');
+      await click('[data-action="apply"][data-loot="0"][data-weapon="0"]');
+      log(q('#screen').textContent.includes('☠ Spider 4') && q('#flash').textContent.includes('coat'), 'venom coats the chosen weapon');
+      await click('#nav [data-to="town"]');
+      await click('[data-to="magic"]');
+      await click('[data-action="sellVenom"][data-index="0"]');
+      log(q('#flash').textContent.includes('840'), 'alchemist buys venom by potency');
+      await click('#nav [data-to="town"]');
+      await click('[data-to="character"]');
       await click('#nav [data-to="town"]');
       await click('[data-to="arena"]');
       log(q('#screen').textContent.includes('still poisoned'), 'Battlerings screen warns about lingering poison');

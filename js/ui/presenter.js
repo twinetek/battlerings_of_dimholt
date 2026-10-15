@@ -32,6 +32,21 @@ function breathText(e) {
   return `The ${e.actor} breathes ${e.name}! ${list.charAt(0).toUpperCase()}${list.slice(1)} damage.`;
 }
 
+// "Wyvern and scorpion venom take hold: the Hill Giant is poisoned (strength 9)."
+function venomLine(e) {
+  const list = names => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]);
+  const of = outcome => e.results.filter(r => r.outcome === outcome).map(r => r.venom.toLowerCase());
+  const takes = of('takes'), resisted = of('resisted'), own = of('own');
+  const parts = [];
+  if (takes.length) {
+    const t = list(takes);
+    parts.push(`${t.charAt(0).toUpperCase()}${t.slice(1)} venom ${takes.length > 1 ? 'take' : 'takes'} hold: the ${e.target} is poisoned (strength ${e.strength})`);
+  }
+  if (resisted.length) parts.push(`${takes.length ? 'it' : `The ${e.target}`} resists the ${list(resisted)} venom`);
+  if (own.length) parts.push(`${takes.length || resisted.length ? 'it' : `The ${e.target}`} is immune to ${list(own)} venom, its own kind's`);
+  return { text: `${parts.join('; ')}.`, cls: takes.length ? 'good' : 'muted' };
+}
+
 export function describe(e) {
   const who = e.you ? 'you' : e.target;
   switch (e.t) {
@@ -78,6 +93,11 @@ export function describe(e) {
     case 'fumble': return { text: 'You fumble in your pack and find nothing useful.', cls: 'muted' };
     case 'enemyDown': return e.crowd ? { text: `The ${e.name} falls!`, cls: 'good' } : null;
     case 'allyDown': return { text: `${e.name} falls!`, cls: 'bad' };
+    case 'loot': return { text: `The ${e.from} leaves behind a ${e.item} (potency ${e.potency})!`, cls: 'win' };
+    case 'venom': return venomLine(e);
+    case 'venomImmune': return { text: `The venom on your blade does nothing to the ${e.target}.`, cls: 'muted' };
+    case 'enemyPoisonTick': return { text: `Venom burns the ${e.target} for ${e.dmg} damage${e.resists ? ' (it resists poison: half damage)' : ''}.`, cls: 'good' };
+    case 'enemyPoisonEnds': return { text: `The venom in the ${e.target} wears off.`, cls: 'muted' };
     case 'summonWarning': return e.by === 'arena'
       ? { text: 'The arena master signals the gate. Something is coming next round!', cls: 'warn' }
       : { text: `The ${e.actor} shrieks for help! More will come next round.`, cls: 'warn' };

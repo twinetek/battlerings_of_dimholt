@@ -3,7 +3,8 @@
 
 import { roll } from '../engine/dice.js';
 import { WEAPON_BY_ID, ARMOR_BY_ID, ITEM_BY_ID } from '../data/equipment.js';
-import { MAX_WEAPONS, MAX_ITEMS, TOME_MAX, INN_PRICE, STATS } from './tables.js';
+import { MAX_WEAPONS, TOME_MAX, INN_PRICE, STATS } from './tables.js';
+import { advanceClock } from './loot.js';
 import { maxHp, heal, armorOf, readTome } from './character.js';
 import { curePoison } from './poison.js';
 
@@ -26,13 +27,14 @@ export function buyWeapon(c, id) {
   if (c.weapons.length >= MAX_WEAPONS) return fail(`You can carry at most ${MAX_WEAPONS} weapons. Sell one first.`);
   if (c.gold < w.cost) return fail(`You can't afford the ${w.name}.`);
   c.gold -= w.cost;
-  c.weapons.push(id);
-  if (c.equipped < 0) c.equipped = c.weapons.length - 1;
-  return ok(`You buy the ${w.name}${c.weapons[c.equipped] === id ? ' and take it in hand' : ''}.`);
+  c.weapons.push({ id, coatings: [] });
+  const takeIt = c.equipped < 0;
+  if (takeIt) c.equipped = c.weapons.length - 1;
+  return ok(`You buy the ${w.name}${takeIt ? ' and take it in hand' : ''}.`);
 }
 
 export function sellWeapon(c, index) {
-  const w = WEAPON_BY_ID[c.weapons[index]];
+  const w = WEAPON_BY_ID[c.weapons[index]?.id];
   if (!w) return fail('No such weapon.');
   const price = sellPrice(w);
   c.weapons.splice(index, 1);
@@ -43,7 +45,7 @@ export function sellWeapon(c, index) {
 }
 
 export function equipWeapon(c, index) {
-  const w = WEAPON_BY_ID[c.weapons[index]];
+  const w = WEAPON_BY_ID[c.weapons[index]?.id];
   if (!w) return fail('No such weapon.');
   c.equipped = index;
   return ok(`You ready the ${w.name}.`);
@@ -84,7 +86,6 @@ export function sellArmor(c) {
 export function buyItem(c, id) {
   const it = ITEM_BY_ID[id];
   if (!it) return fail('No such item.');
-  if (c.items.length >= MAX_ITEMS) return fail(`Your pack holds at most ${MAX_ITEMS} magic items.`);
   if (c.gold < it.cost) return fail(`You can't afford the ${it.name}.`);
   c.gold -= it.cost;
   c.items.push(it.charges ? { id, charges: it.charges } : { id });
@@ -148,10 +149,12 @@ export function stayAtInn(state, nightsWanted) {
   const healed = heal(c, nights);
   const cured = curePoison(c) > 0;
   state.day += nights;
+  const spoiled = advanceClock(state, nights);
   const parts = [`You sleep ${nights} night${nights === 1 ? '' : 's'} for ${nights * INN_PRICE} gold`];
   if (healed) parts.push(` and recover ${healed} hit point${healed === 1 ? '' : 's'}`);
   let msg = parts.join('') + '.';
   if (cured) msg += ' The poison has left your body.';
   if (c.hp >= maxHp(c)) msg += ' You are fully healed.';
+  if (spoiled.length) msg += ` Spoiled while you slept: ${spoiled.join(', ')}.`;
   return ok(msg);
 }

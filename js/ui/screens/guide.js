@@ -5,7 +5,7 @@ import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
 import { WEAPONS, WEAPON_BY_ID, ARMOR, ITEMS } from '../../data/equipment.js';
 import {
   STATS, strBonus, dexAc, conHp, XP_FOR_LEVEL, MAX_LEVEL, FIRST_LEVEL_HP, HIT_DIE, HP_AFTER_NINE,
-  thac0, attacksLabel, saveTarget, STARTING_GOLD, INN_PRICE, MAX_WEAPONS, MAX_ITEMS,
+  thac0, attacksLabel, saveTarget, STARTING_GOLD, INN_PRICE, MAX_WEAPONS, GLAND_DECAY_TICKS, MAX_COATINGS,
   NATURAL_MAX, TOME_MAX, STAT_POINT_EVERY, ITEM_SPEED,
 } from '../../rules/tables.js';
 import { earnsStatPoint } from '../../rules/stats.js';
@@ -14,6 +14,7 @@ import { button, esc, gp, signed, d20Chance } from '../format.js';
 import { specialText } from './arena.js';
 import { poisonTotal } from '../../rules/poison.js';
 import { MERCS } from '../../data/mercs.js';
+import { LOOT_BY_ID } from '../../data/loot.js';
 import { summonKind, SUMMON_CHANCE_PER_MERC, SUMMON_CHANCE_MAX } from '../../rules/combat.js';
 
 const SECTIONS = [
@@ -28,6 +29,7 @@ const SECTIONS = [
   ['g-poison', 'Poison'],
   ['g-mercs', 'Mercenaries'],
   ['g-reinforce', 'Reinforcements'],
+  ['g-loot', 'Loot and venom'],
   ['g-weapons', 'Weapons'],
   ['g-armor', 'Armor'],
   ['g-magic', 'Magic items'],
@@ -90,6 +92,28 @@ function monsterTable() {
   });
   return table(['Opponent', num('AC'), 'Hit points', num('THAC0'), num('Speed'), 'Attacks per round',
     'Weapon needed', 'Special', num('XP'), num('Award'), num('Fine')], rows, 'monster-table');
+}
+
+function lootTable() {
+  const rows = [];
+  for (const m of MONSTERS) {
+    for (const drop of m.loot) {
+      const item = LOOT_BY_ID[drop.item];
+      rows.push(tr([`<span aria-hidden="true">${m.art}</span> ${esc(m.name)}`, esc(item.name), n(`${Math.round(drop.chance * 100)}%`),
+        n(item.potency), n(gp(item.value)), n(gp(item.value * item.potency)), n(item.potency * GLAND_DECAY_TICKS)]));
+    }
+  }
+  return table(['Monster', 'Loot', num('Drop chance'), num('Potency'), num('Pays per point'), num('Pays when fresh'), num('Ticks until it spoils')], rows);
+}
+
+function venomTargetsTable() {
+  return table(['Opponent', 'Weapon venom', num('Saves as level'), num('Save needed')], MONSTERS.map(m => {
+    const level = Math.max(1, 21 - m.thac0);
+    const note = m.immune.includes('poison') ? 'Immune'
+      : m.resist.includes('poison') ? 'Resists: half damage'
+      : m.loot.length ? 'Immune to its own venom' : 'Normal';
+    return tr([`<span aria-hidden="true">${m.art}</span> ${esc(m.name)}`, note, n(level), n(m.immune.includes('poison') ? '' : saveTarget('poison', level))]);
+  }));
 }
 
 function mercTable() {
@@ -292,6 +316,7 @@ export function render(ctx) {
         <li><strong>Cures.</strong> A Potion of Neutralize Poison (${gp(ITEMS.find(i => i.cure).cost)}, Magic Shop) works in town or
           in a fight (it uses your turn). One night at the inn also cures it. Healing potions don't.</li>
         <li><strong>Death.</strong> Poison can kill you during a fight. The log will say "You succumb to the poison."</li>
+        <li><strong>Turn it around.</strong> Poisonous monsters can drop venom you can put on your own weapon. See Loot and venom.</li>
         <li><strong>History.</strong> The Equipment screen keeps a poison record: how often each monster poisoned you,
           how often you resisted, and how much damage its poison did.</li>
       </ul>
@@ -332,6 +357,32 @@ export function render(ctx) {
       </ul>
       ${callsTable()}
 
+      <h3 id="g-loot">Loot and venom</h3>
+      <p>Poisonous monsters sometimes leave their venom behind when they die, including summoned ones. Use it to coat your
+        weapons, or sell it to the alchemist at the Magic Shop.</p>
+      <ul>
+        <li><strong>The clock.</strong> Venom fades with time. The clock ticks <strong>once per arena visit</strong> (however many
+          fights you have before going back to town) and <strong>once per night</strong> at the inn. The Equipment screen shows the clock.</li>
+        <li><strong>In your pack</strong>, venom loses 1 potency every ${GLAND_DECAY_TICKS} ticks, so it survives long rests.
+          At 0 it spoils and is thrown out. The alchemist pays by current potency, so fresh venom is worth more.</li>
+        <li><strong>Coating a weapon.</strong> On the Equipment screen, press "Apply to…" on a gland and pick any weapon you own.
+          The gland is used up and the coating starts at its potency. A coating loses 1 strength <strong>every tick</strong>, so coat
+          your weapon right before an arena visit, not before a night at the inn.</li>
+        <li><strong>Stacking.</strong> A weapon can carry up to ${MAX_COATINGS} different venoms, say wyvern and scorpion. Applying the same venom
+          again refreshes it to the stronger of the two. Selling a weapon loses its coatings.</li>
+        <li><strong>Poisoning monsters.</strong> Every time you hit with a coated weapon in hand, each coating gets its own chance:
+          the monster rolls a saving throw against poison, as a fighter of level 21 − its THAC0. If it fails, it's poisoned with the coating's
+          strength and follows the same rules as poison on you: damage equal to the strength at the end of every round, then the strength drops by 1,
+          and a second venom taking hold makes it the higher of the two plus 1.</li>
+        <li><strong>Immune and resistant.</strong> Undead (Ghoul, Wight) and creatures of stone and earth (Gargoyle, Earth Elemental) are
+          immune. No monster can be poisoned by its own kind's venom, so scorpion venom does nothing to a Giant Scorpion. Dragons resist
+          poison: each round's poison damage is halved (rounded up).</li>
+        <li>Only your weapon carries venom; mercenaries' weapons don't.</li>
+      </ul>
+      ${lootTable()}
+      <p class="muted small">How easily each opponent shrugs off venom from your weapon:</p>
+      ${venomTargetsTable()}
+
       <h3 id="g-weapons">Weapons</h3>
       <p>You can carry up to ${MAX_WEAPONS} weapons and switch between them at the Equipment screen. Damage includes the
         magic bonus but not your Strength bonus. Speed is added to your initiative roll, so lower is faster. Everything sells back for half price.</p>
@@ -343,14 +394,14 @@ export function render(ctx) {
       <p class="muted small">* Before Dexterity and rings.</p>
 
       <h3 id="g-magic">Magic items</h3>
-      <p>Your pack holds up to ${MAX_ITEMS} magic items. Rings work while you carry them, but only your best ring counts.
+      <p>Rings work while you carry them, but only your best ring counts.
         Wands lose a charge each use and crumble when empty; a partly used wand sells for less. Wands and the fiery potion always hit,
         even against monsters that need a magic weapon, unless the monster is immune to that kind of damage.</p>
       ${itemTable()}
 
       <h3 id="g-town">Town, healing, and saving</h3>
       <ul>
-        <li><strong>The Griffin Inn</strong>: each night costs ${gp(INN_PRICE)}, heals 1 hit point, and cures poison. "Stay until healed" sleeps as many nights as you need, or as many as you can afford.</li>
+        <li><strong>The Griffin Inn</strong>: each night costs ${gp(INN_PRICE)}, heals 1 hit point, and cures poison. Each night also ticks the venom clock. "Stay until healed" sleeps as many nights as you need, or as many as you can afford.</li>
         <li><strong>Healing potions</strong> heal faster and work in the arena too, but cost more.</li>
         <li><strong>Saving</strong>: the game autosaves in your browser after every action. Save / Load has 3 extra slots,
           and you can export your game to a file as a backup or to move it to another device. Clearing your browser data erases saves that aren't exported.</li>
