@@ -1,0 +1,212 @@
+# The Battlerings of Dimholt: design notes
+
+A new fan-created game that builds on *Darkwood* (1992), the Macintosh shareware arena game by Robert Chancellor. It started as a copy of this repo's faithful Darkwood remake (`/Darkwood`) and adds its own ideas. Darkwood stays as close to the original as we can make it, and new ideas go here.
+
+## What's new compared to Darkwood
+
+### Stat points from leveling
+
+- **Earning points:** you earn one stat point at every 2nd level (2, 4, 6 … 20), 10 in all.
+- **Spending:** points are spent at the **Training Yard** in town. A status-bar link and a tag on the town map show when points are waiting.
+- **No obligation:** points can be banked indefinitely.
+- **Any stat:** points can go into any of the six stats, including Intelligence, Wisdom, and Charisma, which don't affect the game yet.
+- **Staged changes:** you stage changes with + and −, then press **Confirm training**, because a raise can't be undone.
+- **Caps:**
+  - Training stops at **18**.
+  - Tomes from the Magic Shop can raise a stat to **25**, and the Strength, Dexterity, and Constitution bonus tables now extend to 25.
+  - There is no exceptional Strength (18/xx).
+- **Constitution is retroactive**, as with Tomes: raising it adds hit points to every level from 1 to 9 at once.
+
+**Stat history and level drain.** Stats are never edited in place:
+
+- **What's stored:** each character keeps `baseStats` (the creation roll), `statLog` (each raise, from a level point or a Tome), and `statPoints` (the levels whose point is still unspent).
+- **How current stats are built:** `stats` is rebuilt by replaying the log over the base, in `rules/stats.js`.
+- **When a Wight drains level L:**
+  - If L's point is unspent, the drain removes it.
+  - Otherwise the raise made with L's point is marked `revoked`, and stats are rebuilt.
+  - Tomes read in between still count.
+- **Spending order:** the oldest points are spent first, so a drain takes an unspent point before undoing a choice.
+- **Re-earning:** a drained level gives its point back when you reach it again.
+- **Visible history:** revoked raises stay in the history list on the Equipment screen, crossed out.
+
+### Player guide
+
+The in-game **Guide** (`js/ui/screens/guide.js`) explains the goal, character creation, what each stat does, leveling, stat points and Tomes, combat math, every monster, special abilities, gear, the inn, saving, and keyboard shortcuts. You can open it from the title screen, the town map, the Battlerings screen, or with the <kbd>G</kbd> key in town.
+
+Every table in it (stat bonuses 3-25, the level table, monsters, weapons, armor, and magic items) is generated from `data/` and `rules/tables.js`, so it updates itself when balance changes. If you change a rule's *behavior*, such as how breath weapons work, update the prose in `guide.js` too.
+
+Balance hasn't been retuned for the extra points yet. The balance simulator in `tests/index.html` still assumes no training.
+
+## 1. Research: the original games
+
+### Darkwood (1992)
+
+- **Author:** Robert Chancellor, La Verne, CA. Shareware, $10 registration.
+- **Platform:** 68K Macintosh, System 7 to Mac OS 9. The Macintosh Repository archives versions 1.0, 1.2 (1992), 2.0, and 2.5 (1993).
+- **Story:** Darkwood is a city in the northern regions with no walls, kept safe by a powerful City Guard. You are Derek, a stable hand whose father died defending the city from an orc invasion. The city has promised that anyone who bests the most powerful creature the arena can host becomes a Captain of the Guard. No one has done it in 24 seasons.
+- **Character:** six stats, 3 to 18, rolled as in D&D: Strength, Intelligence, Wisdom, Dexterity, Constitution, and Charisma. Only Strength (to hit and damage), Dexterity (armor class), and Constitution (hit points per level) matter, and bonuses generally start at 15.
+- **Main window:** shows Level, XP, HP (current/max), AC (lower is better), and Gold, next to a clickable map of the city.
+- **Buildings:**
+  - **Arena:** an opponent dialog lists foes with their XP, award, surrender fine, and the magic weapon bonus needed to hit them.
+  - **Weapon shop:** shows cost, speed (lower is faster, and it modifies initiative), and damage range. You can carry up to 6 weapons, and you sell them back for less than you paid.
+  - **Armorer:** you wear one suit at a time, and buying a new one trades in the old. An unarmored character is AC 10.
+  - **Magic shop:** potions, rings, wands with charges, and tomes.
+  - **Inn:** each night heals 1 hp. There's a "Stay Until Healed" button, and you aren't charged if you're already at full hp.
+  - **Equipment dialog:** switch weapons and use magic items.
+- **Combat:** fought in rounds, and some creatures attack several times a round. Each round goes:
+  1. Decide who strikes first. This is random, modified by weapon speed.
+  2. The first attacker strikes, then the game checks whether the defender died.
+  3. The second attacker strikes, then the same check.
+
+  To-hit is modified by level, Strength, and magic weapon bonus. Damage is the weapon's damage plus Strength and magic bonuses. Your buttons are **Fight**, **Use** (an item, which takes your whole round), and **Surrender** (end the fight and pay a fine of about 10% of the award). Hit points show as green bars.
+- **Special abilities:** some creatures drain levels and pay more than others of similar strength. Some are hard to hit but die quickly, and others are easy to hit but have huge hp.
+
+Source: the original *Read Me* that shipped with v1.0, archived on discmaster.textfiles.com.
+
+### Siege of Darkwood (1993)
+
+The sequel adds a turn-based layer. You move around a tile map, scout the approaching enemies, and choose which battle to fight next, healing between fights. You must eventually defeat every squad before time runs out, or the enemy breaks into the castle. A modern PICO-8 remake by petpolitics on itch.io describes the hero as Derek Silverhand defending Darkwood from "Torque's hordes" over 10 waves, with a Temple for healing.
+
+### Sources
+
+- Original Read Me (PDF): https://discmaster.textfiles.com/file/10452/101.ISO/Role%20Play/Darkwood%20%EF%BE%84/Read%20Me.WORD/Read%20Me.pdf
+- Darkwood on Macintosh Repository: https://www.macintoshrepository.org/3666-darkwood
+- Siege of Darkwood on Macintosh Repository: https://www.macintoshrepository.org/4561-siege-of-darkwood
+- PICO-8 remake: https://petpolitics.itch.io/siege-of-darkwood
+
+## 2. Opponents
+
+The names, order, XP, and award money are **exactly the original list** from the Read Me. The original lists names catalog-style ("Rat, Giant", "Giant, Hill"); this remake uses natural word order. The combat stats are this remake's, adapted from AD&D and tuned with the balance simulator (`tests/index.html`). The original's Read Me doesn't publish them.
+
+| # | Opponent | XP | Award | Fine | AC | HP | Attacks | Magic req. | Special |
+|---|---|---:|---:|---:|---:|---|---|---|---|
+| 1 | Giant Rat | 75 | 10 | 1 | 7 | 1d4 | bite 1-3 | | |
+| 2 | Kobold | 90 | 20 | 2 | 7 | 1d4+1 | spear 1-6 | | |
+| 3 | Goblin | 110 | 25 | 3 | 6 | 1d8 | short sword 1-6 | | |
+| 4 | Orc | 150 | 30 | 3 | 6 | 1d8+1 | axe 1-8 | | |
+| 5 | Bugbear | 250 | 40 | 4 | 5 | 3d8+1 | morning star 3-9 | | |
+| 6 | Gnoll | 300 | 50 | 5 | 5 | 3d8 | halberd 4-10 | | |
+| 7 | Minotaur | 300 | 55 | 6 | 6 | 4d8+4 | horns 1-6, axe 1-8 | | |
+| 8 | Ettin | 300 | 70 | 7 | 4 | 5d8 | two clubs 1-8 | | |
+| 9 | Gargoyle | 400 | 180 | 18 | 5 | 4d8+4 | 4 attacks | +1 | |
+| 10 | Ghoul | 500 | 400 | 40 | 6 | 3d8 | 3 attacks | | Paralyzing touch |
+| 11 | Wight | 700 | 500 | 50 | 5 | 4d8+3 | touch 1-4 | +1 | Level drain |
+| 12 | Quickling | 900 | 600 | 60 | -3 | 2d8+2 | 3 daggers | | Nearly always strikes first |
+| 13 | Hydra | 800 | 700 | 70 | 5 | 48 | 6 heads, 1-6 | | Attacks drop as heads die |
+| 14 | Hill Giant | 1,200 | 800 | 80 | 4 | 8d8+2 | club 2-16 | | |
+| 15 | Fire Giant | 1,400 | 900 | 90 | 3 | 10d8+3 | sword 5-23 | | Immune to fire |
+| 16 | Storm Giant | 1,600 | 1,000 | 100 | 1 | 11d8+4 | sword 6-24 | | Immune to lightning |
+| 17 | Earth Elemental | 2,000 | 1,500 | 150 | 2 | 12d8 | fist 4-32 | +2 | |
+| 18 | Troll | 1,800 | 1,500 | 150 | 4 | 8d8+8 | 2 claws, bite | | Regenerates 3/round; fire stops it |
+| 19 | Black Dragon | 6,000 | 3,000 | 300 | 2 | 10d8 | 2 claws, bite | | Acid breath |
+| 20 | Red Dragon | 12,000 | 5,000 | 500 | -1 | 14d8 | 2 claws, bite | | Fire breath; beating it ends the story |
+
+Dragon breath does half the dragon's *current* hp, and half that again on a successful save, so wounding a dragon weakens its breath.
+
+From the balance simulation, a gladiator with Str 16, Dex 15, and Con 15, using gear they could afford by then and only pressing Fight, wins about half the time at these levels: Bugbear 2, Gnoll 3, Ettin 4, Gargoyle 4, Hydra 7, Hill Giant 5, Fire Giant 7, Storm Giant 9, Earth Elemental 8, Troll 8, Black Dragon 7, and Red Dragon 13. Potions and wands bring the dragon within reach a few levels earlier.
+
+### Ideas for more opponents (after v0.1)
+
+Siege mode needs groups, and the arena could use variety. Candidates from the same AD&D bestiary: Skeleton and Zombie (undead squads, maybe needing blunt weapons), Hobgoblin and Orc Captain (squad leaders), Ogre, Owlbear, Wraith, Basilisk (petrify), Manticore (tail spikes at range), Vampire, and Beholder as a secret boss. For the siege, the antagonist "Torque" and his warband would bring Orc squads, Goblin wolf riders, Troll siege beasts, and a Black Dragon mount.
+
+## 3. Code framework
+
+### Goals
+
+- Static files only, so it's hosted on GitHub Pages with **no build step and no backend**.
+- Saves stay in the player's browser, with file export for backups.
+- Rules are separate from presentation, so v0.1's text-and-buttons UI can later get graphics and animation without touching the rules.
+
+### Layout
+
+```
+BattleringsOfDimholt/
+├── index.html            Page shell; loads js/main.js as an ES module
+├── css/game.css          Theme and layout
+├── js/
+│   ├── main.js           Boots the app
+│   ├── engine/           Infrastructure, no game rules
+│   │   ├── dice.js       All randomness: "2d4+1" parsing, seedable RNG
+│   │   ├── state.js      Shape of the save-game state, SAVE_VERSION
+│   │   └── save.js       localStorage slots, file export/import, migrations
+│   ├── data/             Pure data tables (edit these to add content)
+│   │   ├── monsters.js   Arena opponents
+│   │   └── equipment.js  Weapons, armor, magic items
+│   ├── rules/            Game logic: pure functions on plain state, no DOM
+│   │   ├── tables.js     Stat bonuses, XP table, THAC0, saves, prices
+│   │   ├── stats.js      Stat points, Tomes, stat history, drain
+│   │   ├── character.js  Creation, derived stats, leveling, level drain
+│   │   ├── town.js       Shops, inn, using items in town
+│   │   └── combat.js     Round-by-round combat that returns events
+│   └── ui/               Everything that touches the DOM
+│       ├── app.js        Router, autosave, click/key dispatch
+│       ├── presenter.js  Turns combat events into log lines (and later animations)
+│       ├── status.js     Character status bar
+│       ├── format.js     HTML helpers
+│       └── screens/      One module per screen
+└── tests/
+    ├── index.html        Rule unit tests and the balance simulator
+    └── smoke.html        Scripted playthrough of the real UI
+```
+
+### Key decisions
+
+**One plain JSON state object.** The whole game is `{ version, character, day, combat, flags, settings }`. Derived numbers such as max hp, AC, and to-hit are computed from it and never stored, so saves stay small and can't contradict themselves. Max hp is rebuilt from the raw hit-die rolls in `hpRolls`, which makes level drain and a Tome of Constitution work exactly.
+
+**Rules are pure; combat emits events.** `playRound(state, action)` changes state and returns a list of events, such as `{ t: 'attack', who: 'player', hit: true, dmg: 6, monsterHp: 3 }`. The rules never render anything. The UI hands the events to a **presenter**:
+
+- v0.1's `TextPresenter` turns each event into a log line, updates the hp bars, and waits a moment.
+- A future `SpritePresenter` implements the same `play(events, view)` and plays a swing, hit flash, or breath animation for each event before logging it. Neither the rules nor the save format change.
+
+**Screens are tiny modules.** Each exports `render(ctx, params)` returning HTML, plus `actions` for its `data-action` buttons and optional `keys` and `mount`. Swapping the town's button grid for a drawn, clickable city map (as in the original) only changes `screens/town.js`.
+
+**Randomness goes through `dice.js`.** Tests call `setRng(seeded(n))` for repeatable runs, and the balance simulator plays thousands of fights in a few seconds.
+
+**Saving with no backend:**
+
+- **Autosave** writes to localStorage after every action, including each combat round, so reloading the page can't undo a bad fight.
+- **Three manual slots** let players keep a safe point. Death is permanent for the character, but you can load a slot.
+- **Export and import** download and upload a `.dimholt.json` file, for backups and moving between devices.
+- Each save is wrapped in an envelope `{ format, version, savedAt, summary, state }`. When the state shape changes, bump `SAVE_VERSION` and add a step to `MIGRATIONS` in `save.js`, so old saves keep loading.
+- All storage calls are wrapped in try/catch. If storage is blocked, the game still runs and points the player to file export.
+
+**Why no framework or bundler?** The UI is small, native ES modules work in every current browser, and this repo's convention is no build step. If the UI grows (canvas, sprite sheets, audio), the rules layer can be reused as-is under any renderer: Canvas 2D, PixiJS, or Phaser loaded from a CDN.
+
+### Running locally
+
+ES modules don't load from `file://`, so serve the folder:
+
+```
+python -m http.server
+```
+
+Then open http://localhost:8000/BattleringsOfDimholt/. Tests are at `/BattleringsOfDimholt/tests/` (rules and balance) and `/BattleringsOfDimholt/tests/smoke.html` (UI playthrough, which overwrites your autosave and slot 3).
+
+## 4. Roadmap
+
+**v0.1 (this version):**
+
+- Character creation with 3d6 rolls and rerolls
+- Town with the weaponsmith, armorer, magic shop, inn, equipment screen, and saves
+- All 20 original opponents
+- Combat with Fight, Use, and Surrender
+- Special abilities: paralysis, level drain, regeneration, hydra heads, breath weapons, immunities, and magic-weapon requirements
+- Level-ups, plus extra attacks at levels 7 and 13
+- Captain of the Guard ending
+- Autosave, three save slots, and file export/import
+
+**v0.2: polish and feel**
+- Sound effects, keyboard focus and screen-reader pass, settings screen (theme, combat speed)
+- Arena stats: fastest kill, total gold won
+- Balance pass from real play; maybe shields and Strength requirements for heavy weapons
+
+**v0.3: graphics**
+- Drawn town map with clickable buildings, like the original's main window
+- Monster portraits replacing the emoji (`art` field → image path), then a `SpritePresenter` with idle, attack, hit, and death frames
+- Damage numbers and hp-bar tweening driven by the existing combat events
+
+**v0.4: Siege of Darkwood mode**
+- New `rules/siege.js`: a tile map, squads with positions and a march timer, and a castle hp/breach clock
+- Squads are lists of monsters fought one at a time (or as a group, with an `enemies[]` combat extension)
+- Scouting a squad before engaging, choosing battle order, healing at a Temple between fights
+- A save-format migration that adds `state.siege`, plus a campaign that carries an arena character into the siege

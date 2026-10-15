@@ -1,0 +1,243 @@
+// The player's guide. Every number in the tables is read from the game's
+// data and rule files, so the guide stays correct when balance changes.
+
+import { MONSTERS } from '../../data/monsters.js';
+import { WEAPONS, ARMOR, ITEMS } from '../../data/equipment.js';
+import {
+  STATS, strBonus, dexAc, conHp, XP_FOR_LEVEL, MAX_LEVEL, FIRST_LEVEL_HP, HIT_DIE, HP_AFTER_NINE,
+  thac0, attacksLabel, saveTarget, STARTING_GOLD, INN_PRICE, MAX_WEAPONS, MAX_ITEMS,
+  NATURAL_MAX, TOME_MAX, STAT_POINT_EVERY, ITEM_SPEED,
+} from '../../rules/tables.js';
+import { earnsStatPoint } from '../../rules/stats.js';
+import { rangeText, span } from '../../engine/dice.js';
+import { button, esc, gp, signed } from '../format.js';
+import { specialText } from './arena.js';
+
+const SECTIONS = [
+  ['g-goal', 'The goal'],
+  ['g-create', 'Creating your gladiator'],
+  ['g-stats', 'Stats'],
+  ['g-progress', 'Leveling up'],
+  ['g-training', 'Stat points and Tomes'],
+  ['g-combat', 'How combat works'],
+  ['g-monsters', 'Monsters'],
+  ['g-specials', 'Special abilities'],
+  ['g-weapons', 'Weapons'],
+  ['g-armor', 'Armor'],
+  ['g-magic', 'Magic items'],
+  ['g-town', 'Town, healing, and saving'],
+  ['g-keys', 'Keyboard shortcuts'],
+];
+
+const table = (head, rows, cls = '') => `
+  <div class="table-wrap"><table class="guide-table ${cls}">
+    <thead><tr>${head.map(h => `<th${h.num ? ' class="num"' : ''}>${h.label ?? h}</th>`).join('')}</tr></thead>
+    <tbody>${rows.join('')}</tbody>
+  </table></div>`;
+const num = label => ({ label, num: true });
+const tr = cells => `<tr>${cells.map(c => (typeof c === 'object' ? `<td class="num">${c.v}</td>` : `<td>${c}</td>`)).join('')}</tr>`;
+const n = v => ({ v });
+
+function statTable() {
+  const rows = [];
+  for (let v = 3; v <= TOME_MAX; v++) {
+    const s = strBonus(v);
+    rows.push(tr([
+      v <= NATURAL_MAX ? `${v}` : `${v} <span class="muted small">(Tome)</span>`,
+      n(signed(s.hit)), n(signed(s.dmg)), n(signed(dexAc(v))), n(signed(conHp(v))),
+    ]));
+  }
+  return table(['Score', num('Str to hit'), num('Str damage'), num('Dex AC'), num('Con hp/level')], rows, 'compact-rows');
+}
+
+function levelTable() {
+  const rows = [];
+  for (let L = 1; L <= MAX_LEVEL; L++) {
+    rows.push(tr([
+      `${L}`,
+      n(XP_FOR_LEVEL[L].toLocaleString()),
+      L === 1 ? `${FIRST_LEVEL_HP} + Con` : L <= 9 ? `1-${HIT_DIE} + Con` : `+${HP_AFTER_NINE}`,
+      n(thac0(L)),
+      n(attacksLabel(L)),
+      n(saveTarget('paralysis', L)),
+      n(saveTarget('breath', L)),
+      earnsStatPoint(L) ? '✓' : '',
+    ]));
+  }
+  return table(['Level', num('XP needed'), 'Hit points gained', num('THAC0'), num('Attacks'),
+    num('Save: paralysis'), num('Save: breath'), 'Stat point'], rows, 'compact-rows');
+}
+
+function monsterTable() {
+  const rows = MONSTERS.map(m => {
+    const hp = m.hpFixed ? `${m.hpFixed}` : `<span class="nowrap">${m.hp} <span class="muted small">(${rangeText(m.hp)})</span></span>`;
+    const attacks = m.special.heads
+      ? `${m.special.heads} heads, ${rangeText(m.attacks[0].dmg)} each`
+      : m.attacks.map(a => `${esc(a.name)} ${rangeText(a.dmg)}`).join(', ');
+    return tr([
+      `<span aria-hidden="true">${m.art}</span> ${esc(m.name)}`,
+      n(m.ac), hp, n(m.thac0), n(signed(m.speed)), attacks,
+      m.magicReq ? `+${m.magicReq}` : '',
+      esc(specialText(m) === 'None' ? '' : specialText(m)),
+      n(m.xp.toLocaleString()), n(m.gold.toLocaleString()), n(m.fine.toLocaleString()),
+    ]);
+  });
+  return table(['Opponent', num('AC'), 'Hit points', num('THAC0'), num('Speed'), 'Attacks per round',
+    'Weapon needed', 'Special', num('XP'), num('Award'), num('Fine')], rows);
+}
+
+function weaponTable() {
+  return table(['Weapon', num('Damage'), num('Speed'), num('Magic'), num('Cost'), num('Sells for')],
+    WEAPONS.map(w => tr([esc(w.name), n(rangeText(w.dmg, w.plus)), n(w.speed), n(w.plus ? `+${w.plus}` : ''), n(gp(w.cost)), n(gp(Math.floor(w.cost / 2)))])));
+}
+
+function armorTable() {
+  return table(['Armor', num('AC adjust'), num('Your AC with it*'), num('Cost')],
+    ARMOR.map(a => tr([esc(a.name), n(signed(a.ac)), n(10 + a.ac), n(gp(a.cost))])));
+}
+
+function itemTable() {
+  const where = { any: 'Town or arena', combat: 'Arena only', town: 'Town only', passive: 'Always on' };
+  return table(['Item', 'Effect', 'Use', num('Charges'), num('Cost')],
+    ITEMS.map(it => tr([esc(it.name), esc(it.effect), where[it.use], n(it.charges ?? ''), n(gp(it.cost))])));
+}
+
+export function render(ctx) {
+  const inGame = !!ctx.state?.character;
+  const toc = SECTIONS.map(([id, title]) => `<li><a href="#${id}" data-action="jump" data-id="${id}">${title}</a></li>`).join('');
+  const startGold = span(STARTING_GOLD);
+  return `
+    <section class="guide">
+      <h2>📖 Gladiator's Guide</h2>
+      <p class="muted">Everything you need to know to survive the Battlerings. All numbers below come straight from the game's rules.</p>
+      <nav class="panel guide-toc" aria-label="Guide sections"><ol>${toc}</ol></nav>
+
+      <h3 id="g-goal">The goal</h3>
+      <p>Dimholt is kept safe by its City Guard, and the city has promised that anyone who beats the mightiest creature
+        the Battlerings can host becomes a Captain of the Guard. That creature is the <strong>Red Dragon</strong>.
+        Start with the weakest opponents, win gold and experience, buy better gear, and work your way up the list.
+        After you become Captain you can keep fighting as long as you like.</p>
+
+      <h3 id="g-create">Creating your gladiator</h3>
+      <ul>
+        <li>Each of the six stats is rolled on 3d6, so it ranges from 3 to 18. You can reroll as often as you like before you begin.</li>
+        <li>You start at level 1 with ${FIRST_LEVEL_HP} hit points plus your Constitution bonus (minimum 1).</li>
+        <li>You start with ${startGold.min * 10}-${startGold.max * 10} gold (${STARTING_GOLD} × 10) and no equipment.
+          A Long Sword (${gp(15)}) and Leather Armor (${gp(5)}) are an affordable first kit.</li>
+      </ul>
+
+      <h3 id="g-stats">Stats</h3>
+      <ul>
+        <li><strong>Strength</strong> adds to your chance to hit and to the damage of every weapon blow. It doesn't affect wands or potions.</li>
+        <li><strong>Dexterity</strong> changes your armor class. Lower AC is better, so a negative adjustment helps.</li>
+        <li><strong>Constitution</strong> adds hit points for each of your first 9 levels. Changes to Constitution apply
+          to all of those levels at once, so raising it also raises the hit points you already have.</li>
+        <li><strong>Intelligence, Wisdom, and Charisma</strong> don't affect the game yet. You can still raise them.</li>
+      </ul>
+      <p>Bonuses start at 15, and very low scores give penalties. Scores above ${NATURAL_MAX} can only be reached with Tomes.</p>
+      ${statTable()}
+
+      <h3 id="g-progress">Leveling up</h3>
+      <p>You earn experience (XP) only by winning fights. When your XP reaches the next level's total you level up, even in
+        the middle of a fight, and you gain hit points right away. Each level improves your <strong>THAC0</strong>
+        ("To Hit Armor Class 0"), which makes you more accurate, and your saving throws, which help you resist paralysis
+        and dragon breath. Fighters get extra attacks at level 7 (3 attacks every 2 rounds) and level 13 (2 every round).
+        The highest level is ${MAX_LEVEL}.</p>
+      ${levelTable()}
+
+      <h3 id="g-training">Stat points and Tomes</h3>
+      <ul>
+        <li>You earn one <strong>stat point</strong> at every ${STAT_POINT_EVERY === 2 ? 'second' : `${STAT_POINT_EVERY}th`} level
+          (levels ${STAT_POINT_EVERY}, ${STAT_POINT_EVERY * 2}, ${STAT_POINT_EVERY * 3} … ${MAX_LEVEL - (MAX_LEVEL % STAT_POINT_EVERY)}).</li>
+        <li>Spend points at the <strong>Training Yard</strong> in town. Use + and − to plan, then press Confirm training.
+          You don't have to spend them right away; unspent points are kept.</li>
+        <li>Points can go into any stat, but training can't raise a stat above <strong>${NATURAL_MAX}</strong>.</li>
+        <li><strong>Tomes</strong> from the Magic Shop raise Strength, Dexterity, or Constitution by 1, up to <strong>${TOME_MAX}</strong>.</li>
+        <li>If a Wight drains a level that gave you a stat point, you lose that point. If it was still unspent, it simply
+          disappears; if you spent it, that stat goes back down. Tomes are never lost. Reaching the level again gives the point back.</li>
+        <li>The Equipment screen shows your full stat history.</li>
+      </ul>
+
+      <h3 id="g-combat">How combat works</h3>
+      <p>Fights are played one round at a time. Each round you choose <strong>Fight</strong>, <strong>Use</strong> an item, or <strong>Surrender</strong>.</p>
+      <ol>
+        <li><strong>Initiative.</strong> You roll 1d10 plus your weapon's speed (or ${ITEM_SPEED} when using an item).
+          The monster rolls 1d10 plus its speed. The lower total acts first, and ties go to you.</li>
+        <li><strong>To hit.</strong> The attacker rolls 1d20 and needs at least: <code>THAC0 − target's AC − bonuses</code>.
+          Your bonuses are Strength's to-hit bonus plus your weapon's magic bonus. A natural 20 always hits and a natural 1 always misses.
+          The Battlerings screen shows your chance to hit each opponent and its chance to hit you.</li>
+        <li><strong>Damage.</strong> Your damage is the weapon's dice plus Strength's damage bonus plus the weapon's magic bonus, at least 1.</li>
+        <li>After every blow, check whether anyone has fallen. Then the other side acts.</li>
+      </ol>
+      <ul>
+        <li><strong>Armor class</strong> = 10 + armor adjustment + Dexterity adjustment − your best Ring of Protection.</li>
+        <li><strong>Use</strong> takes your whole action for the round, and the monster still attacks.</li>
+        <li><strong>Surrender</strong> ends the fight immediately. The arena fines you 10% of the opponent's award, or all your gold if you have less.</li>
+        <li><strong>Death</strong> is permanent for that character. The game autosaves after every round, so reloading can't undo a fight,
+          but you can load one of your manual save slots.</li>
+      </ul>
+
+      <h3 id="g-monsters">Monsters</h3>
+      <p>Opponents are listed in order of toughness. Hit points are rolled fresh for each fight from the dice shown.
+        Speed is added to the monster's initiative roll, so lower is faster. "Weapon needed" means a weapon with at
+        least that magic bonus is required to harm it; wands still work.</p>
+      ${monsterTable()}
+
+      <h3 id="g-specials">Special abilities</h3>
+      <ul>
+        <li><strong>Paralyzing touch</strong> (Ghoul): each hit that lands lets you roll a saving throw against paralysis.
+          Fail it and you can't act for 1-3 rounds, and every attack against you hits automatically.</li>
+        <li><strong>Level drain</strong> (Wight): every hit takes away one level, along with its hit points and its stat point.
+          Your XP drops to halfway through the new level. A drain at level 1 kills you.</li>
+        <li><strong>Regeneration</strong> (Troll): heals 3 hit points at the end of every round. Fire damage, from the Potion of
+          Fiery Breath or the Wand of Fire, stops it from regenerating for the rest of the fight.</li>
+        <li><strong>Many heads</strong> (Hydra): it attacks once per remaining head. Every sixth of its hit points you take away kills a head.</li>
+        <li><strong>Breath weapon</strong> (dragons): up to 3 times a fight, a dragon may breathe instead of attacking.
+          The breath deals half the dragon's current hit points, so wounding it weakens the breath. A successful saving throw halves the damage again.</li>
+        <li><strong>Immunities</strong>: Fire Giants and Red Dragons ignore fire, Storm Giants ignore lightning, and Black Dragons ignore acid.</li>
+        <li><strong>Speed</strong> (Quickling): it almost always strikes first, and its AC of −3 makes it very hard to hit.</li>
+      </ul>
+
+      <h3 id="g-weapons">Weapons</h3>
+      <p>You can carry up to ${MAX_WEAPONS} weapons and switch between them at the Equipment screen. Damage includes the
+        magic bonus but not your Strength bonus. Speed is added to your initiative roll, so lower is faster. Everything sells back for half price.</p>
+      ${weaponTable()}
+
+      <h3 id="g-armor">Armor</h3>
+      <p>You wear one suit at a time. When you buy new armor, the armorer takes your old suit as a trade-in at half its price.</p>
+      ${armorTable()}
+      <p class="muted small">* Before Dexterity and rings.</p>
+
+      <h3 id="g-magic">Magic items</h3>
+      <p>Your pack holds up to ${MAX_ITEMS} magic items. Rings work while you carry them, but only your best ring counts.
+        Wands lose a charge each use and crumble when empty; a partly used wand sells for less. Wands and the fiery potion always hit,
+        even against monsters that need a magic weapon, unless the monster is immune to that kind of damage.</p>
+      ${itemTable()}
+
+      <h3 id="g-town">Town, healing, and saving</h3>
+      <ul>
+        <li><strong>The Griffin Inn</strong>: each night costs ${gp(INN_PRICE)} and heals 1 hit point. "Stay until healed" sleeps as many nights as you need, or as many as you can afford.</li>
+        <li><strong>Healing potions</strong> heal faster and work in the arena too, but cost more.</li>
+        <li><strong>Saving</strong>: the game autosaves in your browser after every action. Save / Load has 3 extra slots,
+          and you can export your game to a file as a backup or to move it to another device. Clearing your browser data erases saves that aren't exported.</li>
+      </ul>
+
+      <h3 id="g-keys">Keyboard shortcuts</h3>
+      ${table(['Where', 'Keys'], [
+        tr(['Character creation', '<kbd>R</kbd> reroll, <kbd>Enter</kbd> in the name box to begin']),
+        tr(['Town', '<kbd>A</kbd> Battlerings, <kbd>W</kbd> Weaponsmith, <kbd>R</kbd> Armorer, <kbd>M</kbd> Magic Shop, <kbd>I</kbd> Inn, <kbd>T</kbd> Training Yard, <kbd>E</kbd> Equipment, <kbd>S</kbd> Save / Load, <kbd>G</kbd> Guide']),
+        tr(['Combat', '<kbd>F</kbd> fight (press again to skip the animation), <kbd>U</kbd> use an item, <kbd>S</kbd> surrender']),
+        tr(['Inn', '<kbd>H</kbd> stay until healed']),
+      ])}
+
+      <div class="row">${inGame ? button('← Back to town', 'go', { to: 'town' }, { cls: 'ghost' }) : button('← Back', 'go', { to: 'title' }, { cls: 'ghost' })}
+        ${button('↑ Top', 'jump', { id: 'top' }, { cls: 'ghost' })}</div>
+    </section>`;
+}
+
+export const actions = {
+  jump(ctx, d) {
+    if (d.id === 'top') window.scrollTo({ top: 0, behavior: 'smooth' });
+    else document.getElementById(d.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+};

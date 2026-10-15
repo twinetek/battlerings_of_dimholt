@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Battlerings Smoke Test</title>
+<style>body { font: 14px/1.4 ui-monospace, Consolas, monospace; margin: 16px; } iframe { width: 1000px; height: 700px; border: 1px solid #ccc; }</style>
+</head>
+<body>
+<h1>The Battlerings of Dimholt: smoke test</h1>
+<p>Plays through the real UI in the frame below: create a character, shop, fight, rest, save, reload.
+  Note: this uses the same local storage as the game, so it overwrites your autosave and slot 3.</p>
+<pre id="out"></pre>
+<iframe id="game" src="../index.html"></iframe>
+<script>
+const out = document.getElementById('out');
+const frame = document.getElementById('game');
+const log = (ok, msg) => out.insertAdjacentText('beforeend', `${ok ? 'PASS' : 'FAIL'} ${msg}\n`);
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const errors = [];
+
+frame.addEventListener('load', async () => {
+  const w = frame.contentWindow;
+  const d = frame.contentDocument;
+  w.addEventListener('error', e => errors.push(e.message));
+  w.addEventListener('unhandledrejection', e => errors.push(String(e.reason)));
+  w.confirm = () => true;
+  await wait(300);
+  const q = sel => d.querySelector(sel);
+  const click = async (sel, label) => {
+    const btns = [...d.querySelectorAll(sel)].filter(b => !label || b.textContent.includes(label));
+    if (!btns.length) throw new Error(`No button ${sel} ${label ?? ''}`);
+    btns[0].click();
+    await wait(50);
+  };
+  const screen = () => q('#screen').dataset.screen;
+  try {
+    const navLink = () => !!q('#nav [data-to="town"]');
+    log(screen() === 'title', 'title screen shows');
+    log(!navLink(), 'no town link on the title screen');
+    await click('[data-action="go"][data-to="guide"]');
+    log(screen() === 'guide' && d.querySelectorAll('.guide-table')[2].tBodies[0].rows.length === 20, 'guide opens from the title and lists all 20 monsters');
+    await click('[data-action="jump"][data-id="g-monsters"]');
+    await click('[data-action="go"][data-to="title"]');
+    log(screen() === 'title', 'guide returns to the title');
+    await click('[data-action="go"][data-to="create"]');
+    log(screen() === 'create', 'create screen shows');
+    const layout = () => [...d.querySelectorAll('.roll-table td, .roll-summary dd, [data-action="reroll"], [data-action="begin"]')]
+      .map(el => { const r = el.getBoundingClientRect(); return `${r.left},${r.top},${r.width},${r.height}`; }).join('|');
+    const first = layout();
+    let steady = true;
+    for (let i = 0; i < 15; i++) {
+      await click('[data-action="reroll"]');
+      if (layout() !== first) steady = false;
+    }
+    log(steady, 'stat values and buttons stay put across 15 rerolls');
+    q('#hero-name').value = 'Smoke';
+    await click('[data-action="begin"]');
+    log(screen() === 'town' && q('#status').textContent.includes('Smoke'), 'new game starts in town with status bar');
+    await click('[data-to="weapons"]');
+    log(navLink(), 'town link in the top bar at the weaponsmith');
+    await click('[data-action="buy"][data-id="long-sword"]');
+    log(q('#flash').textContent.includes('Long Sword'), 'bought a long sword');
+    await click('[data-to="town"]');
+    await click('[data-to="armor"]');
+    await click('[data-action="buy"][data-id="leather"]');
+    log(q('#flash').textContent.includes('Leather'), 'bought leather armor');
+    await click('[data-to="town"]');
+    await click('[data-to="arena"]');
+    await click('tr[data-id="kobold"]');
+    log(q('.foe-card h3').textContent === 'Kobold', 'selected the kobold');
+    await click('[data-action="fight"][data-id="kobold"]');
+    log(screen() === 'combat', 'combat screen shows');
+    log(!navLink(), 'no town link mid-fight');
+    await click('[data-action="speed"][data-speed="instant"]');
+    const stopInCombat = new URLSearchParams(location.search).get('stop') === 'combat';
+    for (let i = 0; i < (stopInCombat ? 2 : 60) && q('[data-action="fight"]'); i++) {
+      await click('[data-action="fight"]');
+      await wait(30);
+    }
+    if (stopInCombat) {
+      log(true, 'stopped mid-fight for inspection (?stop=combat)');
+      document.body.dataset.done = 'yes';
+      return;
+    }
+    const result = frame.contentWindow.localStorage.getItem('dimholt.save.auto');
+    const state = JSON.parse(result).state;
+    log(state.combat?.over, `fight ended (${state.combat?.result}) after ${state.combat?.round} rounds`);
+    log(q('#combat-log').children.length > 2, 'combat log has lines');
+    if (state.combat.result !== 'death') {
+      await click('[data-action="leave"]');
+      log(screen() === 'town', 'returned to town');
+      await click('[data-to="inn"]');
+      await click('[data-action="full"]');
+      await click('[data-to="town"]');
+      await click('[data-to="saves"]');
+      await click('[data-action="save"][data-slot="3"]');
+      log(q('#flash').textContent.includes('Saved'), 'saved to slot 3');
+      await click('[data-action="load"][data-slot="3"]');
+      log(screen() === 'town', 'loaded slot 3');
+      await click('[data-to="character"]');
+      log(q('#screen').textContent.includes('Long Sword'), 'equipment screen lists the sword');
+
+      // Training Yard: give the saved character two points through a save file, then spend them.
+      const save = JSON.parse(w.localStorage.getItem('dimholt.save.3'));
+      const ch = save.state.character;
+      ch.level = 4; ch.xp = 3500; ch.hpRolls = [10, 5, 5, 5]; ch.statPoints = [2, 4];
+      ch.baseStats.str = 17; ch.stats.str = 17; ch.baseStats.cha = 10; ch.stats.cha = 10;
+      w.localStorage.setItem('dimholt.save.3', JSON.stringify(save));
+      await click('#nav [data-to="town"]');
+      await click('[data-to="saves"]');
+      await click('[data-action="load"][data-slot="3"]');
+      log(!!q('.points-badge'), 'status bar shows points to spend');
+      await click('.points-badge');
+      log(screen() === 'training', 'badge opens the Training Yard');
+      await click('[data-action="more"][data-stat="str"]');
+      log(q('[data-action="more"][data-stat="str"]').disabled, 'cannot train strength past 18');
+      await click('[data-action="more"][data-stat="wis"]');
+      log(q('[data-action="more"][data-stat="con"]').disabled, 'plus buttons disable when points run out');
+      await click('[data-action="less"][data-stat="wis"]');
+      await click('[data-action="more"][data-stat="cha"]');
+      await click('[data-action="confirm"]');
+      const after = JSON.parse(w.localStorage.getItem('dimholt.save.auto')).state.character;
+      log(after.stats.str === 18 && after.stats.cha === ch.stats.cha + 1 && after.statPoints.length === 0, 'confirmed points are saved');
+      log(!q('.points-badge') && q('#flash').textContent.includes('Training'), 'badge clears after training');
+      await click('#nav [data-to="town"]');
+      await click('[data-to="character"]');
+      log(d.querySelectorAll('.list li').length > 0 && q('#screen').textContent.includes('Level 2 point'), 'stat history lists the raises');
+      await click('#nav [data-to="town"]');
+      log(screen() === 'town' && !navLink(), 'top bar link returns to town');
+    } else {
+      await click('[data-action="leave"]');
+      log(screen() === 'dead', 'death screen shows');
+    }
+  } catch (err) {
+    log(false, err.message);
+  }
+  log(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
+  document.body.dataset.done = 'yes';
+});
+</script>
+</body>
+</html>

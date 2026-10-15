@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Battlerings Tests</title>
+<style>
+  body { font: 14px/1.4 ui-monospace, Consolas, monospace; margin: 16px; background: #fff; color: #111; }
+  .pass { color: #1a7f37; } .fail { color: #b3261e; font-weight: bold; }
+  table { border-collapse: collapse; margin-top: 12px; }
+  td, th { border: 1px solid #ccc; padding: 2px 8px; text-align: right; }
+  td:first-child, th:first-child { text-align: left; }
+</style>
+</head>
+<body>
+<h1>The Battlerings of Dimholt: rules tests</h1>
+<p>Unit checks for the rules, then a balance simulation: for each opponent, the lowest level at which a
+  typical gladiator (Str 16, Dex 15, Con 15) with gear they could plausibly afford wins most fights by
+  pressing Fight every round, with no potions.</p>
+<pre id="out"></pre>
+<div id="sim"></div>
+<script type="module">
+import { setRng, seeded, roll, parse, rangeText } from '../js/engine/dice.js';
+import { MONSTERS } from '../js/data/monsters.js';
+import { createCharacter, maxHp, armorClass, gainXp, drainLevel, spendStatPoints, readTome } from '../js/rules/character.js';
+import { buyWeapon, buyArmor, buyItem, sellWeapon, stayAtInn, useItemInTown } from '../js/rules/town.js';
+import { startCombat, playRound } from '../js/rules/combat.js';
+import { newGameState } from '../js/engine/state.js';
+import { XP_FOR_LEVEL, strBonus, dexAc, conHp } from '../js/rules/tables.js';
+
+const out = document.getElementById('out');
+let passed = 0, failed = 0;
+function check(name, cond) {
+  if (cond) passed++; else failed++;
+  out.insertAdjacentHTML('beforeend', `<span class="${cond ? 'pass' : 'fail'}">${cond ? 'PASS' : 'FAIL'}</span> ${name}\n`);
+}
+
+setRng(seeded(42));
+
+// Dice
+check('parse 2d4+1', JSON.stringify(parse('2d4+1')) === '{"n":2,"sides":4,"mod":1}');
+check('parse d6', parse('d6').n === 1);
+check('rangeText 4d3+4 is 8-16', rangeText('4d3+4') === '8-16');
+let lo = 99, hi = 0;
+for (let i = 0; i < 2000; i++) { const r = roll('3d6'); lo = Math.min(lo, r); hi = Math.max(hi, r); }
+check('3d6 stays in 3-18', lo >= 3 && hi <= 18);
+
+// Character
+const stats = { str: 16, int: 10, wis: 10, dex: 15, con: 15, cha: 10 };
+const c = createCharacter('  ', stats);
+check('blank name becomes Derek', c.name === 'Derek');
+check('level 1 hp = 10 + con bonus', maxHp(c) === 11 && c.hp === 11);
+check('unarmored AC with dex 15 is 9', armorClass(c) === 9);
+c.gold = 10000;
+check('buy long sword', buyWeapon(c, 'long-sword').ok && c.equipped === 0);
+check('buy chain mail', buyArmor(c, 'chain').ok && armorClass(c) === 4);
+const g = c.gold;
+check('trade in chain for plate', buyArmor(c, 'plate').ok && c.gold === g - (600 - 37));
+check('ring of protection', buyItem(c, 'ring-protection-2').ok && armorClass(c) === 0);
+check('only best ring counts', buyItem(c, 'ring-protection-1').ok && armorClass(c) === 0);
+for (let i = 0; i < 5; i++) buyWeapon(c, 'dagger');
+check('weapon limit is 6', !buyWeapon(c, 'dagger').ok);
+check('sell equipped weapon re-equips', sellWeapon(c, 0).ok && c.equipped === 0 && c.weapons.length === 5);
+const ups = gainXp(c, XP_FOR_LEVEL[3]);
+check('gain 2 levels', c.level === 3 && ups.length === 2);
+check('drain level', !drainLevel(c).died && c.level === 2 && c.hpRolls.length === 2);
+buyItem(c, 'tome-con');
+const before = maxHp(c);
+useItemInTown(c, c.items.length - 1);
+check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.stats.con === 16);
+
+// Stat points
+{
+  const s = createCharacter('Trainee', { str: 16, int: 10, wis: 10, dex: 15, con: 15, cha: 10 });
+  gainXp(s, XP_FOR_LEVEL[5]);
+  check('points at levels 2 and 4 only', JSON.stringify(s.statPoints) === '[2,4]');
+  check('cannot spend more points than you have', !spendStatPoints(s, { str: 3 }).ok && s.stats.str === 16);
+  check('points can go into a stat with no effect', spendStatPoints(s, { cha: 1 }).ok && s.stats.cha === 11 && s.statPoints.length === 1);
+  check('oldest point spent first', s.statLog[0].level === 2 && s.statPoints[0] === 4);
+  gainXp(s, XP_FOR_LEVEL[9] - s.xp); // levels 6 and 8 add two more points
+  check('points bank up', JSON.stringify(s.statPoints) === '[4,6,8]');
+  check('training stops at 18', !spendStatPoints(s, { str: 3 }).ok && spendStatPoints(s, { str: 2 }).ok && s.stats.str === 18);
+  const hpBefore = maxHp(s);
+  check('raising con raises hp retroactively', spendStatPoints(s, { con: 1 }).ok && maxHp(s) === hpBefore + 9 && s.hp === maxHp(s));
+  check('tomes go past 18', readTome(s, 'str') && s.stats.str === 19);
+  for (let i = 0; i < 10; i++) readTome(s, 'str');
+  check('tomes stop at 25', s.stats.str === 25);
+  check('strength table reaches 25', strBonus(25).hit === 6 && strBonus(25).dmg === 10 && dexAc(25) === -8 && conHp(25) === 8);
+
+  // Level drain takes back the drained level's point.
+  const d = createCharacter('Drained', { str: 15, int: 10, wis: 10, dex: 15, con: 15, cha: 10 });
+  gainXp(d, XP_FOR_LEVEL[4]);
+  spendStatPoints(d, { str: 1 }); // the level 2 point
+  const r1 = drainLevel(d); // lose level 4: its point is unspent
+  check('drain takes an unspent point first', r1.lostPoint && d.statPoints.length === 0 && d.stats.str === 16);
+  drainLevel(d); // lose level 3: no point
+  const r2 = drainLevel(d); // lose level 2: its point raised Strength
+  check('drain undoes a spent point', r2.lostStat === 'str' && d.stats.str === 15 && d.statLog[0].revoked);
+  readTome(d, 'str');
+  check('tome survives drain history', d.stats.str === 16);
+  gainXp(d, XP_FOR_LEVEL[2] - d.xp);
+  check('re-earning a drained level gives the point back', JSON.stringify(d.statPoints) === '[2]');
+}
+
+// Inn
+const st = newGameState(createCharacter('Inn', stats));
+st.character.hp = 1; st.character.gold = 7;
+const r = stayAtInn(st, Infinity);
+check('inn heals 1 hp per 2 gp night', r.ok && st.character.hp === 4 && st.character.gold === 1 && st.day === 4);
+
+// Combat
+const cs = newGameState(createCharacter('Fighter', stats));
+buyWeapon(cs.character, 'long-sword');
+startCombat(cs, 'giant-rat');
+let rounds = 0;
+while (!cs.combat.over && rounds < 100) { playRound(cs, { type: 'fight' }); rounds++; }
+check('rat fight ends', cs.combat.over);
+startCombat(cs, 'gargoyle');
+cs.character.hp = 999;
+let landed = false;
+for (let i = 0; i < 20; i++) landed ||= playRound(cs, { type: 'fight' }).some(e => e.t === 'attack' && e.who === 'player' && e.hit);
+check('non-magic weapon cannot hit gargoyle', !landed);
+cs.character.gold = 5000; buyItem(cs.character, 'wand-magic-missiles');
+const ev = playRound(cs, { type: 'use', index: cs.character.items.length - 1 });
+check('wand hurts gargoyle', ev.some(e => e.t === 'itemHit' || e.t === 'victory'));
+startCombat(cs, 'red-dragon');
+const fine = cs.character.gold;
+playRound(cs, { type: 'surrender' });
+check('surrender fines 500', cs.character.gold === fine - 500 && cs.combat.result === 'surrender');
+
+out.insertAdjacentHTML('beforeend', `\n${passed} passed, ${failed} failed\n`);
+
+// ---- Balance simulation ----
+// Gear a gladiator might own when they reach each opponent (index into MONSTERS).
+const GEAR = [
+  [0, 'long-sword', 'leather', null], [4, 'long-sword', 'chain', null], [6, 'bastard-sword', 'splint', null],
+  [8, 'long-sword-1', 'plate', null], [11, 'long-sword-1', 'plate', 'ring-protection-1'],
+  [13, 'long-sword-2', 'field-plate', 'ring-protection-2'], [16, 'long-sword-2', 'full-plate', 'ring-protection-3'],
+  [18, 'long-sword-3', 'full-plate-1', 'ring-protection-3'], [19, 'long-sword-3', 'full-plate-2', 'ring-protection-3'],
+];
+const gearFor = i => GEAR.filter(([k]) => k <= i).pop();
+
+function winRate(mi, level, trials = 300) {
+  let wins = 0;
+  const [, w, a, ring] = gearFor(mi);
+  for (let t = 0; t < trials; t++) {
+    const s = newGameState(createCharacter('Sim', stats));
+    const ch = s.character;
+    ch.gold = 1e6;
+    buyWeapon(ch, w); buyArmor(ch, a); if (ring) buyItem(ch, ring);
+    if (level > 1) gainXp(ch, XP_FOR_LEVEL[level]);
+    ch.hp = maxHp(ch);
+    startCombat(s, MONSTERS[mi].id);
+    let n = 0;
+    while (!s.combat.over && n++ < 300) playRound(s, { type: 'fight' });
+    if (s.combat.result === 'victory') wins++;
+  }
+  return wins / trials;
+}
+
+const rows = MONSTERS.map((m, i) => {
+  const cells = [];
+  let first50 = '-', first80 = '-';
+  for (let L = 1; L <= 16; L++) {
+    const w = winRate(i, L);
+    if (first50 === '-' && w >= 0.5) first50 = L;
+    if (first80 === '-' && w >= 0.8) { first80 = L; break; }
+  }
+  const [, w, a, ring] = gearFor(i);
+  return `<tr><td>${m.name}</td><td>${first50}</td><td>${first80}</td><td>${w}, ${a}${ring ? ', ' + ring : ''}</td></tr>`;
+}).join('');
+document.getElementById('sim').innerHTML =
+  `<table id="balance"><thead><tr><th>Opponent</th><th>Level for 50%</th><th>Level for 80%</th><th>Gear assumed</th></tr></thead><tbody>${rows}</tbody></table>`;
+document.body.dataset.done = 'yes';
+</script>
+</body>
+</html>
