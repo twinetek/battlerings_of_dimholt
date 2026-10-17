@@ -187,7 +187,7 @@ td.act button.step + button.step { margin-left: 4px; }
 .title-pre { display: block; font-size: 0.36em; letter-spacing: 0.08em; }
 .lede { font-size: 1.15rem; }
 .menu { display: grid; gap: 10px; justify-items: center; margin: 28px 0; }
-.menu button { min-width: 220px; justify-content: center; }
+.menu button, .menu .button-like { min-width: 220px; justify-content: center; text-decoration: none; }
 .credit { margin-top: 40px; }
 
 /* ---- Town ---- */

@@ -158,6 +158,52 @@ Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and s
 - `character.loot` and `state.clock` are added.
 - Enemies in a fight gain `poison`.
 
+### Hex battlefield lab (prototype)
+
+`lab/index.html` (open `/BattleringsOfDimholt/lab/`) is a sandbox for movement and positioning on a hex grid. It is **not wired into the game**; the real combat engine still has no positions.
+
+**Beta link:** the title screen's **Play beta version** button opens the lab.
+
+- **The copy:** the lab copies the game's autosave into its own save slot (`dimholt.save.lab`) every time it opens, or when you press "Copy again from my game". You fight as your own gladiator, with name, level, max hp, AC, weapon, and Strength and magic bonuses, using the game's own rule functions.
+- **Your real save is never written by the lab.**
+- **Options:** "Start at full health" (on by default) or your current hit points. Sample gladiators remain available, and they're used when there's no saved game.
+
+- **`js/engine/hex.js`** is pure, reusable grid math:
+  - Axial coordinates with pointy-top hexes, distance and neighbors.
+  - Hexagon-shaped boards and pixel conversion.
+  - Reachable hexes (breadth-first, with a `passable` callback) and shortest paths to a hex or to beside a target.
+  - It's unit-tested in `tests/index.html`.
+- **`js/lab/hexlab.js`** is the sandbox:
+  - It uses the real monster and mercenary data and the same to-hit and damage math, but its own simple turn loop.
+  - The arena is a hexagon of radius 3-9, with optional random pillars that block movement.
+  - Your side spawns on the bottom edge and enemies on the top.
+
+**First-take rules (to workshop):**
+
+- **Turn order:**
+  1. You move up to 4 hexes and attack one adjacent enemy, in either order.
+  2. Each mercenary moves 4 toward the nearest enemy (preferring the one you last attacked) and attacks if adjacent.
+  3. Each enemy moves toward the nearest fighter on your side and makes all its attacks if adjacent.
+- **Monster movement** is a first guess from initiative speed: `6 − speed/2`, clamped to 2-8. That gives the Quickling 8, rats and spiders 4-5, and giants 2-3.
+- **Melee range is 1 hex.** Fighters block movement, but there's no zone of control, so you can walk past enemies.
+- **Visual aids:**
+  - Blue hexes show where you can move, with the path previewed on hover.
+  - Red marks an enemy you can attack.
+  - The amber "threat zone" covers every hex an enemy could reach and strike this round.
+  - Hovering any fighter shows hit chances.
+- **Auto-play** (your turn, or a whole fight) lets you watch AI-vs-AI positioning.
+
+**Questions to workshop:**
+
+- **Initiative:** should it decide move order, per side or per fighter, instead of you always moving first?
+- **Zone of control:** should leaving a hex next to an enemy end your movement or provoke a free attack?
+- **Reach and ranged attacks:** halberds and dragon breath could have reach 2, and breath could hit a cone or line.
+- **Mercenary orders:** "guard me", "attack target", "hold".
+- **Big monsters** occupying several hexes: giants, dragons, the Hydra.
+- **Arena features:** pits, fire, and walls of the ring, plus spawn points for reinforcements.
+- **Moving vs. attacking:** does moving cost attacks (for example, no 3/2 extra attack after a full move)?
+- **Threat display:** show the threat zone inside your movement range too, so you can see which of your moves are dangerous.
+
 ### Player guide
 
 The in-game **Guide** (`js/ui/screens/guide.js`) explains the goal, character creation, what each stat does, leveling, stat points and Tomes, combat math, every monster, special abilities, gear, the inn, saving, and keyboard shortcuts. You can open it from the title screen, the town map, the Battlerings screen, or with the <kbd>G</kbd> key in town.
