@@ -105,7 +105,7 @@ frame.addEventListener('load', async () => {
       const save = JSON.parse(w.localStorage.getItem('dimholt.save.3'));
       const ch = save.state.character;
       ch.level = 4; ch.xp = 3500; ch.hpRolls = [10, 5, 5, 5]; ch.statPoints = [2, 4];
-      ch.baseStats.str = 17; ch.stats.str = 17; ch.baseStats.cha = 10; ch.stats.cha = 10;
+      ch.baseStats.str = 17; ch.stats.str = 17; ch.baseStats.cha = 10; ch.stats.cha = 10; ch.baseStats.wis = 10; ch.stats.wis = 10;
       w.localStorage.setItem('dimholt.save.3', JSON.stringify(save));
       await click('#nav [data-to="town"]');
       await click('[data-to="saves"]');
