@@ -249,7 +249,7 @@ Siege mode needs groups, and the arena could use variety. Candidates from the sa
 ### Layout
 
 ```
-BattleringsOfDimholt/
+battlerings_of_dimholt/   (repository root)
 ├── index.html            Page shell; loads js/main.js as an ES module
 ├── css/game.css          Theme and layout
 ├── js/
@@ -309,7 +309,11 @@ ES modules don't load from `file://`, so serve the folder:
 python -m http.server
 ```
 
-Then open http://localhost:8000/BattleringsOfDimholt/. Tests are at `/BattleringsOfDimholt/tests/` (rules and balance) and `/BattleringsOfDimholt/tests/smoke.html` (UI playthrough, which overwrites your autosave and slot 3).
+Run it from the repository root, then open these pages:
+
+- http://localhost:8000/ for the game.
+- `/tests/` for rule tests and the balance simulations.
+- `/tests/smoke.html` for the UI playthrough. It overwrites your autosave and slot 3.
 
 ## 4. Roadmap
 
