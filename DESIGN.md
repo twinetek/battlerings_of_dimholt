@@ -363,8 +363,12 @@ python -m http.server
 Run it from the repository root, then open these pages:
 
 - http://localhost:8000/ for the game.
+- http://localhost:8000/beta/ for the beta.
 - `/tests/` for rule tests and the balance simulations.
-- `/tests/smoke.html` for the UI playthrough. It overwrites your autosave and slot 3.
+- `/tests/smoke.html` for the main-game UI playthrough.
+- `/tests/beta-smoke.html` for the beta playthrough.
+
+The playthroughs overwrite autosaves in that browser.
 
 ## 4. Roadmap
 
