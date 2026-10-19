@@ -93,6 +93,8 @@ export function describe(e) {
     case 'fumble': return { text: 'You fumble in your pack and find nothing useful.', cls: 'muted' };
     case 'enemyDown': return e.crowd ? { text: `The ${e.name} falls!`, cls: 'good' } : null;
     case 'allyDown': return { text: `${e.name} falls!`, cls: 'bad' };
+    case 'noReach': return { text: 'No enemy is within reach of your weapon.', cls: 'muted' };
+    case 'move': return null; // shown by the battlefield, not the log
     case 'loot': return { text: `The ${e.from} leaves behind a ${e.item} (potency ${e.potency})!`, cls: 'win' };
     case 'venom': return venomLine(e);
     case 'venomImmune': return { text: `The venom on your blade does nothing to the ${e.target}.`, cls: 'muted' };
@@ -101,7 +103,9 @@ export function describe(e) {
     case 'summonWarning': return e.by === 'arena'
       ? { text: 'The arena master signals the gate. Something is coming next round!', cls: 'warn' }
       : { text: `The ${e.actor} shrieks for help! More will come next round.`, cls: 'warn' };
-    case 'arrive': return e.by === 'arena'
+    case 'arrive': return e.by === 'tester'
+      ? { text: `Tester: ${article(e.kind)} ${e.kind} joins the fight. (${e.name})`, cls: 'sys' }
+      : e.by === 'arena'
       ? { text: `The gate opens: ${article(e.kind)} ${e.kind} charges onto the sand! (${e.name})`, cls: 'warn' }
       : { text: `Another ${e.kind} answers the ${e.caller}'s call! (${e.name})`, cls: 'warn' };
     case 'victory': return e.solo

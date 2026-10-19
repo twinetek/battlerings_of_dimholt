@@ -13,6 +13,7 @@ import { rangeText } from '../../engine/dice.js';
 import { TextPresenter, describeAll, SUMMARIZE_ABOVE } from '../presenter.js';
 import { button, esc, bar, gp } from '../format.js';
 import { itemLabel, coatingTag } from './shops.js';
+import { beginFight } from '../fight.js';
 
 const presenter = new TextPresenter();
 
@@ -248,17 +249,7 @@ export const actions = {
     const id = s.combat.monsterId;
     const crew = d.crew === 'same' ? { ...s.combat.crew } : {};
     if (!confirmPoisoned(s.character)) return;
-    const result = ctx.mutate(state => {
-      const r = startCombat(state, id, crew);
-      if (r.ok && crewSize(crew)) state.lastCrew = crew;
-      return r;
-    });
-    if (!result.ok) {
-      ctx.flash(result.msg, 'err');
-      ctx.render();
-      return;
-    }
-    ctx.go('combat');
+    beginFight(ctx, id, crew);
   },
   speed(ctx, d) {
     ctx.commit(s => { s.settings.combatSpeed = d.speed; });

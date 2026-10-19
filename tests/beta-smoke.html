@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Battlerings Beta Smoke Test</title>
+<style>body { font: 14px/1.4 ui-monospace, Consolas, monospace; margin: 16px; } iframe { width: 1200px; height: 900px; border: 1px solid #ccc; }</style>
+</head>
+<body>
+<h1>Battlerings beta: smoke test</h1>
+<p>Plays the beta through the real UI: copy the main game, fight on the hex battlefield, use tester controls.
+  Note: this overwrites the main autosave and the beta autosave in this browser.</p>
+<pre id="out"></pre>
+<iframe id="game"></iframe>
+<script type="module">
+import { createCharacter } from '../js/rules/character.js';
+import { buyWeapon, buyArmor } from '../js/rules/town.js';
+import { newGameState } from '../js/engine/state.js';
+
+const out = document.getElementById('out');
+const frame = document.getElementById('game');
+const log = (ok, msg) => out.insertAdjacentText('beforeend', `${ok ? 'PASS' : 'FAIL'} ${msg}\n`);
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const errors = [];
+
+// A main-game save for the beta to copy (written directly, as the main game would).
+const c = createCharacter('Smokey', { str: 16, int: 10, wis: 10, dex: 15, con: 15, cha: 10 });
+c.gold = 500; buyWeapon(c, 'long-sword'); buyArmor(c, 'chain'); c.hp = 9999;
+const mainState = newGameState(c);
+localStorage.removeItem('dimholt-beta.save.auto');
+localStorage.setItem('dimholt.save.auto', JSON.stringify({ format: 'dimholt-save', version: mainState.version, savedAt: new Date().toISOString(), summary: 'Smokey', state: mainState }));
+const mainBefore = localStorage.getItem('dimholt.save.auto');
+
+frame.addEventListener('load', async () => {
+  const w = frame.contentWindow;
+  const d = frame.contentDocument;
+  w.addEventListener('error', e => errors.push(e.message));
+  w.addEventListener('unhandledrejection', e => errors.push(String(e.reason)));
+  w.confirm = () => true;
+  await wait(400);
+  const q = sel => d.querySelector(sel);
+  const click = async sel => {
+    const el = q(sel);
+    if (!el) throw new Error(`No element ${sel}`);
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await wait(60);
+  };
+  const screen = () => q('#screen').dataset.screen;
+  const st = () => JSON.parse(localStorage.getItem('dimholt-beta.save.auto')).state;
+  try {
+    log(!!q('.beta-badge') && q('.version').textContent.includes('beta'), 'beta title screen');
+    log(!!q('[data-action="continue"]') && st().character.name === 'Smokey', 'main game was copied into the beta');
+    log(!!q('[data-action="copyMain"]') && !!q('a[href="../"]'), 'copy and back-to-main controls');
+    await click('[data-action="continue"]');
+    await click('[data-to="arena"]');
+    await click('tr[data-id="kobold"]');
+    await click('[data-action="fight"][data-id="kobold"]');
+    log(screen() === 'battle' && d.querySelectorAll('#board polygon').length === 91, 'arena fight opens the hex battlefield');
+    log(!!q('.tester') && q('#combat-log').textContent.includes('Round 1'), 'tester controls and log are shown');
+    const key = q('.cell.reach')?.dataset.key;
+    await click(`[data-key="${key}"]`);
+    await wait(400);
+    const pos = st().combat.grid.pos.you;
+    log(st().combat.turn.moved && `${pos.q},${pos.r}` === key, 'clicking a blue hex moves you');
+    await click('[data-action="endTurn"]');
+    await wait(600);
+    log(st().combat.round === 2 || st().combat.over, 'end turn plays the round');
+    const enemiesBefore = st().combat.enemies.length;
+    await click('[data-action="addEnemy"]');
+    await wait(300);
+    log(st().combat.enemies.length === enemiesBefore + 1 || st().combat.over, 'tester can add an enemy');
+    await click('[data-action="speed"][data-speed="instant"]');
+    await click('[data-action="autoFight"]');
+    for (let i = 0; i < 300 && !q('[data-action="leave"]'); i++) await wait(100);
+    log(!!q('[data-action="leave"]'), `auto-played fight finishes (${st().combat?.result})`);
+    await click('[data-action="leave"]');
+    log(['town', 'dead', 'captain'].includes(screen()), 'leaving the battle returns to the game');
+    log(localStorage.getItem('dimholt.save.auto') === mainBefore, 'the main game save was not touched');
+  } catch (err) {
+    log(false, err.message);
+  }
+  log(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
+  document.body.dataset.done = 'yes';
+});
+frame.src = '../beta/';
+</script>
+</body>
+</html>

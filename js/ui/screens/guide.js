@@ -13,17 +13,20 @@ import { rangeText, span } from '../../engine/dice.js';
 import { button, esc, gp, signed, d20Chance } from '../format.js';
 import { specialText } from './arena.js';
 import { poisonTotal } from '../../rules/poison.js';
+import { config } from '../../config.js';
+import { PLAYER_MOVE, MERC_MOVE, moveFor } from '../../rules/battlefield.js';
 import { MERCS } from '../../data/mercs.js';
 import { LOOT_BY_ID } from '../../data/loot.js';
 import { summonKind, SUMMON_CHANCE_PER_MERC, SUMMON_CHANCE_MAX } from '../../rules/combat.js';
 
-const SECTIONS = [
+const SECTIONS = () => [
   ['g-goal', 'The goal'],
   ['g-create', 'Creating your gladiator'],
   ['g-stats', 'Stats'],
   ['g-progress', 'Leveling up'],
   ['g-training', 'Stat points and Tomes'],
   ['g-combat', 'How combat works'],
+  ...(config.beta ? [['g-battlefield', 'The hex battlefield (beta)']] : []),
   ['g-monsters', 'Monsters'],
   ['g-specials', 'Special abilities'],
   ['g-poison', 'Poison'],
@@ -92,6 +95,27 @@ function monsterTable() {
   });
   return table(['Opponent', num('AC'), 'Hit points', num('THAC0'), num('Speed'), 'Attacks per round',
     'Weapon needed', 'Special', num('XP'), num('Award'), num('Fine')], rows, 'monster-table');
+}
+
+function battlefieldSection() {
+  const moves = MONSTERS.map(m => `${esc(m.name)} ${moveFor(m)}`).join(', ');
+  return `
+      <h3 id="g-battlefield">The hex battlefield (beta)</h3>
+      <p>In the beta, every arena fight takes place on a hex-shaped arena. All the rules above still apply; the battlefield adds positions.</p>
+      <ul>
+        <li><strong>Your turn.</strong> Move up to ${PLAYER_MOVE} hexes (the blue ones; hover to see the path) and attack one adjacent enemy
+          (red), in either order. Using an item replaces your attack. Then press <strong>End turn</strong>.</li>
+        <li><strong>Reach.</strong> Weapons reach only the six hexes around you. Wands and the Potion of Fiery Breath reach your target
+          anywhere on the field. Dragon breath still hits everyone on your side.</li>
+        <li><strong>Targets.</strong> Click any enemy to make it your target (🎯). Your mercenaries move toward it and attack it when they can.</li>
+        <li><strong>Everyone else.</strong> After your turn, each mercenary moves up to ${MERC_MOVE} hexes and attacks; then each enemy moves
+          toward the nearest fighter on your side and attacks whoever is next to it. Pillars (🪨) and other fighters block movement.</li>
+        <li><strong>Monster movement</strong> per round: ${moves}.</li>
+        <li><strong>Reinforcements</strong> enter at the far edge of the arena.</li>
+        <li><strong>The amber zone</strong> marks every hex an enemy could reach and strike this round.</li>
+        <li><strong>Tester controls</strong> on the battle screen let you add enemies or free mercenaries, heal, rebuild the arena,
+          and auto-play turns. They're for trying out scenarios and bend the rules.</li>
+      </ul>`;
 }
 
 function lootTable() {
@@ -196,7 +220,7 @@ function itemTable() {
 
 export function render(ctx) {
   const inGame = !!ctx.state?.character;
-  const toc = SECTIONS.map(([id, title]) => `<li><a href="#${id}" data-action="jump" data-id="${id}">${title}</a></li>`).join('');
+  const toc = SECTIONS().map(([id, title]) => `<li><a href="#${id}" data-action="jump" data-id="${id}">${title}</a></li>`).join('');
   const startGold = span(STARTING_GOLD);
   return `
     <section class="guide">
@@ -275,6 +299,8 @@ export function render(ctx) {
         <li><strong>Death</strong> is permanent for that character. The game autosaves after every round, so reloading can't undo a fight,
           but you can load one of your manual save slots.</li>
       </ul>
+
+      ${config.beta ? battlefieldSection() : ''}
 
       <h3 id="g-monsters">Monsters</h3>
       <p>Opponents are listed in order of toughness. Hit points are rolled fresh for each fight from the dice shown.

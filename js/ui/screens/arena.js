@@ -8,6 +8,7 @@ import { LOOT_BY_ID } from '../../data/loot.js';
 import { rangeText } from '../../engine/dice.js';
 import { button, backToTown, esc, gp, d20Chance } from '../format.js';
 import { confirmPoisoned } from './combat.js';
+import { beginFight } from '../fight.js';
 
 export function specialText(m) {
   const notes = [];
@@ -166,19 +167,7 @@ export const actions = {
   lastCrew: ctx => ctx.setParams({ crew: { ...ctx.state.lastCrew } }),
   fight(ctx, d) {
     if (!confirmPoisoned(ctx.state.character)) return;
-    const crew = staged(ctx.params);
-    const result = ctx.mutate(s => {
-      s.lastFoe = d.id;
-      const r = startCombat(s, d.id, crew);
-      if (r.ok && crewSize(crew)) s.lastCrew = { ...crew };
-      return r;
-    });
-    if (!result.ok) {
-      ctx.flash(result.msg, 'err');
-      ctx.render();
-      return;
-    }
-    ctx.go('combat');
+    beginFight(ctx, d.id, staged(ctx.params));
   },
 };
 

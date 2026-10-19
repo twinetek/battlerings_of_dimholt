@@ -23,6 +23,7 @@
 import { setRng, seeded, roll, parse, rangeText } from '../js/engine/dice.js';
 import { exposeToPoison, sweatOut } from '../js/rules/poison.js';
 import * as Hex from '../js/engine/hex.js';
+import * as BF from '../js/rules/battlefield.js';
 import { glandPotency, coatingStrength, applyVenom, sellLoot, rollLoot, endArenaVisit, advanceClock, liveCoatings } from '../js/rules/loot.js';
 import { readSlot, deleteSlot } from '../js/engine/save.js';
 import { MONSTERS } from '../js/data/monsters.js';
@@ -388,6 +389,67 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   const c3 = up3?.state.character;
   check('version 3 save migrates weapons, loot, and the clock',
     c3 && c3.weapons[0].id === 'long-sword' && Array.isArray(c3.weapons[1].coatings) && Array.isArray(c3.loot) && up3.state.clock === 0);
+  setRng(seeded(42));
+}
+
+// Hex battlefield (beta)
+{
+  const fresh = () => {
+    const st = newGameState(createCharacter('Hexer', { str: 16, int: 10, wis: 10, dex: 15, con: 15, cha: 10 }));
+    st.character.gold = 100000; st.character.hp = 9999;
+    buyWeapon(st.character, 'long-sword-2');
+    return st;
+  };
+  setRng(seeded(31));
+  let st = fresh();
+  BF.startBattle(st, 'kobold', { sellsword: 1 }, { radius: 5, pillars: true });
+  const cb = st.combat;
+  const spots = Object.values(cb.grid.pos).map(Hex.key);
+  check('battle deploys everyone on distinct hexes', spots.length === 3 && new Set(spots).size === 3);
+  check('nobody starts on a pillar or off the board', Object.values(cb.grid.pos).every(h => BF.onBoard(cb, h)));
+  check('a battle starts in round 1 with your move', cb.round === 1 && !cb.turn.moved && !cb.turn.acted);
+  check('you cannot attack from across the arena', !BF.actYou(st, { type: 'fight', target: 'e1' }).ok);
+  const far = [...BF.reachableFor(st, 'you').entries()].find(([, d]) => d === BF.PLAYER_MOVE)?.[0];
+  check('move up to your movement', far && BF.moveYou(st, Hex.fromKey(far)).ok && Hex.key(cb.grid.pos.you) === far);
+  check('only one move per turn', !BF.moveYou(st, Hex.neighbors(cb.grid.pos.you).find(h => BF.onBoard(cb, h))).ok);
+  const before = Hex.distance(cb.grid.pos.e1, cb.grid.pos.you);
+  BF.endTurn(st);
+  check('enemies close in on their turn', cb.over || Hex.distance(cb.grid.pos.e1, cb.grid.pos.you) < before);
+  check('the round advances and your turn resets', cb.over || (cb.round === 2 && !cb.turn.moved && !cb.turn.acted));
+
+  // Next to an enemy, you can attack it, once per turn.
+  st = fresh();
+  BF.startBattle(st, 'hill-giant', {}, { radius: 4, pillars: false });
+  st.combat.enemies[0].hp = 9999; st.combat.enemies[0].maxHp = 9999;
+  st.combat.grid.pos.e1 = Hex.neighbors(st.combat.grid.pos.you).find(h => BF.onBoard(st.combat, h));
+  const atk = BF.actYou(st, { type: 'fight', target: 'e1' });
+  check('attack an adjacent enemy', atk.ok && atk.events.some(e => e.t === 'attack' && e.by === 'player'));
+  check('only one attack action per turn', !BF.actYou(st, { type: 'fight', target: 'e1' }).ok);
+
+  // Wands reach a target anywhere on the field.
+  st = fresh();
+  BF.startBattle(st, 'orc', {}, { radius: 5, pillars: false });
+  buyItem(st.character, 'wand-magic-missiles');
+  const wand = BF.actYou(st, { type: 'use', index: st.character.items.length - 1 });
+  check('wands reach distant targets', wand.ok && wand.events.some(e => e.t === 'itemHit'));
+
+  // Tester tools.
+  st = fresh();
+  BF.startBattle(st, 'orc', {}, { radius: 5, pillars: true });
+  BF.testerAddEnemy(st, 'goblin');
+  BF.testerAddMerc(st, 'veteran');
+  check('tester enemies and mercenaries get places on the field',
+    st.combat.enemies.length === 2 && !!st.combat.grid.pos.e2 && st.combat.allies.length === 1 && !!st.combat.grid.pos.a1);
+  check('tester mercenaries are not re-hired by "same crew"', Object.keys(st.combat.crew).length === 0);
+
+  // A whole battle plays out.
+  st = fresh();
+  BF.startBattle(st, 'giant-rat', { militia: 1 }, { radius: 5, pillars: true });
+  for (let i = 0; i < 100 && !st.combat.over; i++) {
+    BF.autoYou(st);
+    if (!st.combat.over) BF.endTurn(st);
+  }
+  check('an auto-played battle finishes', st.combat.over && st.combat.result === 'victory');
   setRng(seeded(42));
 }
 

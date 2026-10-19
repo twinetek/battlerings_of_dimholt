@@ -158,27 +158,32 @@ Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and s
 - `character.loot` and `state.clock` are added.
 - Enemies in a fight gain `poison`.
 
-### Hex battlefield lab (prototype)
+### The beta: hex battlefield
 
-`lab/index.html` (open `/BattleringsOfDimholt/lab/`) is a sandbox for movement and positioning on a hex grid. It is **not wired into the game**; the real combat engine still has no positions.
+The **beta** (`beta/`, opened from **Play beta version** on the title screen) is the full game: town, shops, Training Yard, saves and guide. It runs from the same code as the main game with one switch on, `config.beta` (`js/config.js`, set by `js/main-beta.js`). In the beta, arena fights take place on the hex battlefield. When the battlefield is ready to graduate, the main game turns the switch on too; nothing is duplicated.
 
-**Beta link:** the title screen's **Play beta version** button opens the lab.
+- **Saves:** the beta keeps its own saves (prefix `dimholt-beta.save.`), so it never touches the main game.
+  - On first launch it copies the main game's autosave.
+  - "Copy my main game into the beta" on the beta title screen copies again, after asking before it replaces a beta game.
+- **Starting fights:** they all go through `ui/fight.js` (`beginFight`).
+  - The main game calls `startCombat` and the classic combat screen.
+  - The beta calls `startBattle` (`rules/battlefield.js`) and the battle screen (`ui/screens/battle.js`).
+- **Same rules:** the battlefield doesn't re-implement combat. `rules/combat.js` still resolves every attack, poison, venom, loot, summon, item and the Captain rule. The battlefield adds positions:
+  - `combat.grid = { radius, pillars, pos }` holds everyone's position.
+  - With a grid, weapon attacks only reach adjacent fighters (`inReach`), and monsters only strike fighters next to them.
+  - Wands, the fiery potion and dragon breath are unchanged.
+  - `battlefield.js` moves fighters and runs the turn pieces that `combat.js` exports (`beginRound`, `playerTurn`, `allyTurn`, `enemyTurn`, `endOfRound`).
+- **Tester controls** on the battle screen, for setting up scenarios:
+  - Add an enemy (counts as a summoned helper: XP, no gold) or a free mercenary.
+  - Heal to full.
+  - Rebuild the arena with a new radius or pillars.
+  - Show or hide the enemy threat zone.
+  - Auto-play your turn or the whole fight.
+- **`js/engine/hex.js`** is the grid math: axial coordinates, distance, boards, reachable hexes and pathfinding. It's unit-tested.
+- **Tests:** `tests/index.html` covers the battlefield rules, and `tests/beta-smoke.html` plays the beta through its real screens.
+- **The old standalone lab** (`lab/`) has been retired. Its board and AI now live in the battle screen and `battlefield.js`.
 
-- **The copy:** the lab copies the game's autosave into its own save slot (`dimholt.save.lab`) every time it opens, or when you press "Copy again from my game". You fight as your own gladiator, with name, level, max hp, AC, weapon, and Strength and magic bonuses, using the game's own rule functions.
-- **Your real save is never written by the lab.**
-- **Options:** "Start at full health" (on by default) or your current hit points. Sample gladiators remain available, and they're used when there's no saved game.
-
-- **`js/engine/hex.js`** is pure, reusable grid math:
-  - Axial coordinates with pointy-top hexes, distance and neighbors.
-  - Hexagon-shaped boards and pixel conversion.
-  - Reachable hexes (breadth-first, with a `passable` callback) and shortest paths to a hex or to beside a target.
-  - It's unit-tested in `tests/index.html`.
-- **`js/lab/hexlab.js`** is the sandbox:
-  - It uses the real monster and mercenary data and the same to-hit and damage math, but its own simple turn loop.
-  - The arena is a hexagon of radius 3-9, with optional random pillars that block movement.
-  - Your side spawns on the bottom edge and enemies on the top.
-
-**First-take rules (to workshop):**
+**Battlefield rules so far (to workshop):**
 
 - **Turn order:**
   1. You move up to 4 hexes and attack one adjacent enemy, in either order.
@@ -191,7 +196,7 @@ Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and s
   - Red marks an enemy you can attack.
   - The amber "threat zone" covers every hex an enemy could reach and strike this round.
   - Hovering any fighter shows hit chances.
-- **Auto-play** (your turn, or a whole fight) lets you watch AI-vs-AI positioning.
+- **Reinforcements** enter at the far edge of the arena.
 
 **Questions to workshop:**
 

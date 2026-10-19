@@ -16,6 +16,10 @@
 //   4. End of round: regeneration, poison (enemies, you, mercenaries), then
 //      the reinforcement check.
 //
+// On the hex battlefield (beta), combat.grid holds everyone's position and
+// weapon attacks only reach adjacent fighters; rules/battlefield.js moves
+// fighters and runs the turn pieces exported at the bottom of this file.
+//
 // Every unit has a uid: 'you', allies 'a1', 'a2' ..., enemies 'e1', 'e2' ...
 // Events that change hit points carry hp: { uid, hp } (or a list in hits[])
 // so a presenter can update the right bar.
@@ -28,6 +32,7 @@ import { attacksThisRound, saveTarget, strBonus, ITEM_SPEED } from './tables.js'
 import { weaponOf, weaponEntry, armorClass, rollToHit, gainXp, drainLevel, heal } from './character.js';
 import { rollLoot, liveCoatings, venomName } from './loot.js';
 import { LOOT_BY_ID } from '../data/loot.js';
+import { adjacent } from '../engine/hex.js';
 import { exposeToPoison, notePoisonDamage, sweatOut, curePoison } from './poison.js';
 
 export const PLAYER = 'you';
@@ -115,13 +120,24 @@ export function setTarget(cb, uid) {
   return !!e;
 }
 
-function currentTarget(cb) {
-  let t = cb.enemies.find(e => e.uid === cb.target && e.hp > 0);
-  if (!t) {
-    t = living(cb.enemies).find(e => e.main) ?? living(cb.enemies)[0];
-    if (t) cb.target = t.uid;
+// On the battlefield, can `fromUid` reach `toUid` with a weapon?
+export function inReach(cb, fromUid, toUid) {
+  if (!cb.grid) return true;
+  const a = cb.grid.pos[fromUid], b = cb.grid.pos[toUid];
+  return !!(a && b && adjacent(a, b));
+}
+
+// The enemy an attacker strikes: your chosen target if it's alive (and, on the
+// battlefield, in reach of the attacker), else the opponent you chose, else
+// anyone in reach. If your target died, the next living enemy becomes it.
+function currentTarget(cb, attackerUid = null) {
+  const chosen = cb.enemies.find(e => e.uid === cb.target);
+  if (!chosen || chosen.hp <= 0) {
+    const next = living(cb.enemies).find(e => e.main) ?? living(cb.enemies)[0];
+    if (next) cb.target = next.uid;
   }
-  return t;
+  const reach = e => e && e.hp > 0 && (!attackerUid || inReach(cb, attackerUid, e.uid));
+  return [cb.enemies.find(e => e.uid === cb.target), ...living(cb.enemies).filter(e => e.main), ...living(cb.enemies)].find(reach);
 }
 
 // ---- The round ----
@@ -142,12 +158,7 @@ export function playRound(state, action) {
     return ev;
   }
 
-  cb.round++;
-  ev.push({ t: 'round', n: cb.round });
-  while (cb.summon.pending > 0) {
-    cb.summon.pending--;
-    summon(state, ev);
-  }
+  beginRound(state, ev);
 
   let playerFirst = false;
   if (cb.paralyzed === 0) {
@@ -164,6 +175,17 @@ export function playRound(state, action) {
   }
   if (!cb.over) endOfRound(state, ev);
   return ev;
+}
+
+// A new round: count it, and reinforcements announced last round arrive.
+function beginRound(state, ev) {
+  const cb = state.combat;
+  cb.round++;
+  ev.push({ t: 'round', n: cb.round });
+  while (cb.summon.pending > 0) {
+    cb.summon.pending--;
+    summon(state, ev);
+  }
 }
 
 // ---- Your side ----
@@ -192,7 +214,11 @@ function playerTurn(state, action, ev) {
   const w = weaponOf(c);
   const swings = attacksThisRound(c.level, cb.round);
   for (let i = 0; i < swings && !cb.over; i++) {
-    const e = currentTarget(cb);
+    const e = currentTarget(cb, cb.grid ? PLAYER : null);
+    if (!e) {
+      ev.push({ t: 'noReach' });
+      return;
+    }
     const m = MONSTER_BY_ID[e.monsterId];
     if (w.plus < m.magicReq) {
       ev.push({ t: 'immune', weapon: w.name, req: m.magicReq, target: e.name });
@@ -256,7 +282,8 @@ function allyTurn(state, a, ev) {
   }
   const swings = attacksThisRound(tier.level, cb.round);
   for (let i = 0; i < swings && !cb.over; i++) {
-    const e = currentTarget(cb); // mercenaries follow your lead
+    const e = currentTarget(cb, cb.grid ? a.uid : null); // mercenaries follow your lead
+    if (!e) return;
     const m = MONSTER_BY_ID[e.monsterId];
     if (tier.weapon.plus < m.magicReq) {
       ev.push({ t: 'allyImmune', actor: a.name, target: e.name });
@@ -341,12 +368,14 @@ function enemiesTurn(state, action, ev) {
   }
 }
 
-// Each attack picks a random living target on your side.
-function pickTarget(state) {
+// Each attack picks a random living target on your side (on the
+// battlefield, only fighters next to the attacker).
+function pickTarget(state, e) {
   const c = state.character;
+  const cb = state.combat;
   const options = [];
-  if (c.hp > 0) options.push({ you: true, uid: PLAYER });
-  for (const a of living(state.combat.allies)) options.push({ you: false, uid: a.uid, ally: a });
+  if (c.hp > 0 && inReach(cb, e.uid, PLAYER)) options.push({ you: true, uid: PLAYER });
+  for (const a of living(cb.allies)) if (inReach(cb, e.uid, a.uid)) options.push({ you: false, uid: a.uid, ally: a });
   if (options.length <= 1) return options[0];
   return options[Math.floor(random() * options.length)];
 }
@@ -365,7 +394,7 @@ function enemyTurn(state, e, ev) {
   const count = m.special.heads ? headsLeft(e, m) : m.attacks.length;
   for (let i = 0; i < count && !cb.over; i++) {
     const a = m.attacks[i % m.attacks.length];
-    const target = pickTarget(state);
+    const target = pickTarget(state, e);
     if (!target) return;
     const tier = target.ally && MERC_BY_ID[target.ally.mercId];
     const ac = target.you ? armorClass(c) : tier.ac;
@@ -567,6 +596,13 @@ function summon(state, ev) {
   ev.push({ t: 'arrive', name: e.name, kind: kind.name, by: m.calls === 'arena' ? 'arena' : 'kin', caller: mainEnemy(cb).name });
 }
 
+// Tester tool (beta battlefield): add an enemy mid-fight. It counts like a
+// summoned helper: its XP joins the split, and it pays no gold.
+export function spawnEnemy(state, monsterId) {
+  const e = addEnemy(state.combat, monsterId, { summoned: true });
+  return [{ t: 'arrive', name: e.name, kind: MONSTER_BY_ID[monsterId].name, by: 'tester' }];
+}
+
 // ---- Endings ----
 
 // Leftover poison is applied when you walk out of the ring.
@@ -616,3 +652,6 @@ function finish(cb, result) {
   cb.over = true;
   cb.result = result;
 }
+
+// ---- Turn pieces for the hex battlefield (rules/battlefield.js) ----
+export { beginRound, playerTurn, allyTurn, enemyTurn, endOfRound };

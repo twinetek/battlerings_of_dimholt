@@ -6,8 +6,8 @@
 
 import { SAVE_VERSION, summarize } from './state.js';
 import { MONSTER_BY_ID } from '../data/monsters.js';
+import { savePrefix, MAIN_SAVE_PREFIX, BETA_SAVE_PREFIX } from '../config.js';
 
-const PREFIX = 'dimholt.save.';
 const FORMAT = 'dimholt-save';
 export const SLOTS = ['auto', '1', '2', '3'];
 
@@ -81,7 +81,7 @@ function unwrap(data) {
 
 export function storageAvailable() {
   try {
-    const k = PREFIX + 'test';
+    const k = savePrefix() + 'test';
     localStorage.setItem(k, '1');
     localStorage.removeItem(k);
     return true;
@@ -92,7 +92,7 @@ export function storageAvailable() {
 
 export function writeSlot(slot, state) {
   try {
-    localStorage.setItem(PREFIX + slot, JSON.stringify(envelope(state)));
+    localStorage.setItem(savePrefix() + slot, JSON.stringify(envelope(state)));
     return true;
   } catch {
     return false;
@@ -101,7 +101,7 @@ export function writeSlot(slot, state) {
 
 export function readSlot(slot) {
   try {
-    const raw = localStorage.getItem(PREFIX + slot);
+    const raw = localStorage.getItem(savePrefix() + slot);
     return raw ? unwrap(JSON.parse(raw)) : null;
   } catch {
     return null;
@@ -109,7 +109,7 @@ export function readSlot(slot) {
 }
 
 export function deleteSlot(slot) {
-  try { localStorage.removeItem(PREFIX + slot); } catch { /* nothing to do */ }
+  try { localStorage.removeItem(savePrefix() + slot); } catch { /* nothing to do */ }
 }
 
 export function listSlots() {
@@ -138,4 +138,27 @@ export async function importFromFile(file) {
     throw new Error("That file isn't a Battlerings of Dimholt save.");
   }
   return unwrap(data).state;
+}
+
+// The beta keeps its own saves. This copies the main game's autosave into the
+// beta's autosave slot. Returns the copied summary, or null if there's none.
+export function copyMainIntoBeta() {
+  try {
+    const raw = localStorage.getItem(MAIN_SAVE_PREFIX + 'auto');
+    if (!raw) return null;
+    const save = unwrap(JSON.parse(raw));
+    localStorage.setItem(BETA_SAVE_PREFIX + 'auto', JSON.stringify(envelope(save.state)));
+    return save.summary;
+  } catch {
+    return null;
+  }
+}
+
+export function mainAutosaveSummary() {
+  try {
+    const raw = localStorage.getItem(MAIN_SAVE_PREFIX + 'auto');
+    return raw ? unwrap(JSON.parse(raw)).summary : null;
+  } catch {
+    return null;
+  }
 }

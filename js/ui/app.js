@@ -21,9 +21,11 @@ import * as saves from './screens/saves.js';
 import * as training from './screens/training.js';
 import * as guide from './screens/guide.js';
 import * as endings from './screens/endings.js';
+import * as battle from './screens/battle.js';
+import { fightScreen } from './fight.js';
 
 const SCREENS = {
-  title, create, town, inn, character, arena, combat, saves, training, guide,
+  title, create, town, inn, character, arena, combat, battle, saves, training, guide,
   weapons: shops.weapons, armor: shops.armor, magic: shops.magic,
   dead: endings.dead, captain: endings.captain,
 };
@@ -131,7 +133,7 @@ const GLOBAL_ACTIONS = {
 // Where a freshly loaded game should land.
 export function routeFor(state) {
   if (state.character.dead) return 'dead';
-  if (state.combat) return 'combat';
+  if (state.combat) return fightScreen(state);
   return 'town';
 }
 
