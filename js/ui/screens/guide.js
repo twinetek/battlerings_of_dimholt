@@ -13,7 +13,7 @@ import { rangeText, span } from '../../engine/dice.js';
 import { button, esc, gp, signed, d20Chance } from '../format.js';
 import { specialText } from './arena.js';
 import { poisonTotal } from '../../rules/poison.js';
-import { config } from '../../config.js';
+import { betaOn } from '../../config.js';
 import { PLAYER_MOVE, MERC_MOVE, moveFor } from '../../rules/battlefield.js';
 import { MERCS } from '../../data/mercs.js';
 import { LOOT_BY_ID } from '../../data/loot.js';
@@ -26,7 +26,7 @@ const SECTIONS = () => [
   ['g-progress', 'Leveling up'],
   ['g-training', 'Stat points and Tomes'],
   ['g-combat', 'How combat works'],
-  ...(config.beta ? [['g-battlefield', 'The hex battlefield (beta)']] : []),
+  ...(betaOn('hex-battlefield') ? [['g-battlefield', 'The hex battlefield (beta)']] : []),
   ['g-monsters', 'Monsters'],
   ['g-specials', 'Special abilities'],
   ['g-poison', 'Poison'],
@@ -300,7 +300,7 @@ export function render(ctx) {
           but you can load one of your manual save slots.</li>
       </ul>
 
-      ${config.beta ? battlefieldSection() : ''}
+      ${betaOn('hex-battlefield') ? battlefieldSection() : ''}
 
       <h3 id="g-monsters">Monsters</h3>
       <p>Opponents are listed in order of toughness. Hit points are rolled fresh for each fight from the dice shown.

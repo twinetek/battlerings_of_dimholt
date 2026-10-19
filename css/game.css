@@ -188,6 +188,10 @@ td.act button.step + button.step { margin-left: 4px; }
 .lede { font-size: 1.15rem; }
 .menu { display: grid; gap: 10px; justify-items: center; margin: 28px 0; }
 .menu button, .menu .button-like { min-width: 220px; justify-content: center; text-decoration: none; }
+.beta-menu { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--magic); display: grid; gap: 4px; justify-items: center; }
+.beta-menu label { font-weight: 600; color: var(--magic); }
+.beta-menu select { font: inherit; padding: 6px 10px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); }
+.beta-menu .row.tight button { min-width: 0; }
 .credit { margin-top: 40px; }
 
 /* ---- Town ---- */

@@ -37,7 +37,7 @@ frame.addEventListener('load', async () => {
     const navLink = () => !!q('#nav [data-to="town"]');
     log(screen() === 'title', 'title screen shows');
     log(!navLink(), 'no town link on the title screen');
-    log(q('a.beta')?.getAttribute('href') === 'beta/', 'title links to the beta');
+    log(!q('#beta-select'), 'no beta drop-down without ?beta=true');
     await click('[data-action="go"][data-to="guide"]');
     log(screen() === 'guide' && q('.monster-table').tBodies[0].rows.length === 24, 'guide opens from the title and lists all 24 monsters');
     await click('[data-action="jump"][data-id="g-monsters"]');

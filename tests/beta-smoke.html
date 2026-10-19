@@ -7,7 +7,7 @@
 </head>
 <body>
 <h1>Battlerings beta: smoke test</h1>
-<p>Plays the beta through the real UI: copy the main game, fight on the hex battlefield, use tester controls.
+<p>Opens the beta drop-down (?beta=true), picks the hex battlefield, then plays it through the real UI: copy the main game, fight on the hex battlefield, use tester controls.
   Note: this overwrites the main autosave and the beta autosave in this browser.</p>
 <pre id="out"></pre>
 <iframe id="game"></iframe>
@@ -26,13 +26,26 @@ const errors = [];
 const c = createCharacter('Smokey', { str: 16, int: 10, wis: 10, dex: 15, con: 15, cha: 10 });
 c.gold = 500; buyWeapon(c, 'long-sword'); buyArmor(c, 'chain'); c.hp = 9999;
 const mainState = newGameState(c);
-localStorage.removeItem('dimholt-beta.save.auto');
+localStorage.removeItem('dimholt-hex-battlefield.save.auto');
 localStorage.setItem('dimholt.save.auto', JSON.stringify({ format: 'dimholt-save', version: mainState.version, savedAt: new Date().toISOString(), summary: 'Smokey', state: mainState }));
 const mainBefore = localStorage.getItem('dimholt.save.auto');
 
+let stage = 'menu';
 frame.addEventListener('load', async () => {
   const w = frame.contentWindow;
   const d = frame.contentDocument;
+  if (stage === 'menu') {
+    // The main game with ?beta=true shows the drop-down; pick the hex battlefield.
+    await wait(400);
+    const select = d.querySelector('#beta-select');
+    const option = select && [...select.options].find(o => o.value.startsWith('hex_battlefield/'));
+    log(!!option, 'main title shows the beta drop-down with ?beta=true');
+    if (!option) { document.body.dataset.done = 'yes'; return; }
+    select.value = option.value;
+    stage = 'beta';
+    d.querySelector('[data-action="openBeta"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    return;
+  }
   w.addEventListener('error', e => errors.push(e.message));
   w.addEventListener('unhandledrejection', e => errors.push(String(e.reason)));
   w.confirm = () => true;
@@ -45,11 +58,11 @@ frame.addEventListener('load', async () => {
     await wait(60);
   };
   const screen = () => q('#screen').dataset.screen;
-  const st = () => JSON.parse(localStorage.getItem('dimholt-beta.save.auto')).state;
+  const st = () => JSON.parse(localStorage.getItem('dimholt-hex-battlefield.save.auto')).state;
   try {
-    log(!!q('.beta-badge') && q('.version').textContent.includes('beta'), 'beta title screen');
+    log(w.location.pathname.endsWith('/hex_battlefield/') && !!q('.beta-badge') && q('.kicker').textContent.includes('Hex battlefield'), 'opening it lands on the hex battlefield beta');
     log(!!q('[data-action="continue"]') && st().character.name === 'Smokey', 'main game was copied into the beta');
-    log(!!q('[data-action="copyMain"]') && !!q('a[href="../"]'), 'copy and back-to-main controls');
+    log(!!q('[data-action="copyMain"]') && [...q('#beta-select').options].some(o => o.value === '../?beta=true'), 'copy control, and the drop-down leads back to the main game');
     await click('[data-action="continue"]');
     await click('[data-to="arena"]');
     await click('tr[data-id="kobold"]');
@@ -81,7 +94,7 @@ frame.addEventListener('load', async () => {
   log(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
   document.body.dataset.done = 'yes';
 });
-frame.src = '../beta/';
+frame.src = '../index.html?beta=true';
 </script>
 </body>
 </html>

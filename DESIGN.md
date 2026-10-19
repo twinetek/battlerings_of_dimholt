@@ -158,16 +158,23 @@ Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and s
 - `character.loot` and `state.clock` are added.
 - Enemies in a fight gain `poison`.
 
-### The beta: hex battlefield
+### Beta features (hex battlefield)
 
-The **beta** (`beta/`, opened from **Play beta version** on the title screen) is the full game: town, shops, Training Yard, saves and guide. It runs from the same code as the main game with one switch on, `config.beta` (`js/config.js`, set by `js/main-beta.js`). In the beta, arena fights take place on the hex battlefield. When the battlefield is ready to graduate, the main game turns the switch on too; nothing is duplicated.
+**Beta features** are listed in `BETA_FEATURES` in `js/config.js`. Each one is the full game (town, shops, Training Yard, saves and guide) running from the same code as the main game, with one experimental feature switched on, and published in its own folder.
 
-- **Saves:** the beta keeps its own saves (prefix `dimholt-beta.save.`), so it never touches the main game.
+- **How a feature switches on:** the folder's `index.html` names its feature (`<html data-beta-feature="hex-battlefield">`) and loads `js/main-beta.js`, which sets `config.betaFeature`. The code asks `betaOn('hex-battlefield')` wherever behavior differs.
+- **The drop-down:** the title screen shows a **Beta features** drop-down only when the address has `?beta=true`, and always inside a beta feature. It lists the main game and every beta feature, and **Open** goes there with `?beta=true` kept.
+- **Promoting a feature:** when it's ready to graduate, the main game switches it on too; nothing is duplicated.
+- **Adding a feature:** add an entry to `BETA_FEATURES`, create its folder with an `index.html` like `hex_battlefield/index.html`, and check `betaOn('<id>')` where the game should differ.
+
+The first beta feature is the **hex battlefield** (`hex_battlefield/`), where arena fights take place on a hex grid.
+
+- **Saves:** each beta feature keeps its own saves (prefix `dimholt-<id>.save.`, for example `dimholt-hex-battlefield.save.`), so it never touches the main game.
   - On first launch it copies the main game's autosave.
-  - "Copy my main game into the beta" on the beta title screen copies again, after asking before it replaces a beta game.
+  - "Copy my main game into this beta" on its title screen copies again, after asking before it replaces a beta game.
 - **Starting fights:** they all go through `ui/fight.js` (`beginFight`).
   - The main game calls `startCombat` and the classic combat screen.
-  - The beta calls `startBattle` (`rules/battlefield.js`) and the battle screen (`ui/screens/battle.js`).
+  - With the hex battlefield on, it calls `startBattle` (`rules/battlefield.js`) and the battle screen (`ui/screens/battle.js`).
 - **Same rules:** the battlefield doesn't re-implement combat. `rules/combat.js` still resolves every attack, poison, venom, loot, summon, item and the Captain rule. The battlefield adds positions:
   - `combat.grid = { radius, pillars, pos }` holds everyone's position.
   - With a grid, weapon attacks only reach adjacent fighters (`inReach`), and monsters only strike fighters next to them.
@@ -180,7 +187,7 @@ The **beta** (`beta/`, opened from **Play beta version** on the title screen) is
   - Show or hide the enemy threat zone.
   - Auto-play your turn or the whole fight.
 - **`js/engine/hex.js`** is the grid math: axial coordinates, distance, boards, reachable hexes and pathfinding. It's unit-tested.
-- **Tests:** `tests/index.html` covers the battlefield rules, and `tests/beta-smoke.html` plays the beta through its real screens.
+- **Tests:** `tests/index.html` covers the battlefield rules. `tests/beta-smoke.html` opens the drop-down with `?beta=true`, picks the hex battlefield, and plays it through its real screens. `tests/smoke.html` checks the drop-down is hidden without `?beta=true`.
 - **The old standalone lab** (`lab/`) has been retired. Its board and AI now live in the battle screen and `battlefield.js`.
 
 **Battlefield rules so far (to workshop):**
@@ -363,7 +370,7 @@ python -m http.server
 Run it from the repository root, then open these pages:
 
 - http://localhost:8000/ for the game.
-- http://localhost:8000/beta/ for the beta.
+- http://localhost:8000/?beta=true for the game with the beta features drop-down, and http://localhost:8000/hex_battlefield/ for the hex battlefield beta.
 - `/tests/` for rule tests and the balance simulations.
 - `/tests/smoke.html` for the main-game UI playthrough.
 - `/tests/beta-smoke.html` for the beta playthrough.

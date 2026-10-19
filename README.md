@@ -10,7 +10,11 @@ It's plain HTML, CSS, and JavaScript modules, with no build step and no server. 
 
 Once GitHub Pages is on, the game is at https://twinetek.github.io/battlerings_of_dimholt/.
 
-**Beta:** `beta/` is the full game with arena fights on a hex battlefield, plus tester controls for setting up scenarios. It keeps its own saves and starts from a copy of your main game. Open it from **Play beta version** on the title screen.
+**Beta features:** add `?beta=true` to the address (for example `https://twinetek.github.io/battlerings_of_dimholt/?beta=true`) to show a **Beta features** drop-down on the title screen.
+
+- Each beta feature is the full game with one experimental feature switched on, in its own folder with its own saves.
+- It starts from a copy of your main game and never changes it.
+- Today there's one beta feature: **Hex battlefield** (`hex_battlefield/`). It puts arena fights on a hex grid, with tester controls for setting up scenarios.
 
 ## Run locally
 
@@ -25,10 +29,11 @@ Then open these pages:
 | Page | What it is |
 |---|---|
 | http://localhost:8000/ | The game |
-| http://localhost:8000/beta/ | The beta |
+| http://localhost:8000/?beta=true | The game, with the beta features drop-down |
+| http://localhost:8000/hex_battlefield/ | The hex battlefield beta |
 | http://localhost:8000/tests/ | Rule tests and balance simulations |
 | http://localhost:8000/tests/smoke.html | Main-game playthrough |
-| http://localhost:8000/tests/beta-smoke.html | Beta playthrough |
+| http://localhost:8000/tests/beta-smoke.html | Beta playthrough: the drop-down, then the hex battlefield |
 
 The test pages report PASS or FAIL lines. The playthroughs drive the real screens and overwrite autosaves in that browser.
 

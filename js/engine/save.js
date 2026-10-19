@@ -6,7 +6,7 @@
 
 import { SAVE_VERSION, summarize } from './state.js';
 import { MONSTER_BY_ID } from '../data/monsters.js';
-import { savePrefix, MAIN_SAVE_PREFIX, BETA_SAVE_PREFIX } from '../config.js';
+import { savePrefix, MAIN_SAVE_PREFIX } from '../config.js';
 
 const FORMAT = 'dimholt-save';
 export const SLOTS = ['auto', '1', '2', '3'];
@@ -140,14 +140,15 @@ export async function importFromFile(file) {
   return unwrap(data).state;
 }
 
-// The beta keeps its own saves. This copies the main game's autosave into the
-// beta's autosave slot. Returns the copied summary, or null if there's none.
+// Each beta feature keeps its own saves. This copies the main game's autosave
+// into the active beta feature's autosave slot. Returns the copied summary,
+// or null if there's none.
 export function copyMainIntoBeta() {
   try {
     const raw = localStorage.getItem(MAIN_SAVE_PREFIX + 'auto');
     if (!raw) return null;
     const save = unwrap(JSON.parse(raw));
-    localStorage.setItem(BETA_SAVE_PREFIX + 'auto', JSON.stringify(envelope(save.state)));
+    localStorage.setItem(savePrefix() + 'auto', JSON.stringify(envelope(save.state)));
     return save.summary;
   } catch {
     return null;
