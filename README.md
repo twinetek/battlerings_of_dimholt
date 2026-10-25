@@ -15,6 +15,7 @@ Once GitHub Pages is on, the game is at https://twinetek.github.io/battlerings_o
 - Each beta feature is the full game with one experimental feature switched on, in its own folder with its own saves.
 - It starts from a copy of your main game and never changes it.
 - Today there's one beta feature: **Hex battlefield** (`hex_battlefield/`). It puts arena fights on a hex grid, with tester controls for setting up scenarios.
+- **Coming to the hex battlefield:** arenas with hills, a stepped ziggurat, and raised ledges with ramps. The game can already generate these layouts, but arenas are still flat in play. Climbing, high ground and the board showing levels come next.
 
 ## Run locally
 
@@ -44,7 +45,9 @@ The test pages report PASS or FAIL lines. The playthroughs drive the real screen
 - `js/engine/`: dice, hex grid math, state, saves.
 - `js/ui/`: screens.
 - `DESIGN.md`: design notes and decisions.
-- `TODO.md`: ideas that are decided but not built yet.
+- `TODO.md`: ideas that are decided but not built yet, and open findings from code reviews.
+- `Todo_ranged.md`: the design for ranged attacks on the hex battlefield (not built yet).
+- `todo_terrain.md`: the design for multi-level terrain on the hex battlefield. Terrain generation is built (`js/rules/terrain.js`); nothing uses it in play yet.
 
 ## Credits
 

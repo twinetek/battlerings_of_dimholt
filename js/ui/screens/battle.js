@@ -367,6 +367,7 @@ export const actions = {
     const f = {
       radius: Math.max(3, Math.min(9, Number(document.getElementById('tester-radius').value) || DEFAULT_FIELD.radius)),
       pillars: document.getElementById('tester-pillars').checked,
+      terrain: field(ctx.state).terrain,
     };
     ctx.mutate(st => { st.settings.battle = f; });
     run(ctx, st => testerRebuild(st, f));

@@ -176,7 +176,7 @@ The first beta feature is the **hex battlefield** (`hex_battlefield/`), where ar
   - The main game calls `startCombat` and the classic combat screen.
   - With the hex battlefield on, it calls `startBattle` (`rules/battlefield.js`) and the battle screen (`ui/screens/battle.js`).
 - **Same rules:** the battlefield doesn't re-implement combat. `rules/combat.js` still resolves every attack, poison, venom, loot, summon, item and the Captain rule. The battlefield adds positions:
-  - `combat.grid = { radius, pillars, pos }` holds everyone's position.
+  - `combat.grid = { radius, pillars, height, pos }` holds the arena and everyone's position. `height` is the terrain (see "Terrain" below).
   - With a grid, weapon attacks only reach adjacent fighters (`inReach`), and monsters only strike fighters next to them.
   - Wands, the fiery potion and dragon breath are unchanged.
   - `battlefield.js` moves fighters and runs the turn pieces that `combat.js` exports (`beginRound`, `playerTurn`, `allyTurn`, `enemyTurn`, `endOfRound`).
@@ -212,9 +212,48 @@ The first beta feature is the **hex battlefield** (`hex_battlefield/`), where ar
 - **Reach and ranged attacks:** halberds and dragon breath could have reach 2, and breath could hit a cone or line.
 - **Mercenary orders:** "guard me", "attack target", "hold".
 - **Big monsters** occupying several hexes: giants, dragons, the Hydra.
-- **Arena features:** pits, fire, and walls of the ring, plus spawn points for reinforcements.
+- **Arena features:** pits, fire, and walls of the ring, plus spawn points for reinforcements. Raised ground is designed and partly built; see "Terrain" below.
 - **Moving vs. attacking:** does moving cost attacks (for example, no 3/2 extra attack after a full move)?
 - **Threat display:** show the threat zone inside your movement range too, so you can see which of your moves are dangerous.
+
+**Terrain (beta): generation built, not in play yet**
+
+The full design for multi-level terrain is in `todo_terrain.md`: movement points with costs for climbing and descending, stats that change them, melee height rules, and ranged range by height. So far only the **generation** of the terrain is built. Nothing reads the levels yet: movement, attacks, line of sight and the board drawing all still treat the arena as flat. Battles are generated flat by default (`DEFAULT_FIELD.terrain = 'flat'` in `rules/battlefield.js`) until the board can show levels.
+
+- **Where it lives:** `js/rules/terrain.js`. It's pure and uses only `engine/hex.js` and `engine/dice.js`, so it's unit-testable and seedable.
+- **The model:**
+  - Each hex has a whole-number level from 0 (the floor) to `MAX_HEIGHT` (3).
+  - The name `MAX_HEIGHT` avoids `MAX_LEVEL` in `rules/tables.js`, which is the character level cap.
+  - `combat.grid.height = { "q,r": level }` lists only hexes above the floor. A missing entry, or a missing `height` (older saves), means level 0, so no save migration was needed.
+  - Read levels with `levelOf(grid, hex)`, never `grid.height[...]` directly.
+- **How a battle gets terrain:**
+  - `deploy(state, field)` calls `generateTerrain(radius, field.terrain)` and gets back `{ height, ramps }`.
+  - Terrain is generated before the pillars.
+  - Pillars are never placed on a ramp or next to one, so raised ground stays reachable.
+  - The layout comes from `settings.battle.terrain`, next to `radius` and `pillars`. "Rebuild battlefield" keeps it. There's no tester control for picking a layout yet.
+- **Layouts** (`TERRAINS`):
+  - **Flat:** no height map. It uses no random numbers, so flat battles roll exactly as they did before terrain existed.
+  - **Hills:** a 50% chance of a hill in the middle, plus a mirrored pair, so one to three hills in all.
+    - Each hill peaks at level 2-3 and drops 1 per ring.
+    - With `MESA_CHANCE` (25%), the pair are instead **mesas**: a flat top of radius 1 with sheer sides, which are cliffs of 2 or more levels.
+  - **Ziggurat:** a stepped pyramid at the center, levels 3/2/1. It has no randomness.
+  - **Ledges:** a band across the middle at `LEDGE_LEVEL` (2), with cliffs along both long sides.
+    - The band is 3 rows deep on radius 5+ boards, 1 row on smaller ones.
+    - One level-1 **ramp** on each side, mirroring each other, is the only way up for a fighter who climbs one level at a time.
+- **Guarantees** (all unit-tested):
+  - **Symmetry:** every layout is point-symmetric through the center (`q,r → −q,−r`), so neither side gets better ground.
+  - **Starting rows:** the two rows at each far edge (`isStartRow`), where fighters deploy, stay at level 0.
+  - **Height ceiling:** a hex may be at most `radius − 1 − |r|` high, capped at `MAX_HEIGHT`. The ground slopes down to the starting rows instead of ending in a cliff in front of them. On a radius-3 board this flattens the ziggurat to 2/1.
+  - **Bounds:** levels stay within 1-`MAX_HEIGHT` in the map and on the board.
+  - **Reachability:** on ledges, both sides can walk up one level at a time, and removing the ramps cuts the band off.
+- **Adding a layout:** write a function `radius → { shape(hex) → level, ramps: [hex] }`, register it in `LAYOUTS` and `TERRAINS`, and keep it symmetric. A shape that's mirror-symmetric (for example built from `mirror(center)` pairs combined with `Math.max`) stays symmetric after the ceiling is applied. The symmetry test runs every registered layout, so a lopsided one fails it.
+- **Next steps,** in the build order of `todo_terrain.md`:
+  1. Shade the board by level.
+  2. Switch movement to movement points.
+  3. Add stats and monster movement traits.
+  4. Add melee height modifiers.
+  5. Add ranged range by height (which needs `Todo_ranged.md` built first).
+  6. Make Hills the default once the board can show it.
 
 ### Player guide
 
@@ -314,6 +353,7 @@ battlerings_of_dimholt/   (repository root)
 │   ├── main.js           Boots the app
 │   ├── engine/           Infrastructure, no game rules
 │   │   ├── dice.js       All randomness: "2d4+1" parsing, seedable RNG
+│   │   ├── hex.js        Hex grid math: distance, boards, reachable hexes, paths
 │   │   ├── state.js      Shape of the save-game state, SAVE_VERSION
 │   │   └── save.js       localStorage slots, file export/import, migrations
 │   ├── data/             Pure data tables (edit these to add content)
@@ -324,7 +364,9 @@ battlerings_of_dimholt/   (repository root)
 │   │   ├── stats.js      Stat points, Tomes, stat history, drain
 │   │   ├── character.js  Creation, derived stats, leveling, level drain
 │   │   ├── town.js       Shops, inn, using items in town
-│   │   └── combat.js     Round-by-round combat that returns events
+│   │   ├── combat.js     Round-by-round combat that returns events
+│   │   ├── battlefield.js Hex battlefield (beta): deployment, movement, turn order
+│   │   └── terrain.js    Hex battlefield (beta): terrain level generation
 │   └── ui/               Everything that touches the DOM
 │       ├── app.js        Router, autosave, click/key dispatch
 │       ├── presenter.js  Turns combat events into log lines (and later animations)
@@ -333,8 +375,11 @@ battlerings_of_dimholt/   (repository root)
 │       └── screens/      One module per screen
 └── tests/
     ├── index.html        Rule unit tests and the balance simulator
-    └── smoke.html        Scripted playthrough of the real UI
+    ├── smoke.html        Scripted playthrough of the real UI
+    └── beta-smoke.html   Scripted playthrough of the hex battlefield beta
 ```
+
+Design docs for work not built yet sit next to this file: `TODO.md` (decided ideas and open review findings), `Todo_ranged.md` (ranged attacks on the battlefield) and `todo_terrain.md` (multi-level terrain; generation is built). When part of one is built, document it here and mark it built there.
 
 ### Key decisions
 

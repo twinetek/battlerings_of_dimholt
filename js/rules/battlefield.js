@@ -1,7 +1,8 @@
 // The hex battlefield (beta). Fights keep every rule from rules/combat.js;
 // this module adds positions, movement, and the turn order on the grid.
 //
-// combat.grid = { radius, pillars: [hex keys], pos: { uid: { q, r } } }
+// combat.grid = { radius, pillars: [hex keys], height: { key: level }, pos: { uid: { q, r } } }
+// (height comes from rules/terrain.js; nothing reads it yet)
 // combat.turn = { moved, acted } for your turn this round
 //
 // A round on the battlefield:
@@ -19,6 +20,7 @@ import { die } from '../engine/dice.js';
 import { MONSTER_BY_ID } from '../data/monsters.js';
 import { MERC_BY_ID } from '../data/mercs.js';
 import { maxHp } from './character.js';
+import { generateTerrain } from './terrain.js';
 import {
   startCombat, setTarget, inReach, spawnEnemy, PLAYER,
   beginRound, playerTurn, allyTurn, enemyTurn, endOfRound,
@@ -26,7 +28,9 @@ import {
 
 export const PLAYER_MOVE = 4;
 export const MERC_MOVE = 4;
-export const DEFAULT_FIELD = { radius: 5, pillars: true };
+// Terrain stays flat by default until movement and the board use levels
+// (see todo_terrain.md).
+export const DEFAULT_FIELD = { radius: 5, pillars: true, terrain: 'flat' };
 
 // First guess, tuned in playtests: lower initiative speed moves farther.
 export const moveFor = m => Math.max(2, Math.min(8, 6 - Math.round(m.speed / 2)));
@@ -109,12 +113,16 @@ export function placeNewcomers(state) {
 export function deploy(state, field = DEFAULT_FIELD) {
   const cb = state.combat;
   const radius = field.radius ?? DEFAULT_FIELD.radius;
+  // Terrain first, so pillars can keep clear of the ramps onto raised ground.
+  const { height, ramps } = generateTerrain(radius, field.terrain ?? DEFAULT_FIELD.terrain);
+  const keepOpen = new Set(ramps.flatMap(k => [k, ...H.neighbors(H.fromKey(k)).map(H.key)]));
   const pillars = [];
   if (field.pillars ?? true) {
-    const candidates = H.hexagon(radius).filter(h => H.distance(h, ORIGIN) >= 1 && Math.abs(h.r) <= radius - 2);
+    const candidates = H.hexagon(radius)
+      .filter(h => H.distance(h, ORIGIN) >= 1 && Math.abs(h.r) <= radius - 2 && !keepOpen.has(H.key(h)));
     for (let i = 0; i < radius && candidates.length; i++) pillars.push(H.key(candidates.splice(die(candidates.length) - 1, 1)[0]));
   }
-  cb.grid = { radius, pillars, pos: {} };
+  cb.grid = { radius, pillars, height, pos: {} };
   cb.turn = { moved: false, acted: false };
   placeNewcomers(state);
 }

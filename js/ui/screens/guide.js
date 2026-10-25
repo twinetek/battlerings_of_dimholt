@@ -15,6 +15,7 @@ import { specialText } from './arena.js';
 import { poisonTotal } from '../../rules/poison.js';
 import { betaOn } from '../../config.js';
 import { PLAYER_MOVE, MERC_MOVE, moveFor } from '../../rules/battlefield.js';
+import { TERRAINS, MAX_HEIGHT } from '../../rules/terrain.js';
 import { MERCS } from '../../data/mercs.js';
 import { LOOT_BY_ID } from '../../data/loot.js';
 import { summonKind, SUMMON_CHANCE_PER_MERC, SUMMON_CHANCE_MAX } from '../../rules/combat.js';
@@ -115,6 +116,9 @@ function battlefieldSection() {
         <li><strong>The amber zone</strong> marks every hex an enemy could reach and strike this round.</li>
         <li><strong>Tester controls</strong> on the battle screen let you add enemies or free mercenaries, heal, rebuild the arena,
           and auto-play turns. They're for trying out scenarios and bend the rules.</li>
+        <li><strong>Terrain (coming).</strong> Arenas are flat for now. Later they'll have raised ground up to ${MAX_HEIGHT} levels high,
+          in these layouts: ${TERRAINS.filter(t => t.id !== 'flat').map(t => `${esc(t.name)} (${esc(t.description.charAt(0).toLowerCase() + t.description.slice(1, -1))})`).join('; ')}.
+          Every layout is the same on both sides, and you always start on the floor.</li>
       </ul>`;
 }
 

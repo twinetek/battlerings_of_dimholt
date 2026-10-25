@@ -24,6 +24,7 @@ import { setRng, seeded, roll, parse, rangeText } from '../js/engine/dice.js';
 import { exposeToPoison, sweatOut } from '../js/rules/poison.js';
 import * as Hex from '../js/engine/hex.js';
 import * as BF from '../js/rules/battlefield.js';
+import * as Terrain from '../js/rules/terrain.js';
 import { glandPotency, coatingStrength, applyVenom, sellLoot, rollLoot, endArenaVisit, advanceClock, liveCoatings } from '../js/rules/loot.js';
 import { readSlot, deleteSlot } from '../js/engine/save.js';
 import { MONSTERS } from '../js/data/monsters.js';
@@ -450,6 +451,95 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
     if (!st.combat.over) BF.endTurn(st);
   }
   check('an auto-played battle finishes', st.combat.over && st.combat.result === 'victory');
+  setRng(seeded(42));
+}
+
+// Battlefield terrain (beta)
+{
+  setRng(seeded(77));
+  const lv = (height, h) => height[Hex.key(h)] ?? 0;
+  // Every layout, every allowed radius, many rolls.
+  const runs = [];
+  for (const { id } of Terrain.TERRAINS) {
+    for (let radius = 3; radius <= 9; radius++) {
+      for (let i = 0; i < 25; i++) runs.push({ id, radius, ...Terrain.generateTerrain(radius, id) });
+    }
+  }
+  check('terrain levels stay between 1 and the maximum',
+    runs.every(t => Object.values(t.height).every(v => Number.isInteger(v) && v >= 1 && v <= Terrain.MAX_HEIGHT)));
+  check('terrain stays on the board',
+    runs.every(t => Object.keys(t.height).every(k => Hex.distance(Hex.fromKey(k), { q: 0, r: 0 }) <= t.radius)));
+  check('terrain is point-symmetric, so both sides get equal ground',
+    runs.every(t => Hex.hexagon(t.radius).every(h => lv(t.height, h) === lv(t.height, Terrain.mirror(h)))));
+  check('the deployment rows stay on the floor',
+    runs.every(t => Hex.hexagon(t.radius).filter(h => Terrain.isStartRow(t.radius, h)).every(h => lv(t.height, h) === 0)));
+  const stepOff = t => Hex.hexagon(t.radius).filter(h => Math.abs(h.r) === t.radius - 2).every(h => lv(t.height, h) <= 1);
+  check('ground slopes gently down to the deployment rows (no cliff at the start line)', runs.every(stepOff));
+  check('flat terrain has no height map', runs.filter(t => t.id === 'flat').every(t => !Object.keys(t.height).length));
+  check('unknown terrain falls back to flat', !Object.keys(Terrain.generateTerrain(5, 'lava').height).length);
+
+  const zig = Terrain.generateTerrain(5, 'ziggurat').height;
+  check('the ziggurat steps 3, 2, 1 down from the center',
+    lv(zig, { q: 0, r: 0 }) === 3 && Hex.neighbors({ q: 0, r: 0 }).every(h => lv(zig, h) === 2)
+    && lv(zig, { q: 2, r: 0 }) === 1 && lv(zig, { q: 3, r: 0 }) === 0);
+
+  // Hills: some rolls give gentle slopes only, some give a mesa with a cliff.
+  const steepest = t => Math.max(0, ...Hex.hexagon(t.radius).flatMap(h =>
+    Hex.neighbors(h).filter(n => Hex.distance(n, { q: 0, r: 0 }) <= t.radius).map(n => Math.abs(lv(t.height, h) - lv(t.height, n)))));
+  const hillRuns = runs.filter(t => t.id === 'hills' && t.radius === 5);
+  check('hills are sometimes gentle, sometimes cliff-sided',
+    hillRuns.some(t => steepest(t) === 1) && hillRuns.some(t => steepest(t) >= 2));
+  check('hills always raise some ground', hillRuns.every(t => Object.keys(t.height).length > 0));
+
+  // Ledges: a band at LEDGE_LEVEL with cliffs, reachable only up a ramp.
+  const climbable = (t, from, to) => {
+    const seen = new Set([Hex.key(from)]);
+    let frontier = [from];
+    while (frontier.length) {
+      const next = [];
+      for (const h of frontier) {
+        for (const n of Hex.neighbors(h)) {
+          const k = Hex.key(n);
+          if (seen.has(k) || Hex.distance(n, { q: 0, r: 0 }) > t.radius || Math.abs(lv(t.height, n) - lv(t.height, h)) > 1) continue;
+          if (Hex.equal(n, to)) return true;
+          seen.add(k);
+          next.push(n);
+        }
+      }
+      frontier = next;
+    }
+    return false;
+  };
+  const ledgeRuns = runs.filter(t => t.id === 'ledges');
+  check('ledges raise the middle row to the ledge level',
+    ledgeRuns.every(t => lv(t.height, { q: 0, r: 0 }) === Terrain.LEDGE_LEVEL));
+  check('ledges have two mirrored ramps at level 1',
+    ledgeRuns.every(t => t.ramps.length === 2 && t.ramps.every(k => t.height[k] === 1)
+      && Hex.equal(Terrain.mirror(Hex.fromKey(t.ramps[0])), Hex.fromKey(t.ramps[1]))));
+  check('each side can walk up onto the ledge one level at a time',
+    ledgeRuns.every(t => climbable(t, { q: 0, r: t.radius }, { q: 0, r: 0 }) && climbable(t, { q: 0, r: -t.radius }, { q: 0, r: 0 })));
+  const noRamps = t => ({ ...t, height: Object.fromEntries(Object.entries(t.height).filter(([, v]) => v !== 1)) });
+  check('without the ramps the ledge is cut off by cliffs',
+    ledgeRuns.every(t => !climbable(noRamps(t), { q: 0, r: t.radius }, { q: 0, r: 0 })));
+
+  // Deployment builds the terrain into the battle.
+  const fresh = () => newGameState(createCharacter('Hiker', { str: 16, int: 10, wis: 10, dex: 15, con: 15, cha: 10 }));
+  let st = fresh();
+  BF.startBattle(st, 'orc', {}, { radius: 5, pillars: true });
+  check('battles are flat unless a terrain is chosen', Object.keys(st.combat.grid.height).length === 0);
+  let pillarsClear = true, deployedLow = true;
+  for (let i = 0; i < 30; i++) {
+    st = fresh();
+    BF.startBattle(st, 'orc', { militia: 2 }, { radius: 5, pillars: true, terrain: 'ledges' });
+    const g = st.combat.grid;
+    const ramps = Object.keys(g.height).filter(k => g.height[k] === 1);
+    const guarded = new Set(ramps.flatMap(k => [k, ...Hex.neighbors(Hex.fromKey(k)).map(Hex.key)]));
+    if (g.pillars.some(k => guarded.has(k))) pillarsClear = false;
+    if (Object.values(g.pos).some(h => Terrain.levelOf(g, h) !== 0)) deployedLow = false;
+  }
+  check('pillars never block a ramp or its approaches', pillarsClear);
+  check('everyone deploys on the floor', deployedLow);
+  check('a grid with no height map reads as level 0', Terrain.levelOf({ radius: 5, pillars: [], pos: {} }, { q: 0, r: 0 }) === 0);
   setRng(seeded(42));
 }
 
