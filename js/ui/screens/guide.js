@@ -116,8 +116,9 @@ function battlefieldSection() {
         <li><strong>The amber zone</strong> marks every hex an enemy could reach and strike this round.</li>
         <li><strong>Tester controls</strong> on the battle screen let you add enemies or free mercenaries, heal, rebuild the arena,
           and auto-play turns. They're for trying out scenarios and bend the rules.</li>
-        <li><strong>Terrain (coming).</strong> Arenas are flat for now. Later they'll have raised ground up to ${MAX_HEIGHT} levels high,
-          in these layouts: ${TERRAINS.filter(t => t.id !== 'flat').map(t => `${esc(t.name)} (${esc(t.description.charAt(0).toLowerCase() + t.description.slice(1, -1))})`).join('; ')}.
+        <li><strong>Terrain (being built).</strong> Arenas are flat unless you pick another <strong>Arena layout</strong> in the tester controls
+          and press <strong>Rebuild battlefield</strong>. Raised ground goes up to ${MAX_HEIGHT} levels: shaded hexes show their level, and thick edges are
+          cliffs. For now levels are only shown; they don't change moving or fighting yet. The layouts: ${TERRAINS.filter(t => t.id !== 'flat').map(t => `${esc(t.name)} (${esc(t.description.charAt(0).toLowerCase() + t.description.slice(1, -1))})`).join('; ')}.
           Every layout is the same on both sides, and you always start on the floor.</li>
       </ul>`;
 }

@@ -522,6 +522,18 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   check('without the ramps the ledge is cut off by cliffs',
     ledgeRuns.every(t => !climbable(noRamps(t), { q: 0, r: t.radius }, { q: 0, r: 0 })));
 
+  // Cliff edges, for the board.
+  const asGrid = t => ({ radius: t.radius, height: t.height });
+  check('flat and ziggurat boards have no cliffs',
+    runs.filter(t => t.id === 'flat' || t.id === 'ziggurat').every(t => Terrain.cliffEdges(asGrid(t)).length === 0));
+  check('ledges have cliffs, each between neighbors 2+ levels apart, each pair once',
+    ledgeRuns.every(t => {
+      const edges = Terrain.cliffEdges(asGrid(t));
+      const pairs = edges.map(e => [Hex.key(e.a), Hex.key(e.b)].sort().join('|'));
+      return edges.length > 0 && new Set(pairs).size === pairs.length
+        && edges.every(e => Hex.adjacent(e.a, e.b) && e.drop === Math.abs(lv(t.height, e.a) - lv(t.height, e.b)) && e.drop >= 2);
+    }));
+
   // Deployment builds the terrain into the battle.
   const fresh = () => newGameState(createCharacter('Hiker', { str: 16, int: 10, wis: 10, dex: 15, con: 15, cha: 10 }));
   let st = fresh();

@@ -183,7 +183,7 @@ The first beta feature is the **hex battlefield** (`hex_battlefield/`), where ar
 - **Tester controls** on the battle screen, for setting up scenarios:
   - Add an enemy (counts as a summoned helper: XP, no gold) or a free mercenary.
   - Heal to full.
-  - Rebuild the arena with a new radius or pillars.
+  - Rebuild the arena with a new layout (terrain), radius or pillars.
   - Show or hide the enemy threat zone.
   - Auto-play your turn or the whole fight.
 - **`js/engine/hex.js`** is the grid math: axial coordinates, distance, boards, reachable hexes and pathfinding. It's unit-tested.
@@ -216,9 +216,9 @@ The first beta feature is the **hex battlefield** (`hex_battlefield/`), where ar
 - **Moving vs. attacking:** does moving cost attacks (for example, no 3/2 extra attack after a full move)?
 - **Threat display:** show the threat zone inside your movement range too, so you can see which of your moves are dangerous.
 
-**Terrain (beta): generation built, not in play yet**
+**Terrain (beta): generated and shown, not in play yet**
 
-The full design for multi-level terrain is in `todo_terrain.md`: movement points with costs for climbing and descending, stats that change them, melee height rules, and ranged range by height. So far only the **generation** of the terrain is built. Nothing reads the levels yet: movement, attacks, line of sight and the board drawing all still treat the arena as flat. Battles are generated flat by default (`DEFAULT_FIELD.terrain = 'flat'` in `rules/battlefield.js`) until the board can show levels.
+The full design for multi-level terrain is in `todo_terrain.md`: movement points with costs for climbing and descending, stats that change them, melee height rules, and ranged range by height. So far the terrain is **generated** and **shown on the board**, and testers can pick a layout. Nothing else reads the levels yet: movement, attacks and line of sight all still treat the arena as flat, and the board legend says so. Battles default to a flat arena (`DEFAULT_FIELD.terrain = 'flat'` in `rules/battlefield.js`) until levels matter in play.
 
 - **Where it lives:** `js/rules/terrain.js`. It's pure and uses only `engine/hex.js` and `engine/dice.js`, so it's unit-testable and seedable.
 - **The model:**
@@ -230,7 +230,7 @@ The full design for multi-level terrain is in `todo_terrain.md`: movement points
   - `deploy(state, field)` calls `generateTerrain(radius, field.terrain)` and gets back `{ height, ramps }`.
   - Terrain is generated before the pillars.
   - Pillars are never placed on a ramp or next to one, so raised ground stays reachable.
-  - The layout comes from `settings.battle.terrain`, next to `radius` and `pillars`. "Rebuild battlefield" keeps it. There's no tester control for picking a layout yet.
+  - The layout comes from `settings.battle.terrain`, next to `radius` and `pillars`. The tester panel's **Arena layout** picker sets it when you press **Rebuild battlefield**, and later fights use it too.
 - **Layouts** (`TERRAINS`):
   - **Flat:** no height map. It uses no random numbers, so flat battles roll exactly as they did before terrain existed.
   - **Hills:** a 50% chance of a hill in the middle, plus a mirrored pair, so one to three hills in all.
@@ -246,14 +246,19 @@ The full design for multi-level terrain is in `todo_terrain.md`: movement points
   - **Height ceiling:** a hex may be at most `radius − 1 − |r|` high, capped at `MAX_HEIGHT`. The ground slopes down to the starting rows instead of ending in a cliff in front of them. On a radius-3 board this flattens the ziggurat to 2/1.
   - **Bounds:** levels stay within 1-`MAX_HEIGHT` in the map and on the board.
   - **Reachability:** on ledges, both sides can walk up one level at a time, and removing the ramps cuts the band off.
+- **On the board** (`ui/screens/battle.js`, styles in `css/game.css`):
+  - Raised hexes get a tint over the cell (`.level-shade`, stronger per level) and their level number at the top of the hex (`.level-mark`). The tint uses the ink color: lighter ground in the dark theme, darker in the light theme.
+  - Neighbors 2 or more levels apart get a thick **cliff** edge (`.cliff`). `cliffEdges(grid)` in `terrain.js` finds them, each pair once.
+  - The overlays ignore the pointer, so clicks and hover still reach the cells.
+  - Hover tooltips give a raised hex's level, and a fighter's level.
+  - The legend explains shading and cliffs only when the arena has raised ground.
 - **Adding a layout:** write a function `radius → { shape(hex) → level, ramps: [hex] }`, register it in `LAYOUTS` and `TERRAINS`, and keep it symmetric. A shape that's mirror-symmetric (for example built from `mirror(center)` pairs combined with `Math.max`) stays symmetric after the ceiling is applied. The symmetry test runs every registered layout, so a lopsided one fails it.
 - **Next steps,** in the build order of `todo_terrain.md`:
-  1. Shade the board by level.
-  2. Switch movement to movement points.
-  3. Add stats and monster movement traits.
-  4. Add melee height modifiers.
-  5. Add ranged range by height (which needs `Todo_ranged.md` built first).
-  6. Make Hills the default once the board can show it.
+  1. Switch movement to movement points.
+  2. Add stats and monster movement traits.
+  3. Add melee height modifiers.
+  4. Add ranged range by height (which needs `Todo_ranged.md` built first).
+  5. Make Hills the default once levels matter in play.
 
 ### Player guide
 
@@ -379,7 +384,7 @@ battlerings_of_dimholt/   (repository root)
     └── beta-smoke.html   Scripted playthrough of the hex battlefield beta
 ```
 
-Design docs for work not built yet sit next to this file: `TODO.md` (decided ideas and open review findings), `Todo_ranged.md` (ranged attacks on the battlefield) and `todo_terrain.md` (multi-level terrain; generation is built). When part of one is built, document it here and mark it built there.
+Design docs for work not built yet sit next to this file: `TODO.md` (decided ideas and open review findings), `Todo_ranged.md` (ranged attacks on the battlefield) and `todo_terrain.md` (multi-level terrain; generation and the board display are built). When part of one is built, document it here and mark it built there.
 
 ### Key decisions
 

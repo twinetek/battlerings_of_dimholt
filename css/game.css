@@ -301,6 +301,11 @@ button.fighter:hover:not(:disabled) { border-color: var(--accent); }
 .cell.attackable { fill: color-mix(in srgb, var(--bad) 35%, var(--panel-2)); cursor: crosshair; }
 .cell.threat { fill: color-mix(in srgb, var(--warn) 18%, var(--panel-2)); }
 .cell.targeted { stroke: var(--accent); stroke-width: 3; }
+/* Terrain: higher ground is tinted toward the ink color (lighter in the dark theme, darker in the light one). */
+.level-shade { fill: var(--ink); pointer-events: none; }
+.level-shade.l1 { fill-opacity: 0.08; } .level-shade.l2 { fill-opacity: 0.16; } .level-shade.l3 { fill-opacity: 0.24; }
+.level-mark { font-size: 10px; font-weight: 700; fill: var(--muted); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.cliff { stroke: var(--ink); stroke-width: 4; stroke-linecap: round; pointer-events: none; opacity: 0.75; }
 .unit-g { pointer-events: none; transition: transform 0.08s linear; }
 .unit { font-size: 26px; text-anchor: middle; dominant-baseline: central; user-select: none; }
 .badge { font-size: 14px; text-anchor: middle; dominant-baseline: central; }

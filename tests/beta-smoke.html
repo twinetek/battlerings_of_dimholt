@@ -81,6 +81,20 @@ frame.addEventListener('load', async () => {
     await click('[data-action="addEnemy"]');
     await wait(300);
     log(st().combat.enemies.length === enemiesBefore + 1 || st().combat.over, 'tester can add an enemy');
+    const rebuildAs = async layout => {
+      q('#tester-terrain').value = layout;
+      await click('[data-action="rebuild"]');
+      await wait(300);
+    };
+    if (!st().combat.over) {
+      log(d.querySelectorAll('.level-shade').length === 0, 'a default arena is flat');
+      await rebuildAs('ziggurat');
+      log(st().settings.battle.terrain === 'ziggurat' && Object.keys(st().combat.grid.height).length > 0
+        && d.querySelectorAll('.level-shade').length > 0 && [...d.querySelectorAll('.level-mark')].some(m => m.textContent === '3'),
+      'tester can rebuild the arena as a ziggurat, and the board shows its levels');
+      await rebuildAs('ledges');
+      log(d.querySelectorAll('.cliff').length > 0 && q('#tester-terrain').value === 'ledges', 'ledges show cliff edges, and the picker keeps the layout');
+    }
     await click('[data-action="speed"][data-speed="instant"]');
     await click('[data-action="autoFight"]');
     for (let i = 0; i < 300 && !q('[data-action="leave"]'); i++) await wait(100);

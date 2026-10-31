@@ -31,6 +31,22 @@ export const mirror = h => ({ q: -h.q, r: -h.r });
 
 export const levelOf = (grid, h) => grid.height?.[H.key(h)] ?? 0;
 
+// Neighboring hexes on the board that differ by `min` levels or more, each
+// pair once: [{ a, b, drop }]. The board draws these as cliff edges.
+export function cliffEdges(grid, min = 2) {
+  const out = [];
+  const onBoard = h => H.distance(h, ORIGIN) <= grid.radius;
+  for (const a of H.hexagon(grid.radius)) {
+    for (const d of H.DIRECTIONS.slice(0, 3)) { // the other three directions are the same pairs reversed
+      const b = H.add(a, d);
+      if (!onBoard(b)) continue;
+      const drop = Math.abs(levelOf(grid, a) - levelOf(grid, b));
+      if (drop >= min) out.push({ a, b, drop });
+    }
+  }
+  return out;
+}
+
 // The rows where fighters deploy (see freeSpots in battlefield.js).
 export const isStartRow = (radius, h) => Math.abs(h.r) >= radius - 1;
 

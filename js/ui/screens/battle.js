@@ -11,6 +11,7 @@ import {
   DEFAULT_FIELD, boardHexes, isPillar, livingUnits, occupant, reachableFor, threatZone, moveOf,
   moveYou, actYou, endTurn, autoYou, testerAddEnemy, testerAddMerc, testerHeal, testerRebuild,
 } from '../../rules/battlefield.js';
+import { TERRAINS, levelOf, cliffEdges } from '../../rules/terrain.js';
 import * as H from '../../engine/hex.js';
 import { COMBAT_LOG_LIMIT } from '../../rules/tables.js';
 import { toLines, describeAll, SUMMARIZE_ABOVE } from '../presenter.js';
@@ -73,9 +74,25 @@ function boardSvg(s, params) {
     else if (!who && reach.has(k) && reach.get(k) > 0) cls.push('reach');
     else if (threat.has(k)) cls.push('threat');
     if (who === cb.target && !cb.over) cls.push('targeted');
-    const pts = H.corners(H.toPixel(h, SIZE), SIZE - 1).map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-    const tip = who ? unitTip(s, who) : '';
+    const pts = hexPoints(h);
+    const level = levelOf(cb.grid, h);
+    const tip = who ? unitTip(s, who) : level ? `Level ${level}` : '';
     return `<polygon class="${cls.join(' ')}" points="${pts}" data-action="hex" data-key="${k}">${tip ? `<title>${esc(tip)}</title>` : ''}</polygon>`;
+  }).join('');
+
+  // Terrain: raised hexes are shaded by level and numbered; cliffs (2+ levels)
+  // get a thick edge. Drawn over the cells, but they never take clicks.
+  const shades = hexes.filter(h => levelOf(cb.grid, h) > 0 && !isPillar(cb, h)).map(h => {
+    const level = levelOf(cb.grid, h);
+    const p = H.toPixel(h, SIZE);
+    return `<polygon class="level-shade l${level}" points="${hexPoints(h)}"></polygon>`
+      + `<text class="level-mark" x="${p.x.toFixed(1)}" y="${(p.y - SIZE * 0.62).toFixed(1)}">${level}</text>`;
+  }).join('');
+  const cliffs = cliffEdges(cb.grid).map(({ a, b }) => {
+    const toB = H.toPixel(b, SIZE);
+    const dist = p => Math.hypot(p.x - toB.x, p.y - toB.y);
+    const [p1, p2] = H.corners(H.toPixel(a, SIZE), SIZE).sort((x, y) => dist(x) - dist(y)); // the shared edge
+    return `<line class="cliff" x1="${p1.x.toFixed(1)}" y1="${p1.y.toFixed(1)}" x2="${p2.x.toFixed(1)}" y2="${p2.y.toFixed(1)}"></line>`;
   }).join('');
 
   const rocks = cb.grid.pillars.map(k => {
@@ -101,13 +118,16 @@ function boardSvg(s, params) {
   const pts = hexes.map(h => H.toPixel(h, SIZE));
   const minX = Math.min(...pts.map(p => p.x)) - SIZE, maxX = Math.max(...pts.map(p => p.x)) + SIZE;
   const minY = Math.min(...pts.map(p => p.y)) - SIZE, maxY = Math.max(...pts.map(p => p.y)) + SIZE;
-  return `<svg id="board" viewBox="${minX} ${minY} ${maxX - minX} ${maxY - minY}" role="img" aria-label="Battlefield">${cells}${rocks}${units}</svg>`;
+  return `<svg id="board" viewBox="${minX} ${minY} ${maxX - minX} ${maxY - minY}" role="img" aria-label="Battlefield">${cells}${shades}${cliffs}${rocks}${units}</svg>`;
 }
+
+const hexPoints = h => H.corners(H.toPixel(h, SIZE), SIZE - 1).map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
 
 function unitTip(s, uid) {
   const u = unitInfo(s, uid);
   const me = unitInfo(s, PLAYER);
-  let tip = `${u.name}: ${u.hp}/${u.max} hp, AC ${u.ac}, moves ${moveOf(s.combat, uid)}`;
+  const level = levelOf(s.combat.grid, s.combat.grid.pos[uid]);
+  let tip = `${u.name}: ${u.hp}/${u.max} hp, AC ${u.ac}, moves ${moveOf(s.combat, uid)}${level ? `, on level ${level}` : ''}`;
   if (u.side === 'enemy') {
     const m = MONSTER_BY_ID[s.combat.enemies.find(e => e.uid === uid).monsterId];
     const youNeed = Math.min(20, Math.max(2, rollNeed(s, m.ac)));
@@ -150,6 +170,8 @@ function testerPanel(s) {
         <span class="row tight"><select id="tester-merc">${MERCS.map(m => `<option value="${m.id}">${m.art} ${esc(m.name)}</option>`).join('')}</select>
         ${button('Add', 'addMerc', {}, { cls: 'small', disabled: over || busy })}</span></label>
       <div class="row tight">${button('Heal me to full', 'heal', {}, { cls: 'small', disabled: over || busy })}</div>
+      <label class="field small">Arena layout
+        <select id="tester-terrain">${TERRAINS.map(t => `<option value="${t.id}"${t.id === (f.terrain ?? DEFAULT_FIELD.terrain) ? ' selected' : ''} title="${esc(t.description)}">${esc(t.name)}</option>`).join('')}</select></label>
       <label class="field small">Arena radius <input id="tester-radius" type="number" min="3" max="9" value="${f.radius}"></label>
       <label class="small"><input id="tester-pillars" type="checkbox"${f.pillars ? ' checked' : ''}> Pillars</label>
       <div class="row tight">${button('Rebuild battlefield', 'rebuild', {}, { cls: 'small', disabled: over || busy })}</div>
@@ -230,7 +252,8 @@ export function render(ctx, params) {
         <aside>
           <div class="panel"><h3>Fighters</h3><div class="table-wrap">${roster(s)}</div>
             <p class="muted small">Legend: blue hexes, where you can move · red, an enemy you can attack ·
-              amber, where an enemy could reach and strike this round · 🪨 pillar.</p></div>
+              amber, where an enemy could reach and strike this round · 🪨 pillar.
+              ${Object.keys(cb.grid.height ?? {}).length ? '<br>Shaded hexes are raised ground, numbered by level; thick edges are cliffs. Levels don\'t affect moving or fighting yet.' : ''}</p></div>
           ${testerPanel(s)}
         </aside>
       </div>
@@ -367,7 +390,7 @@ export const actions = {
     const f = {
       radius: Math.max(3, Math.min(9, Number(document.getElementById('tester-radius').value) || DEFAULT_FIELD.radius)),
       pillars: document.getElementById('tester-pillars').checked,
-      terrain: field(ctx.state).terrain,
+      terrain: document.getElementById('tester-terrain').value,
     };
     ctx.mutate(st => { st.settings.battle = f; });
     run(ctx, st => testerRebuild(st, f));

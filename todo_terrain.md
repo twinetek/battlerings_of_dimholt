@@ -1,6 +1,6 @@
 # Terrain and elevation on the hex battlefield: design
 
-Status: designed, not built. Terrain generation is already built and documented in `DESIGN.md` ("Terrain"); this file covers the rest. This is for the hex battlefield beta (`hex_battlefield/`). It builds on the ranged-attack design in `Todo_ranged.md`. Move the settled parts into `DESIGN.md` once they're built.
+Status: designed, not built. Terrain generation, the board's level shading and cliff edges, and the tester layout picker are already built and documented in `DESIGN.md` ("Terrain"); this file covers the rest. This is for the hex battlefield beta (`hex_battlefield/`). It builds on the ranged-attack design in `Todo_ranged.md`. Move the settled parts into `DESIGN.md` once they're built.
 
 ## Goals
 
@@ -159,14 +159,11 @@ Example: an archer on level 2, a hill of level 1 halfway, and a target on the fl
 
 ## The board
 
-- **Shading:** each level is drawn lighter than the one below, with the level number in small type in the hex corner.
-- **Cliffs:** edges between hexes 2+ levels apart are drawn thick. Edges you can climb, given your own `climbMax`, are drawn thinner.
+- **Climbable edges:** edges you can climb, given your own `climbMax`, are drawn thinner than cliffs (cliffs are already drawn).
 - **Move preview:** hovering a hex shows the path *and its MP cost* ("5 of 5 MP"). A jump hex shows its fall damage range ("jump: 1-6 damage").
 - **Tooltips:** hovering an enemy adds the terrain parts: "uphill −2 to hit", "you're above it: +2 damage", "out of reach: 2 levels apart".
 - **Threat zone:** the amber zone already covers "hexes an enemy can reach and strike from". It now uses each enemy's MP and its melee height reach.
-- **Tester controls:**
-  - A layout picker (Flat, Hills, Ziggurat, Ledges) next to radius and pillars. Its choice goes in `settings.battle.terrain`.
-  - A "Paint height" toggle: click a hex to raise it 1, Shift-click to lower it. That's for setting up scenarios, like the other tester controls.
+- **Tester paint tool:** a "Paint height" toggle: click a hex to raise it 1, Shift-click to lower it. That's for setting up scenarios, like the other tester controls.
 
 ## Monster AI
 
@@ -197,7 +194,7 @@ Example: an archer on level 2, a hill of level 1 halfway, and a target on the fl
   - Attack events gain `height: h`, so the presenter can say "You strike down at the Orc".
   - Falls are new `fall` events with `dmg` and `hp`.
 - **`ui/presenter.js`:** lines for falls, uphill and downhill blows, and "out of reach" ("The Ettin can't reach you on the ledge.").
-- **`ui/screens/battle.js`:** shading, cliff edges, MP previews, tooltips, the layout picker and the paint tool.
+- **`ui/screens/battle.js`:** climbable edges, MP previews, terrain tooltip parts and the paint tool.
 - **Save:** the new fight fields here (`movedHexes`, fall state) default safely when missing. If this ships with `Todo_ranged.md`, that design's version 5 migration covers both.
 
 ## Testing
@@ -219,12 +216,12 @@ Example: an archer on level 2, a hill of level 1 halfway, and a target on the fl
 
 ## Build order
 
-1. Cheapest-path search, step costs and MP for you. Board shading and cliff edges.
+1. Cheapest-path search, step costs and MP for you.
 2. Stats: `moveStats`, armor bulk, falls. Character screen display.
 3. Melee reach and height modifiers, including saves.
 4. Monster and mercenary traits; AI using the cheapest path and preferring high ground.
 5. Ranged range by height and 3D line of sight. This depends on `Todo_ranged.md` being built first.
-6. The layout picker, the paint tool, making Hills the default layout, and the balance simulation; tune the constants.
+6. The paint tool, making Hills the default layout, and the balance simulation; tune the constants.
 
 ## Open questions
 
