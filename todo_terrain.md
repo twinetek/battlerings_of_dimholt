@@ -1,6 +1,6 @@
 # Terrain and elevation on the hex battlefield: design
 
-Status: designed, not built. Terrain generation, the board's level shading and cliff edges, and the tester layout picker are already built and documented in `DESIGN.md` ("Terrain"); this file covers the rest. This is for the hex battlefield beta (`hex_battlefield/`). It builds on the ranged-attack design in `Todo_ranged.md`. Move the settled parts into `DESIGN.md` once they're built.
+Status: designed, not built. Terrain generation, the board's level shading and cliff edges, the tester layout picker, and the melee height rules (reach, uphill and downhill, high-ground saves, the `tall` reach) are already built and documented in `DESIGN.md` ("Terrain"); this file covers the rest. This is for the hex battlefield beta (`hex_battlefield/`). It builds on the ranged-attack design in `Todo_ranged.md`. Move the settled parts into `DESIGN.md` once they're built.
 
 ## Goals
 
@@ -95,35 +95,11 @@ Monsters have no stats, so they get **movement traits**. These set the same five
 |---|---|---|
 | *(none)* | Most monsters | The base numbers: climb cost 2, climbMax 1, drop cost 1, safeDrop 1 |
 | `climber` | Giant Spider, Giant Centipede | Climb cost 0, climbMax 3. They walk up walls. |
-| `tall` | Ettin, Minotaur, Hill/Fire/Storm Giant, Troll, Earth Elemental | Climb cost 1, climbMax 2, safeDrop 2. Melee reaches 2 levels (see below). |
+| `tall` | Ettin, Minotaur, Hill/Fire/Storm Giant, Troll, Earth Elemental | Climb cost 1, climbMax 2, safeDrop 2. (Their 2-level melee reach is built.) |
 | `flier` | Gargoyle, Wyvern, Black Dragon, Red Dragon | Ignores climb and drop costs and limits. Never falls. |
 | `nimble` | Quickling, Giant Rat, Kobold, Goblin | Drop cost 0, safeDrop 2. |
 
 Mercenaries use fixed numbers like everything else about them. Militia, Sellsword and Veteran use the base numbers with 4 MP. The Knight and Champion wear plate: 3 MP, but climb cost 1 (they're strong).
-
-## Melee and height
-
-**Reach:** melee needs the two fighters to be adjacent **and** no more than **1 level apart**. `tall` monsters reach **2 levels**. Fighters who are adjacent but too far apart vertically can't strike each other, which is how a cliff edge becomes a safe perch.
-
-Let **h** = the attacker's level minus the defender's level (positive means the attacker is above).
-
-| Situation | Effect | Constant |
-|---|---|---|
-| **Attacking up** (h < 0) | −2 to hit per level | `UPHILL_TO_HIT` = 2 |
-| **Attacking down** (h > 0) | +2 damage per level, added before the minimum of 1 | `DOWNHILL_DMG` = 2 |
-| **Defending from above** (the defender is higher, h < 0) | +2 per level to the defender's saving throws against that attack's effects | `HIGH_GROUND_SAVE` = 2 |
-
-**"Defending down"** in the request is read as *the defender stands above the attacker and fights downward*. So the high-ground fighter gets the save bonus, the low-ground attacker gets the to-hit penalty, and the high-ground attacker gets the damage bonus. High ground is good in all three ways, and all three are symmetric between your side and the enemies.
-
-What the save bonus covers:
-
-- **Poison** from a monster's attack: `exposeToPoison` for you, and the same save for mercenaries.
-- **Paralysis** (Ghoul touch).
-- **Your venom** against a monster standing above you: the monster gets the bonus, so it's symmetric.
-- **Breath:** the save compares each target's level with the dragon's. A dragon below you breathing up gives +2 per level.
-- **Level drain** has no save today. It stays that way, and terrain doesn't change it.
-
-**Where this lives:** `inReach` in `rules/combat.js` already decides melee reach on the grid. It gains the height check. A new `heightMods(cb, attackerUid, defenderUid)` returns `{ toHit, dmg, save }`, which `playerTurn`, `allyTurn`, `enemyTurn`, `afflictPlayer`, `afflictAlly`, `envenom` and `breathe` add in. With no grid, every value is 0.
 
 ## Ranged attacks and height
 
@@ -161,8 +137,7 @@ Example: an archer on level 2, a hill of level 1 halfway, and a target on the fl
 
 - **Climbable edges:** edges you can climb, given your own `climbMax`, are drawn thinner than cliffs (cliffs are already drawn).
 - **Move preview:** hovering a hex shows the path *and its MP cost* ("5 of 5 MP"). A jump hex shows its fall damage range ("jump: 1-6 damage").
-- **Tooltips:** hovering an enemy adds the terrain parts: "uphill −2 to hit", "you're above it: +2 damage", "out of reach: 2 levels apart".
-- **Threat zone:** the amber zone already covers "hexes an enemy can reach and strike from". It now uses each enemy's MP and its melee height reach.
+- **Threat zone:** the amber zone already covers "hexes an enemy can reach and strike from". It already respects melee height reach; it switches to each enemy's MP.
 - **Tester paint tool:** a "Paint height" toggle: click a hex to raise it 1, Shift-click to lower it. That's for setting up scenarios, like the other tester controls.
 
 ## Monster AI
@@ -179,22 +154,19 @@ Example: an archer on level 2, a hill of level 1 halfway, and a target on the fl
   - `cheapestReachable(start, budget, cost)` and `cheapestPath(start, done, cost)`, where `cost(from, to)` returns a number or `Infinity`.
   - The existing BFS helpers stay for flat uses.
 - **`rules/tables.js`:**
-  - Constants: `UPHILL_TO_HIT`, `DOWNHILL_DMG`, `HIGH_GROUND_SAVE`, `MELEE_HEIGHT_REACH = 1`, `HEIGHT_AIM_MAX = 2`.
+  - Constants: `HEIGHT_AIM_MAX = 2`.
   - Tables: `dexMove`, `dexDrop`, `strClimb`, `strCarry`.
 - **`data/equipment.js`:** `bulk` on each armor.
-- **`data/monsters.js`:** `move: ['climber' | 'tall' | 'flier' | 'nimble']`.
+- **`data/monsters.js`:** add `'climber'`, `'flier'` and `'nimble'` to the `move` field (it exists, with `'tall'`).
 - **`data/mercs.js`:** per-tier MP and climb numbers.
 - **`rules/character.js`:** `moveStats(c)` returns `{ mp, climbCost, climbMax, dropCost, safeDrop }` from stats and armor. The Character screen shows it.
 - **`rules/battlefield.js`:**
   - `stepCost(state, uid, from, to)`, `moveStatsOf(state, uid)` (for you, a mercenary or a monster) and `fallDamage`.
   - `moveYou`, `advance`, `reachableFor` and `threatZone` switch to MP.
   - `cb.turn.movedHexes` (from `Todo_ranged.md`) counts hexes, not MP.
-- **`rules/combat.js`:**
-  - `heightMods`, the reach check in `inReach`, and the save bonus passed into `saveTarget` comparisons.
-  - Attack events gain `height: h`, so the presenter can say "You strike down at the Orc".
-  - Falls are new `fall` events with `dmg` and `hp`.
-- **`ui/presenter.js`:** lines for falls, uphill and downhill blows, and "out of reach" ("The Ettin can't reach you on the ledge.").
-- **`ui/screens/battle.js`:** climbable edges, MP previews, terrain tooltip parts and the paint tool.
+- **`rules/combat.js`:** falls are new `fall` events with `dmg` and `hp`.
+- **`ui/presenter.js`:** lines for falls.
+- **`ui/screens/battle.js`:** climbable edges, MP previews and the paint tool.
 - **Save:** the new fight fields here (`movedHexes`, fall state) default safely when missing. If this ships with `Todo_ranged.md`, that design's version 5 migration covers both.
 
 ## Testing
@@ -206,22 +178,19 @@ Example: an archer on level 2, a hill of level 1 halfway, and a target on the fl
   - **MP:** the three gladiators in the example get exactly those numbers; armor bulk is offset by Strength; MP never drops below 2.
   - **Falls:** 1d6 per extra level, the Con adjustment, the save halving it, never below 1 hp.
   - **Traits:** climbers, tall, fliers and nimble each change the numbers as listed.
-  - **Melee reach:** 1 level, and 2 for `tall`.
-  - **Height modifiers:** uphill −2 to hit per level; downhill +2 damage per level; save bonuses for poison, paralysis, venom and breath when the defender is above.
   - **Ranged:** aim +1 per level shooting down (capped at +2 and allowed past `AIM_CAP`); −1 per level shooting up.
   - **3D line of sight:** a hill blocks between floor fighters; a perch sees over it; fighters below the line give no cover.
-  - **Classic fight:** every terrain modifier is 0.
+  - **Classic fight:** every movement and ranged terrain modifier is 0.
 - **Balance simulation:** extend the battlefield simulation from `Todo_ranged.md` to run each build on Flat, Hills and Ziggurat. Watch whether terrain swings win rates by more than about 10 points; if it does, the symmetric layout isn't enough and the constants are too big. Also compare a strong plate-wearer with an agile leather-wearer, to check that both builds have their ground.
-- **`tests/beta-smoke.html`:** pick the Ziggurat layout, climb to a higher hex through the real screen, and check the MP preview and an uphill or downhill log line.
+- **`tests/beta-smoke.html`:** pick the Ziggurat layout, climb to a higher hex through the real screen, and check the MP preview.
 
 ## Build order
 
 1. Cheapest-path search, step costs and MP for you.
 2. Stats: `moveStats`, armor bulk, falls. Character screen display.
-3. Melee reach and height modifiers, including saves.
-4. Monster and mercenary traits; AI using the cheapest path and preferring high ground.
-5. Ranged range by height and 3D line of sight. This depends on `Todo_ranged.md` being built first.
-6. The paint tool, making Hills the default layout, and the balance simulation; tune the constants.
+3. Monster and mercenary traits; AI using the cheapest path and preferring high ground.
+4. Ranged range by height and 3D line of sight. This depends on `Todo_ranged.md` being built first.
+5. The paint tool, making Hills the default layout, and the balance simulation; tune the constants.
 
 ## Open questions
 

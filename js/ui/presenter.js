@@ -47,32 +47,41 @@ function venomLine(e) {
   return { text: `${parts.join('; ')}.`, cls: takes.length ? 'good' : 'muted' };
 }
 
+function attackLine(e) {
+  if (e.by === 'player') {
+    return e.hit
+      ? { text: `You hit the ${e.target} with your ${e.weapon} for ${e.dmg} damage.`, cls: 'good' }
+      : { text: `You swing your ${e.weapon} at the ${e.target} and miss.`, cls: 'muted' };
+  }
+  if (e.by === 'ally') {
+    return e.hit
+      ? { text: `${e.actor} hits the ${e.target} for ${e.dmg} damage.`, cls: 'ally' }
+      : { text: `${e.actor} misses the ${e.target}.`, cls: 'muted' };
+  }
+  if (e.you) {
+    return e.hit
+      ? { text: `The ${e.actor}'s ${e.attack} hits you for ${e.dmg} damage.`, cls: 'bad' }
+      : { text: `The ${e.actor}'s ${e.attack} misses you.`, cls: 'muted' };
+  }
+  return e.hit
+    ? { text: `The ${e.actor}'s ${e.attack} hits ${e.target} for ${e.dmg} damage.`, cls: 'warn' }
+    : { text: `The ${e.actor}'s ${e.attack} misses ${e.target}.`, cls: 'muted' };
+}
+
+// Hex battlefield terrain: blows across levels say so ("…for 7 damage, striking down.").
+function withHeight(line, e) {
+  if (!e.height) return line;
+  return { ...line, text: line.text.replace(/\.$/, e.height > 0 ? ', striking down from above.' : ', attacking uphill.') };
+}
+
 export function describe(e) {
+  if (e.t === 'attack') return withHeight(attackLine(e), e);
   const who = e.you ? 'you' : e.target;
   switch (e.t) {
     case 'start': return { text: `You step onto the sand. The ${e.foe} awaits!`, cls: 'sys' };
     case 'hired': return { text: `Fighting at your side: ${e.crew}. You paid ${e.wages} gold in wages.`, cls: 'sys' };
     case 'round': return { text: `Round ${e.n}`, cls: 'round' };
     case 'initiative': return null; // implied by the order of the lines that follow
-    case 'attack':
-      if (e.by === 'player') {
-        return e.hit
-          ? { text: `You hit the ${e.target} with your ${e.weapon} for ${e.dmg} damage.`, cls: 'good' }
-          : { text: `You swing your ${e.weapon} at the ${e.target} and miss.`, cls: 'muted' };
-      }
-      if (e.by === 'ally') {
-        return e.hit
-          ? { text: `${e.actor} hits the ${e.target} for ${e.dmg} damage.`, cls: 'ally' }
-          : { text: `${e.actor} misses the ${e.target}.`, cls: 'muted' };
-      }
-      if (e.you) {
-        return e.hit
-          ? { text: `The ${e.actor}'s ${e.attack} hits you for ${e.dmg} damage.`, cls: 'bad' }
-          : { text: `The ${e.actor}'s ${e.attack} misses you.`, cls: 'muted' };
-      }
-      return e.hit
-        ? { text: `The ${e.actor}'s ${e.attack} hits ${e.target} for ${e.dmg} damage.`, cls: 'warn' }
-        : { text: `The ${e.actor}'s ${e.attack} misses ${e.target}.`, cls: 'muted' };
     case 'immune': return { text: `Your ${e.weapon} has no effect on the ${e.target}. You need a +${e.req} weapon!`, cls: 'warn' };
     case 'allyImmune': return { text: `${e.actor}'s weapon can't harm the ${e.target}.`, cls: 'muted' };
     case 'heads': return { text: `The ${e.actor} has ${e.left} head${e.left === 1 ? '' : 's'} left.`, cls: 'sys' };

@@ -19,6 +19,7 @@
 // resist   damage types it takes half damage from (rounded up)
 // breath   { name, type, uses, chance } (damage is half the dragon's current hp)
 // art      placeholder portrait until real sprites exist (see DESIGN.md)
+// move     hex battlefield traits (beta): 'tall' reaches 2 levels up or down in melee
 
 export const MONSTERS = [
   { id: 'giant-rat', name: 'Giant Rat', art: '🐀', hp: '1d4', ac: 7, thac0: 20, speed: 3,
@@ -51,10 +52,12 @@ export const MONSTERS = [
     attacks: [{ name: 'halberd', dmg: '2d4+2' }], xp: 300, gold: 50,
     desc: 'A hyena-headed brute swinging a rusty halberd.' },
   { id: 'minotaur', name: 'Minotaur', art: '🐂', hp: '4d8+4', ac: 6, thac0: 15, speed: 5,
+    move: ['tall'],
     calls: 'arena',
     attacks: [{ name: 'horns', dmg: '1d6' }, { name: 'axe', dmg: '1d8' }], xp: 300, gold: 55,
     desc: 'Bull-headed and furious. It gores and chops in the same breath.' },
   { id: 'ettin', name: 'Ettin', art: '👥', hp: '5d8', ac: 4, thac0: 16, speed: 7,
+    move: ['tall'],
     calls: 'arena',
     attacks: [{ name: 'left club', dmg: '1d8' }, { name: 'right club', dmg: '1d8' }], xp: 300, gold: 70,
     desc: 'A two-headed giant. Each head controls one arm, and each arm holds a club.' },
@@ -95,22 +98,27 @@ export const MONSTERS = [
     xp: 1000, gold: 750,
     desc: 'Two crushing claws, and a stinger that keeps hurting long after it lands.' },
   { id: 'hill-giant', name: 'Hill Giant', art: '🪨', hp: '8d8+2', ac: 4, thac0: 12, speed: 7,
+    move: ['tall'],
     calls: 'arena',
     attacks: [{ name: 'club', dmg: '2d8' }], xp: 1200, gold: 800,
     desc: 'Dim, slow, and enormous. One swing can flatten a novice.' },
   { id: 'fire-giant', name: 'Fire Giant', art: '🔥', hp: '10d8+3', ac: 3, thac0: 10, speed: 6, immune: ['fire'],
+    move: ['tall'],
     calls: 'arena',
     attacks: [{ name: 'greatsword', dmg: '2d10+3' }], xp: 1400, gold: 900,
     desc: 'Forge-skinned and immune to flame.' },
   { id: 'storm-giant', name: 'Storm Giant', art: '⛈️', hp: '11d8+4', ac: 1, thac0: 9, speed: 5, immune: ['lightning'],
+    move: ['tall'],
     calls: 'arena',
     attacks: [{ name: 'greatsword', dmg: '2d10+4' }], xp: 1600, gold: 1000,
     desc: 'The noblest of giants, and lightning means nothing to it.' },
   { id: 'earth-elemental', name: 'Earth Elemental', art: '⛰️', hp: '12d8', ac: 2, thac0: 9, speed: 8, magicReq: 2,
+    move: ['tall'],
     immune: ['poison'],
     attacks: [{ name: 'fist', dmg: '4d8' }], xp: 2000, gold: 1500,
     desc: 'A walking landslide. Only a +2 weapon can harm it.' },
   { id: 'troll', name: 'Troll', art: '🧌', hp: '8d8+8', ac: 4, thac0: 12, speed: 4, special: { regen: 3 },
+    move: ['tall'],
     calls: 'arena',
     attacks: [{ name: 'claw', dmg: '1d4+4' }, { name: 'claw', dmg: '1d4+4' }, { name: 'bite', dmg: '2d6' }],
     xp: 1800, gold: 1500,
@@ -141,6 +149,7 @@ for (const m of MONSTERS) {
   m.calls ??= null;
   m.loot ??= [];
   m.resist ??= [];
+  m.move ??= [];
   m.fine = Math.ceil(m.gold / 10); // the original's surrender fine: 10% of the award
 }
 

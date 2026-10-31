@@ -7,6 +7,7 @@ import {
   STATS, strBonus, dexAc, conHp, XP_FOR_LEVEL, MAX_LEVEL, FIRST_LEVEL_HP, HIT_DIE, HP_AFTER_NINE,
   thac0, attacksLabel, saveTarget, STARTING_GOLD, INN_PRICE, MAX_WEAPONS, GLAND_DECAY_TICKS, MAX_COATINGS,
   NATURAL_MAX, TOME_MAX, STAT_POINT_EVERY, ITEM_SPEED,
+  MELEE_HEIGHT_REACH, TALL_HEIGHT_REACH, UPHILL_TO_HIT, DOWNHILL_DMG, HIGH_GROUND_SAVE,
 } from '../../rules/tables.js';
 import { earnsStatPoint } from '../../rules/stats.js';
 import { rangeText, span } from '../../engine/dice.js';
@@ -118,8 +119,13 @@ function battlefieldSection() {
           and auto-play turns. They're for trying out scenarios and bend the rules.</li>
         <li><strong>Terrain (being built).</strong> Arenas are flat unless you pick another <strong>Arena layout</strong> in the tester controls
           and press <strong>Rebuild battlefield</strong>. Raised ground goes up to ${MAX_HEIGHT} levels: shaded hexes show their level, and thick edges are
-          cliffs. For now levels are only shown; they don't change moving or fighting yet. The layouts: ${TERRAINS.filter(t => t.id !== 'flat').map(t => `${esc(t.name)} (${esc(t.description.charAt(0).toLowerCase() + t.description.slice(1, -1))})`).join('; ')}.
+          cliffs. Moving ignores levels for now. The layouts: ${TERRAINS.filter(t => t.id !== 'flat').map(t => `${esc(t.name)} (${esc(t.description.charAt(0).toLowerCase() + t.description.slice(1, -1))})`).join('; ')}.
           Every layout is the same on both sides, and you always start on the floor.</li>
+        <li><strong>High ground in melee.</strong> A blow reaches a fighter beside you only if they're at most ${MELEE_HEIGHT_REACH} level up or down
+          (tall monsters reach ${TALL_HEIGHT_REACH}: ${MONSTERS.filter(m => m.move.includes('tall')).map(m => esc(m.name)).join(', ')}). Attacking up costs ${UPHILL_TO_HIT} to hit per level;
+          attacking down adds ${DOWNHILL_DMG} damage per level. Standing above your attacker adds ${HIGH_GROUND_SAVE} per level to your saving throws against
+          its poison, paralysis and breath; a monster above you gets the same against your venom. Hover an enemy beside you to see the numbers.
+          It all works the same for monsters and mercenaries.</li>
       </ul>`;
 }
 

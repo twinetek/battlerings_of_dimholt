@@ -15,7 +15,7 @@ Once GitHub Pages is on, the game is at https://twinetek.github.io/battlerings_o
 - Each beta feature is the full game with one experimental feature switched on, in its own folder with its own saves.
 - It starts from a copy of your main game and never changes it.
 - Today there's one beta feature: **Hex battlefield** (`hex_battlefield/`). It puts arena fights on a hex grid, with tester controls for setting up scenarios.
-- **Terrain, being built:** in the hex battlefield's tester controls, pick an **Arena layout** (hills, a stepped ziggurat, or raised ledges with ramps) and rebuild the arena to see it. The board shades raised ground by level and marks cliffs, but levels don't change moving or fighting yet. Climbing and high ground come next.
+- **Terrain, being built:** in the hex battlefield's tester controls, pick an **Arena layout** (hills, a stepped ziggurat, or raised ledges with ramps) and rebuild the arena to see it. The board shades raised ground by level and marks cliffs. High ground already matters in melee: you can only strike 1 level up or down, attacking up is harder, and attacking down hits harder. Moving still ignores levels; climbing comes next.
 
 ## Run locally
 
@@ -47,7 +47,7 @@ The test pages report PASS or FAIL lines. The playthroughs drive the real screen
 - `DESIGN.md`: design notes and decisions.
 - `TODO.md`: ideas that are decided but not built yet, and open findings from code reviews.
 - `Todo_ranged.md`: the design for ranged attacks on the hex battlefield (not built yet).
-- `todo_terrain.md`: the design for multi-level terrain on the hex battlefield. Terrain generation and its display on the board are built; levels don't affect play yet.
+- `todo_terrain.md`: the design for multi-level terrain on the hex battlefield. Terrain generation, its display on the board, and the melee high-ground rules are built; movement doesn't use levels yet.
 
 ## Credits
 

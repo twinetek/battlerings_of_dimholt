@@ -18,11 +18,11 @@ export function recordFor(c, monsterId) {
   return c.poisonRecord[monsterId];
 }
 
-// A poisoned attack hit. Saving throw first; a new dose on top of an old one
-// takes the higher strength plus 1.
-export function exposeToPoison(c, monsterId, dose) {
+// A poisoned attack hit. Saving throw first (bonus: e.g. for high ground);
+// a new dose on top of an old one takes the higher strength plus 1.
+export function exposeToPoison(c, monsterId, dose, bonus = 0) {
   const rec = recordFor(c, monsterId);
-  if (die(20) >= saveTarget('poison', c.level)) {
+  if (die(20) + bonus >= saveTarget('poison', c.level)) {
     rec.resisted++;
     return { resisted: true };
   }

@@ -177,7 +177,7 @@ The first beta feature is the **hex battlefield** (`hex_battlefield/`), where ar
   - With the hex battlefield on, it calls `startBattle` (`rules/battlefield.js`) and the battle screen (`ui/screens/battle.js`).
 - **Same rules:** the battlefield doesn't re-implement combat. `rules/combat.js` still resolves every attack, poison, venom, loot, summon, item and the Captain rule. The battlefield adds positions:
   - `combat.grid = { radius, pillars, height, pos }` holds the arena and everyone's position. `height` is the terrain (see "Terrain" below).
-  - With a grid, weapon attacks only reach adjacent fighters (`inReach`), and monsters only strike fighters next to them.
+  - With a grid, weapon attacks only reach adjacent fighters (`inReach`), and monsters only strike fighters next to them. On raised terrain, reach and the height modifiers below also apply.
   - Wands, the fiery potion and dragon breath are unchanged.
   - `battlefield.js` moves fighters and runs the turn pieces that `combat.js` exports (`beginRound`, `playerTurn`, `allyTurn`, `enemyTurn`, `endOfRound`).
 - **Tester controls** on the battle screen, for setting up scenarios:
@@ -216,9 +216,9 @@ The first beta feature is the **hex battlefield** (`hex_battlefield/`), where ar
 - **Moving vs. attacking:** does moving cost attacks (for example, no 3/2 extra attack after a full move)?
 - **Threat display:** show the threat zone inside your movement range too, so you can see which of your moves are dangerous.
 
-**Terrain (beta): generated and shown, not in play yet**
+**Terrain (beta): generated, shown, and used in melee**
 
-The full design for multi-level terrain is in `todo_terrain.md`: movement points with costs for climbing and descending, stats that change them, melee height rules, and ranged range by height. So far the terrain is **generated** and **shown on the board**, and testers can pick a layout. Nothing else reads the levels yet: movement, attacks and line of sight all still treat the arena as flat, and the board legend says so. Battles default to a flat arena (`DEFAULT_FIELD.terrain = 'flat'` in `rules/battlefield.js`) until levels matter in play.
+The full design for multi-level terrain is in `todo_terrain.md`: movement points with costs for climbing and descending, stats that change them, melee height rules, and ranged range by height. So far the terrain is **generated**, **shown on the board**, testers can pick a layout, and **melee uses it** (see "Melee and height" below). Movement still ignores levels: anyone can walk up any cliff for the normal cost, and the board legend says so. Battles default to a flat arena (`DEFAULT_FIELD.terrain = 'flat'` in `rules/battlefield.js`) until movement uses levels too.
 
 - **Where it lives:** `js/rules/terrain.js`. It's pure and uses only `engine/hex.js` and `engine/dice.js`, so it's unit-testable and seedable.
 - **The model:**
@@ -253,12 +253,34 @@ The full design for multi-level terrain is in `todo_terrain.md`: movement points
   - Hover tooltips give a raised hex's level, and a fighter's level.
   - The legend explains shading and cliffs only when the arena has raised ground.
 - **Adding a layout:** write a function `radius → { shape(hex) → level, ramps: [hex] }`, register it in `LAYOUTS` and `TERRAINS`, and keep it symmetric. A shape that's mirror-symmetric (for example built from `mirror(center)` pairs combined with `Math.max`) stays symmetric after the ceiling is applied. The symmetry test runs every registered layout, so a lopsided one fails it.
+- **Melee and height** (`rules/combat.js`, constants in `rules/tables.js`). Let *h* be the attacker's level minus the defender's.
+
+  | Rule | Effect | Constant |
+  |---|---|---|
+  | **Reach** | A blow reaches an adjacent fighter at most 1 level up or down. Monsters with `move: ['tall']` reach 2. | `MELEE_HEIGHT_REACH`, `TALL_HEIGHT_REACH` |
+  | **Attacking up** (h < 0) | −2 to hit per level | `UPHILL_TO_HIT` |
+  | **Attacking down** (h > 0) | +2 damage per level, added before the minimum of 1 | `DOWNHILL_DMG` |
+  | **Defending from above** (h < 0) | +2 per level to the defender's saves against that attacker | `HIGH_GROUND_SAVE` |
+
+  - **Interpretation:** "defending down" means the defender stands above its attacker. So high ground helps all three ways, for both sides.
+  - **The `tall` monsters:** Minotaur, Ettin, the three giants, Troll and Earth Elemental. Reach isn't symmetric: a giant on a ledge 2 levels up can strike you, but you can't strike back until you're within 1 level.
+  - **What the save bonus covers:** a monster's poison (`exposeToPoison` takes a `bonus`) and paralysis, for you and for mercenaries. Also your venom against a monster above you (`envenom`), and breath: each target compares its level with the breather's. Level drain still has no save.
+  - **The code:**
+    - `heightMods(cb, attackerUid, defenderUid)` returns `{ h, toHit, dmg, save }`. Every melee blow in `playerTurn`, `allyTurn` and `enemyTurn` adds them, and the afflictions take `save`.
+    - `inReach` checks the height reach; `meleeReach(cb, uid)` gives it per fighter.
+    - **Without a grid every value is 0** and no extra dice are rolled, so the main game and the balance simulator are unchanged.
+    - Wands and the fiery potion ignore height.
+  - **Movement AI:** `advance` heads for a hex the mover can *strike* from: adjacent and within its height reach. So an orc beside you on a cliff top walks round to a slope instead of standing there. The threat zone uses the same test.
+  - **What the player sees:**
+    - Melee lines in the log end with ", striking down from above." or ", attacking uphill.". Attack events carry `height` when it isn't 0.
+    - Hovering an enemy beside you shows hit chances with height included, who holds the high ground, and only the effects that apply. Out-of-reach directions say "You can't reach it (2 levels up)".
+    - Attacking out of reach explains why: "That enemy is too far above or below you to reach."
+  - **Tests:** a fixed-roll test shows each modifier flipping a hit to a miss, or a failed save to a pass, at exactly its threshold: reach, uphill, downhill damage, poison, paralysis, venom and breath saves. The AI tests check moving to a strike spot, tall reach, and the threat zone.
 - **Next steps,** in the build order of `todo_terrain.md`:
   1. Switch movement to movement points.
   2. Add stats and monster movement traits.
-  3. Add melee height modifiers.
-  4. Add ranged range by height (which needs `Todo_ranged.md` built first).
-  5. Make Hills the default once levels matter in play.
+  3. Add ranged range by height (which needs `Todo_ranged.md` built first).
+  4. Make Hills the default once movement uses levels.
 
 ### Player guide
 

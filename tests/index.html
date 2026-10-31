@@ -25,6 +25,8 @@ import { exposeToPoison, sweatOut } from '../js/rules/poison.js';
 import * as Hex from '../js/engine/hex.js';
 import * as BF from '../js/rules/battlefield.js';
 import * as Terrain from '../js/rules/terrain.js';
+import { heightMods, inReach, enemyTurn } from '../js/rules/combat.js';
+import { describe } from '../js/ui/presenter.js';
 import { glandPotency, coatingStrength, applyVenom, sellLoot, rollLoot, endArenaVisit, advanceClock, liveCoatings } from '../js/rules/loot.js';
 import { readSlot, deleteSlot } from '../js/engine/save.js';
 import { MONSTERS } from '../js/data/monsters.js';
@@ -552,6 +554,136 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   check('pillars never block a ramp or its approaches', pillarsClear);
   check('everyone deploys on the floor', deployedLow);
   check('a grid with no height map reads as level 0', Terrain.levelOf({ radius: 5, pillars: [], pos: {} }, { q: 0, r: 0 }) === 0);
+  setRng(seeded(42));
+}
+
+// Melee across terrain levels (beta)
+{
+  // With every roll fixed at 0.5, each d20 is an 11 and each die rolls its middle.
+  setRng(() => 0.5);
+  const YOU = { q: 0, r: 0 }, BESIDE = { q: 1, r: 0 };
+  const fresh = (monster, level = 1) => {
+    const st = newGameState(createCharacter('Climber', { str: 16, int: 10, wis: 10, dex: 15, con: 15, cha: 10 }));
+    st.character.gold = 100000;
+    buyWeapon(st.character, 'long-sword');
+    if (level > 1) gainXp(st.character, XP_FOR_LEVEL[level]);
+    st.character.hp = 999;
+    BF.startBattle(st, monster, {}, { radius: 4, pillars: false });
+    st.combat.grid.pos.you = YOU;
+    st.combat.grid.pos.e1 = BESIDE;
+    st.combat.enemies[0].hp = st.combat.enemies[0].maxHp = 999;
+    return st;
+  };
+  const raise = (st, h, n) => { st.combat.grid.height[Hex.key(h)] = n; };
+  const yourBlow = st => BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
+  const theirTurn = st => { const ev = []; enemyTurn(st, st.combat.enemies[0], ev); return ev; };
+
+  // Reach.
+  let st = fresh('orc');
+  raise(st, BESIDE, 1);
+  check('melee reaches 1 level up or down', inReach(st.combat, 'you', 'e1') && inReach(st.combat, 'e1', 'you'));
+  raise(st, BESIDE, 2);
+  check('melee can\'t reach 2 levels apart, either way', !inReach(st.combat, 'you', 'e1') && !inReach(st.combat, 'e1', 'you'));
+  const blocked = BF.actYou(st, { type: 'fight', target: 'e1' });
+  check('attacking out of height reach explains why', !blocked.ok && /too far above or below/.test(blocked.msg));
+  st = fresh('hill-giant');
+  raise(st, BESIDE, 2);
+  check('tall monsters reach 2 levels; you still can\'t reach them', inReach(st.combat, 'e1', 'you') && !inReach(st.combat, 'you', 'e1'));
+
+  // The modifiers.
+  st = fresh('orc');
+  raise(st, YOU, 1);
+  const down = heightMods(st.combat, 'you', 'e1'), up = heightMods(st.combat, 'e1', 'you');
+  check('attacking down: +2 damage, no to-hit change, no save bonus for the defender',
+    down.h === 1 && down.toHit === 0 && down.dmg === 2 && down.save === 0);
+  check('attacking up: -2 to hit, and the defender above gets +2 on saves',
+    up.h === -1 && up.toHit === -2 && up.dmg === 0 && up.save === 2);
+  const none = heightMods({ enemies: [], allies: [] }, 'you', 'e1');
+  check('without a grid (classic fights) every height modifier is 0', !none.h && !none.toHit && !none.dmg && !none.save);
+
+  // Your blows. Long sword, Str 16, level 1 against a centipede (AC 9): you need a 10, and roll 11.
+  st = fresh('giant-centipede');
+  const flatBlow = yourBlow(st);
+  check('level ground: your 11 hits for 6 (5 + Str 1)', flatBlow.hit && flatBlow.dmg === 6 && flatBlow.height === undefined);
+  st = fresh('giant-centipede');
+  raise(st, BESIDE, 1);
+  check('attacking up: you need a 12, so the 11 misses', !yourBlow(st).hit);
+  st = fresh('giant-centipede');
+  raise(st, YOU, 1);
+  const downBlow = yourBlow(st);
+  check('attacking down: the same blow does 8', downBlow.hit && downBlow.dmg === 8 && downBlow.height === 1);
+
+  // Their blows. An orc (THAC0 19) against your AC 9: it needs a 10.
+  st = fresh('orc');
+  check('an orc on level ground hits with an 11', theirTurn(st).some(e => e.t === 'attack' && e.hit));
+  st = fresh('orc');
+  raise(st, YOU, 1);
+  check('an orc attacking up misses with the same 11', theirTurn(st).some(e => e.t === 'attack' && !e.hit));
+  st = fresh('orc');
+  raise(st, BESIDE, 1);
+  check('an orc attacking down hits for 7 (5 + 2)', theirTurn(st).some(e => e.t === 'attack' && e.hit && e.dmg === 7));
+
+  // Saving throws. At level 3 you save on a 13; the 11 fails on level ground and passes with +2 from high ground.
+  st = fresh('giant-spider', 3);
+  check('poison: on level ground the 11 fails your save', theirTurn(st).some(e => e.t === 'poisoned'));
+  st = fresh('giant-spider', 3);
+  raise(st, YOU, 1);
+  check('poison: standing above the spider, the same 11 saves', theirTurn(st).some(e => e.t === 'poisonResisted'));
+  st = fresh('ghoul', 3);
+  check('paralysis: on level ground the ghoul paralyzes you', theirTurn(st).some(e => e.t === 'paralyzed'));
+  st = fresh('ghoul', 3);
+  raise(st, YOU, 1);
+  check('paralysis: standing above the ghoul, you resist it', !theirTurn(st).some(e => e.t === 'paralyzed'));
+
+  // Your venom against a monster above you. A bugbear saves like a level 4 fighter (13).
+  const coated = () => {
+    const s = fresh('bugbear', 10);
+    s.character.weapons[0].coatings = [{ source: 'giant-spider', item: 'spider-venom', strength: 4, appliedAt: s.clock }];
+    return s;
+  };
+  const venomOutcome = s => BF.actYou(s, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'venom')?.results[0].outcome;
+  st = coated();
+  check('venom: on level ground the bugbear fails its save', venomOutcome(st) === 'takes');
+  st = coated();
+  raise(st, BESIDE, 1);
+  check('venom: a bugbear above you saves against it', venomOutcome(st) === 'resisted');
+
+  // Breath: the dragon breathes (first roll 0.0), then you roll a 15 against 17.
+  const breathWith = yourLevel => {
+    const s = fresh('black-dragon');
+    raise(s, YOU, yourLevel);
+    const rolls = [0.0, 0.7];
+    setRng(() => (rolls.length ? rolls.shift() : 0.5));
+    const hit = theirTurn(s).find(e => e.t === 'breath')?.hits[0];
+    setRng(() => 0.5);
+    return hit;
+  };
+  check('breath: on level ground your 15 fails the save', breathWith(0)?.saved === false);
+  check('breath: above the dragon, the same 15 saves', breathWith(1)?.saved === true);
+
+  // The log says when height mattered.
+  check('the log names a blow from above', describe({ t: 'attack', by: 'player', hit: true, weapon: 'Long Sword', target: 'Orc', dmg: 8, height: 1 }).text
+    === 'You hit the Orc with your Long Sword for 8 damage, striking down from above.');
+  check('the log names an uphill attack', describe({ t: 'attack', by: 'enemy', hit: false, actor: 'Orc', attack: 'axe', you: true, height: -1 }).text
+    === "The Orc's axe misses you, attacking uphill.");
+
+  // Movement AI goes where it can strike.
+  setRng(seeded(5));
+  st = fresh('orc');
+  raise(st, BESIDE, 2);
+  const turn = BF.endTurn(st).events;
+  check('an enemy beside you but 2 levels up moves to a hex it can strike from, then attacks',
+    turn.some(e => e.t === 'move' && e.uid === 'e1') && turn.some(e => e.t === 'attack' && e.by === 'enemy'));
+  st = fresh('hill-giant');
+  raise(st, BESIDE, 2);
+  const giantTurn = BF.endTurn(st).events;
+  check('a tall giant 2 levels up strikes without moving',
+    !giantTurn.some(e => e.t === 'move' && e.uid === 'e1') && giantTurn.some(e => e.t === 'attack' && e.by === 'enemy' && e.height === 2));
+  st = fresh('orc');
+  raise(st, BESIDE, 2);
+  st.combat.grid.pos.e1 = { q: 3, r: -3 };
+  const zone = BF.threatZone(st);
+  check('the threat zone leaves out hexes an enemy could stand beside but not reach', !zone.has(Hex.key(BESIDE)) && zone.has(Hex.key(YOU)));
   setRng(seeded(42));
 }
 

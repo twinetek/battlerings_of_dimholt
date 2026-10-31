@@ -2,7 +2,8 @@
 // this module adds positions, movement, and the turn order on the grid.
 //
 // combat.grid = { radius, pillars: [hex keys], height: { key: level }, pos: { uid: { q, r } } }
-// (height comes from rules/terrain.js; nothing reads it yet)
+// (height comes from rules/terrain.js; melee reach and the height modifiers in
+// rules/combat.js read it, movement doesn't yet)
 // combat.turn = { moved, acted } for your turn this round
 //
 // A round on the battlefield:
@@ -20,9 +21,9 @@ import { die } from '../engine/dice.js';
 import { MONSTER_BY_ID } from '../data/monsters.js';
 import { MERC_BY_ID } from '../data/mercs.js';
 import { maxHp } from './character.js';
-import { generateTerrain } from './terrain.js';
+import { generateTerrain, levelOf } from './terrain.js';
 import {
-  startCombat, setTarget, inReach, spawnEnemy, PLAYER,
+  startCombat, setTarget, inReach, meleeReach, spawnEnemy, PLAYER,
   beginRound, playerTurn, allyTurn, enemyTurn, endOfRound,
 } from './combat.js';
 
@@ -75,13 +76,19 @@ export const passableFor = (state, uid) => h => {
 export const reachableFor = (state, uid) =>
   H.reachable(state.combat.grid.pos[uid], moveOf(state.combat, uid), passableFor(state, uid));
 
+// Can a fighter of `uid` on hex `from` strike someone on hex `to`? Adjacent and
+// within its height reach (the same test as inReach, for hexes not yet occupied).
+const canStrike = (cb, uid, from, to) =>
+  H.adjacent(from, to) && Math.abs(levelOf(cb.grid, from) - levelOf(cb.grid, to)) <= meleeReach(cb, uid);
+
 // Hexes some enemy could reach this round and then strike from.
 export function threatZone(state) {
   const cb = state.combat;
   const zone = new Set();
   for (const u of livingUnits(state).filter(x => x.side === 'enemy')) {
     for (const k of reachableFor(state, u.uid).keys()) {
-      for (const n of H.neighbors(H.fromKey(k))) if (onBoard(cb, n)) zone.add(H.key(n));
+      const from = H.fromKey(k);
+      for (const n of H.neighbors(from)) if (onBoard(cb, n) && canStrike(cb, u.uid, from, n)) zone.add(H.key(n));
     }
   }
   return zone;
@@ -158,8 +165,13 @@ export function actYou(state, action) {
   if (cb.turn.acted) return fail('You have already acted this round.');
   if (action.target) setTarget(cb, action.target);
   if (action.type === 'fight' && !inReach(cb, PLAYER, cb.target)) {
-    const any = livingUnits(state).some(u => u.side === 'enemy' && inReach(cb, PLAYER, u.uid));
-    if (!any) return fail('No enemy is within reach. Move next to one first.');
+    const enemies = livingUnits(state).filter(u => u.side === 'enemy');
+    if (!enemies.some(u => inReach(cb, PLAYER, u.uid))) {
+      const besideOnly = enemies.some(u => H.adjacent(cb.grid.pos[PLAYER], cb.grid.pos[u.uid]));
+      return fail(besideOnly
+        ? 'That enemy is too far above or below you to reach. Find a hex within 1 level of it.'
+        : 'No enemy is within reach. Move next to one first.');
+    }
   }
   const ev = [];
   playerTurn(state, action, ev);
@@ -168,18 +180,20 @@ export function actYou(state, action) {
 }
 
 // Step toward the nearest foe (preferring `preferUid`), up to the mover's
-// movement, unless already next to a foe.
+// movement, unless already able to strike one. "Toward" means to a hex it can
+// strike from: next to the foe and within its height reach.
 function advance(state, uid, ev, preferUid = null) {
   const cb = state.combat;
   const from = cb.grid.pos[uid];
   const foes = foesOf(state, uid);
   const preferred = foes.find(f => f.uid === preferUid);
-  if (foes.some(f => H.adjacent(from, cb.grid.pos[f.uid]))) {
+  if (foes.some(f => inReach(cb, uid, f.uid))) {
     // Already engaged; only a mercenary chasing your target moves on.
-    if (!preferred || H.adjacent(from, cb.grid.pos[preferred.uid])) return;
+    if (!preferred || inReach(cb, uid, preferred.uid)) return;
   }
+  const strikeSpot = target => h => canStrike(cb, uid, h, target);
   const options = foes
-    .map(f => ({ f, path: H.pathToAdjacent(from, cb.grid.pos[f.uid], passableFor(state, uid)) }))
+    .map(f => ({ f, path: H.pathTo(from, strikeSpot(cb.grid.pos[f.uid]), passableFor(state, uid)) }))
     .filter(x => x.path)
     .sort((a, b) => (b.f === preferred) - (a.f === preferred) || a.path.length - b.path.length);
   if (!options.length || !options[0].path.length) return;

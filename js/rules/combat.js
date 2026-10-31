@@ -19,6 +19,8 @@
 // On the hex battlefield (beta), combat.grid holds everyone's position and
 // weapon attacks only reach adjacent fighters; rules/battlefield.js moves
 // fighters and runs the turn pieces exported at the bottom of this file.
+// Terrain levels change melee there (see "Height" below); without a grid,
+// every height modifier is 0.
 //
 // Every unit has a uid: 'you', allies 'a1', 'a2' ..., enemies 'e1', 'e2' ...
 // Events that change hit points carry hp: { uid, hp } (or a list in hits[])
@@ -28,7 +30,11 @@ import { roll, die, random } from '../engine/dice.js';
 import { MONSTERS, MONSTER_BY_ID } from '../data/monsters.js';
 import { ITEM_BY_ID } from '../data/equipment.js';
 import { MERCS, MERC_BY_ID, MERC_NAMES, crewCost, crewText } from '../data/mercs.js';
-import { attacksThisRound, saveTarget, strBonus, ITEM_SPEED } from './tables.js';
+import {
+  attacksThisRound, saveTarget, strBonus, ITEM_SPEED,
+  MELEE_HEIGHT_REACH, TALL_HEIGHT_REACH, UPHILL_TO_HIT, DOWNHILL_DMG, HIGH_GROUND_SAVE,
+} from './tables.js';
+import { levelOf } from './terrain.js';
 import { weaponOf, weaponEntry, armorClass, rollToHit, gainXp, drainLevel, heal } from './character.js';
 import { rollLoot, liveCoatings, venomName } from './loot.js';
 import { LOOT_BY_ID } from '../data/loot.js';
@@ -120,12 +126,44 @@ export function setTarget(cb, uid) {
   return !!e;
 }
 
-// On the battlefield, can `fromUid` reach `toUid` with a weapon?
+// ---- Height (hex battlefield terrain) ----
+// A melee blow reaches an adjacent fighter at most MELEE_HEIGHT_REACH levels
+// up or down (tall monsters: TALL_HEIGHT_REACH). High ground helps three ways:
+// attacking up costs UPHILL_TO_HIT per level, attacking down adds
+// DOWNHILL_DMG per level, and a defender above its attacker adds
+// HIGH_GROUND_SAVE per level to its saves against that attacker's poison,
+// paralysis, venom or breath.
+
+export function meleeReach(cb, uid) {
+  const e = cb.enemies.find(x => x.uid === uid);
+  return e && MONSTER_BY_ID[e.monsterId].move.includes('tall') ? TALL_HEIGHT_REACH : MELEE_HEIGHT_REACH;
+}
+
+// h is the attacker's level minus the defender's (positive: attacking down).
+// toHit is added to the attacker's roll, dmg to its damage, save to the
+// defender's saving throws against this attacker.
+export function heightMods(cb, attackerUid, defenderUid) {
+  const a = cb.grid?.pos[attackerUid], d = cb.grid?.pos[defenderUid];
+  if (!a || !d) return { h: 0, toHit: 0, dmg: 0, save: 0 };
+  const h = levelOf(cb.grid, a) - levelOf(cb.grid, d);
+  return {
+    h,
+    toHit: h < 0 ? UPHILL_TO_HIT * h : 0,
+    dmg: h > 0 ? DOWNHILL_DMG * h : 0,
+    save: h < 0 ? HIGH_GROUND_SAVE * -h : 0,
+  };
+}
+
+// On the battlefield, can `fromUid` reach `toUid` with a weapon? Adjacent,
+// and within the attacker's height reach.
 export function inReach(cb, fromUid, toUid) {
   if (!cb.grid) return true;
   const a = cb.grid.pos[fromUid], b = cb.grid.pos[toUid];
-  return !!(a && b && adjacent(a, b));
+  return !!(a && b && adjacent(a, b) && Math.abs(levelOf(cb.grid, a) - levelOf(cb.grid, b)) <= meleeReach(cb, fromUid));
 }
+
+// Only attack events carry height, and only when it isn't level ground.
+const heightTag = hm => (hm.h ? { height: hm.h } : {});
 
 // The enemy an attacker strikes: your chosen target if it's alive (and, on the
 // battlefield, in reach of the attacker), else the opponent you chose, else
@@ -224,16 +262,17 @@ function playerTurn(state, action, ev) {
       ev.push({ t: 'immune', weapon: w.name, req: m.magicReq, target: e.name });
       return;
     }
-    const need = rollToHit(c, m.ac, w);
+    const hm = heightMods(cb, PLAYER, e.uid);
+    const need = rollToHit(c, m.ac, w) - hm.toHit;
     const r = die(20);
     const hit = r === 20 || (r !== 1 && r >= need);
     if (!hit) {
-      ev.push({ t: 'attack', by: 'player', hit: false, weapon: w.name, target: e.name });
+      ev.push({ t: 'attack', by: 'player', hit: false, weapon: w.name, target: e.name, ...heightTag(hm) });
       continue;
     }
-    const dmg = Math.max(1, roll(w.dmg) + strBonus(c.stats.str).dmg + w.plus);
-    hurtEnemy(state, e, dmg, ev, { t: 'attack', by: 'player', hit: true, weapon: w.name }, PLAYER);
-    if (e.hp > 0) envenom(state, e, ev);
+    const dmg = Math.max(1, roll(w.dmg) + strBonus(c.stats.str).dmg + w.plus + hm.dmg);
+    hurtEnemy(state, e, dmg, ev, { t: 'attack', by: 'player', hit: true, weapon: w.name, ...heightTag(hm) }, PLAYER);
+    if (e.hp > 0) envenom(state, e, ev, hm.save);
   }
 }
 
@@ -242,8 +281,8 @@ export const monsterSaveLevel = m => Math.max(1, 21 - m.thac0);
 
 // Each live coating on your weapon gets its own chance to poison the enemy
 // you just hit. Undead and earth creatures are immune, and no monster can be
-// poisoned by its own kind's venom.
-function envenom(state, e, ev) {
+// poisoned by its own kind's venom. saveBonus: the monster's high ground.
+function envenom(state, e, ev, saveBonus = 0) {
   const coatings = liveCoatings(state, weaponEntry(state.character));
   if (!coatings.length) return;
   const m = MONSTER_BY_ID[e.monsterId];
@@ -260,7 +299,7 @@ function envenom(state, e, ev) {
       e.toldOwn = true;
       continue;
     }
-    if (die(20) >= saveTarget('poison', monsterSaveLevel(m))) {
+    if (die(20) + saveBonus >= saveTarget('poison', monsterSaveLevel(m))) {
       results.push({ venom, outcome: 'resisted' });
       continue;
     }
@@ -289,15 +328,16 @@ function allyTurn(state, a, ev) {
       ev.push({ t: 'allyImmune', actor: a.name, target: e.name });
       return;
     }
-    const need = tier.thac0 - m.ac - tier.weapon.plus;
+    const hm = heightMods(cb, a.uid, e.uid);
+    const need = tier.thac0 - m.ac - tier.weapon.plus - hm.toHit;
     const r = die(20);
     const hit = r === 20 || (r !== 1 && r >= need);
     if (!hit) {
-      ev.push({ t: 'attack', by: 'ally', hit: false, actor: a.name, target: e.name });
+      ev.push({ t: 'attack', by: 'ally', hit: false, actor: a.name, target: e.name, ...heightTag(hm) });
       continue;
     }
-    const dmg = Math.max(1, roll(tier.weapon.dmg) + tier.weapon.plus + tier.dmgBonus);
-    hurtEnemy(state, e, dmg, ev, { t: 'attack', by: 'ally', hit: true, actor: a.name }, a.uid);
+    const dmg = Math.max(1, roll(tier.weapon.dmg) + tier.weapon.plus + tier.dmgBonus + hm.dmg);
+    hurtEnemy(state, e, dmg, ev, { t: 'attack', by: 'ally', hit: true, actor: a.name, ...heightTag(hm) }, a.uid);
   }
 }
 
@@ -399,36 +439,38 @@ function enemyTurn(state, e, ev) {
     const tier = target.ally && MERC_BY_ID[target.ally.mercId];
     const ac = target.you ? armorClass(c) : tier.ac;
     const helpless = target.you ? cb.paralyzed > 0 : target.ally.paralyzed > 0;
-    const need = m.thac0 - ac;
+    const hm = heightMods(cb, e.uid, target.uid);
+    const need = m.thac0 - ac - hm.toHit;
     const r = die(20);
     const hit = helpless || r === 20 || (r !== 1 && r >= need);
-    const base = { t: 'attack', by: 'enemy', actor: e.name, attack: a.name, you: target.you, target: target.you ? PLAYER : target.ally.name };
+    const base = { t: 'attack', by: 'enemy', actor: e.name, attack: a.name, you: target.you, target: target.you ? PLAYER : target.ally.name, ...heightTag(hm) };
     if (!hit) {
       ev.push({ ...base, hit: false });
       continue;
     }
-    const dmg = Math.max(1, roll(a.dmg));
+    const dmg = Math.max(1, roll(a.dmg) + hm.dmg);
     if (target.you) {
       hurtPlayer(state, dmg, ev, { ...base, hit: true });
       if (cb.over) return;
-      afflictPlayer(state, e, m, a, ev);
+      afflictPlayer(state, e, m, a, ev, hm.save);
     } else {
       hurtAlly(state, target.ally, dmg, ev, { ...base, hit: true });
-      if (target.ally.hp > 0) afflictAlly(state, target.ally, e, m, a, ev);
+      if (target.ally.hp > 0) afflictAlly(state, target.ally, e, m, a, ev, hm.save);
     }
   }
 }
 
-function afflictPlayer(state, e, m, a, ev) {
+// save: your saving-throw bonus against this attacker (high ground).
+function afflictPlayer(state, e, m, a, ev, save = 0) {
   const c = state.character;
   const cb = state.combat;
   if (a.poison) {
-    const p = exposeToPoison(c, m.id, a.poison);
+    const p = exposeToPoison(c, m.id, a.poison, save);
     ev.push(p.resisted
       ? { t: 'poisonResisted', you: true, actor: e.name, attack: a.name }
       : { t: 'poisoned', you: true, strength: p.strength, stacked: p.stacked });
   }
-  if (m.special.paralyze && cb.paralyzed === 0 && die(20) < saveTarget('paralysis', c.level)) {
+  if (m.special.paralyze && cb.paralyzed === 0 && die(20) + save < saveTarget('paralysis', c.level)) {
     cb.paralyzed = die(3);
     ev.push({ t: 'paralyzed', you: true, rounds: cb.paralyzed });
   }
@@ -441,10 +483,10 @@ function afflictPlayer(state, e, m, a, ev) {
 
 // Mercenaries suffer the same afflictions, but only for this fight. They have
 // no levels to drain, so a drain does extra damage instead.
-function afflictAlly(state, ally, e, m, a, ev) {
+function afflictAlly(state, ally, e, m, a, ev, save = 0) {
   const tier = MERC_BY_ID[ally.mercId];
   if (a.poison) {
-    if (die(20) >= saveTarget('poison', tier.level)) {
+    if (die(20) + save >= saveTarget('poison', tier.level)) {
       ev.push({ t: 'poisonResisted', target: ally.name });
     } else {
       const stacked = ally.poison > 0;
@@ -452,7 +494,7 @@ function afflictAlly(state, ally, e, m, a, ev) {
       ev.push({ t: 'poisoned', target: ally.name, strength: ally.poison, stacked });
     }
   }
-  if (m.special.paralyze && ally.paralyzed === 0 && die(20) < saveTarget('paralysis', tier.level)) {
+  if (m.special.paralyze && ally.paralyzed === 0 && die(20) + save < saveTarget('paralysis', tier.level)) {
     ally.paralyzed = die(3);
     ev.push({ t: 'paralyzed', target: ally.name, rounds: ally.paralyzed });
   }
@@ -461,7 +503,8 @@ function afflictAlly(state, ally, e, m, a, ev) {
   }
 }
 
-// Breath hits everyone on your side; each target saves separately.
+// Breath hits everyone on your side; each target saves separately, with a
+// bonus for standing above the breather.
 function breathe(state, e, m, ev) {
   const c = state.character;
   const cb = state.combat;
@@ -469,13 +512,13 @@ function breathe(state, e, m, ev) {
   const hits = [];
   const fallen = [];
   if (c.hp > 0) {
-    const saved = die(20) >= saveTarget('breath', c.level);
+    const saved = die(20) + heightMods(cb, e.uid, PLAYER).save >= saveTarget('breath', c.level);
     const dmg = saved ? Math.ceil(base / 2) : base;
     c.hp = Math.max(0, c.hp - dmg);
     hits.push({ you: true, uid: PLAYER, name: PLAYER, dmg, saved, hp: c.hp });
   }
   for (const a of living(cb.allies)) {
-    const saved = die(20) >= saveTarget('breath', MERC_BY_ID[a.mercId].level);
+    const saved = die(20) + heightMods(cb, e.uid, a.uid).save >= saveTarget('breath', MERC_BY_ID[a.mercId].level);
     const dmg = saved ? Math.ceil(base / 2) : base;
     a.hp = Math.max(0, a.hp - dmg);
     hits.push({ you: false, uid: a.uid, name: a.name, dmg, saved, hp: a.hp });

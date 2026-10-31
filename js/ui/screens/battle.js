@@ -6,7 +6,7 @@ import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
 import { MERCS, MERC_BY_ID } from '../../data/mercs.js';
 import { ITEM_BY_ID } from '../../data/equipment.js';
 import { maxHp, armorClass, weaponEntry, rollToHit } from '../../rules/character.js';
-import { playRound, setTarget, openingEvents, inReach, PLAYER } from '../../rules/combat.js';
+import { playRound, setTarget, openingEvents, inReach, heightMods, PLAYER } from '../../rules/combat.js';
 import {
   DEFAULT_FIELD, boardHexes, isPillar, livingUnits, occupant, reachableFor, threatZone, moveOf,
   moveYou, actYou, endTurn, autoYou, testerAddEnemy, testerAddMerc, testerHeal, testerRebuild,
@@ -129,12 +129,37 @@ function unitTip(s, uid) {
   const level = levelOf(s.combat.grid, s.combat.grid.pos[uid]);
   let tip = `${u.name}: ${u.hp}/${u.max} hp, AC ${u.ac}, moves ${moveOf(s.combat, uid)}${level ? `, on level ${level}` : ''}`;
   if (u.side === 'enemy') {
-    const m = MONSTER_BY_ID[s.combat.enemies.find(e => e.uid === uid).monsterId];
-    const youNeed = Math.min(20, Math.max(2, rollNeed(s, m.ac)));
-    const itNeeds = Math.min(20, Math.max(2, m.thac0 - me.ac));
-    tip += `. You hit it ${Math.round(((21 - youNeed) / 20) * 100)}%, it hits you ${Math.round(((21 - itNeeds) / 20) * 100)}%`;
+    const cb = s.combat;
+    const m = MONSTER_BY_ID[cb.enemies.find(e => e.uid === uid).monsterId];
+    // Height only counts when you're side by side, so far-off chances are on level ground.
+    const beside = H.adjacent(cb.grid.pos[PLAYER], cb.grid.pos[uid]);
+    const flat = { h: 0, toHit: 0, dmg: 0, save: 0 };
+    const mine = beside ? heightMods(cb, PLAYER, uid) : flat;
+    const theirs = beside ? heightMods(cb, uid, PLAYER) : flat;
+    // Beside you, a blow 2+ levels up or down may be out of reach.
+    const youReach = !beside || inReach(cb, PLAYER, uid);
+    const itReaches = !beside || inReach(cb, uid, PLAYER);
+    const pct = need => Math.round(((21 - Math.min(20, Math.max(2, need))) / 20) * 100);
+    const levels = n => `${n} level${n === 1 ? '' : 's'} ${mine.h < 0 ? 'up' : 'down'}`;
+    tip += youReach ? `. You hit it ${pct(rollNeed(s, m.ac) - mine.toHit)}%` : `. You can't reach it (${levels(Math.abs(mine.h))})`;
+    tip += itReaches ? `, it hits you ${pct(m.thac0 - me.ac - theirs.toHit)}%` : ", and it can't reach you";
+    tip += heightNotes(mine, theirs, youReach, itReaches);
   }
   return tip;
+}
+
+// Who has the high ground, and only the effects that apply: a side that
+// can't reach the other gets no to-hit, damage or save notes.
+function heightNotes(mine, theirs, youReach, itReaches) {
+  if (!mine.h || (!youReach && !itReaches)) return '';
+  const parts = [];
+  if (youReach && mine.toHit) parts.push(`you have ${mine.toHit} to hit`);
+  if (youReach && mine.dmg) parts.push(`you deal +${mine.dmg} damage`);
+  if (youReach && mine.save) parts.push(`it gets +${mine.save} on saves against your venom`);
+  if (itReaches && theirs.toHit) parts.push(`it has ${theirs.toHit} to hit`);
+  if (itReaches && theirs.dmg) parts.push(`it deals +${theirs.dmg} damage`);
+  if (itReaches && theirs.save) parts.push(`you get +${theirs.save} on saves against it`);
+  return `. ${mine.h > 0 ? 'You have' : 'It has'} the high ground: ${parts.join(', ')}`;
 }
 
 // The d20 roll you need against an AC, with your bonuses (same as the arena screen).
@@ -253,7 +278,7 @@ export function render(ctx, params) {
           <div class="panel"><h3>Fighters</h3><div class="table-wrap">${roster(s)}</div>
             <p class="muted small">Legend: blue hexes, where you can move · red, an enemy you can attack ·
               amber, where an enemy could reach and strike this round · 🪨 pillar.
-              ${Object.keys(cb.grid.height ?? {}).length ? '<br>Shaded hexes are raised ground, numbered by level; thick edges are cliffs. Levels don\'t affect moving or fighting yet.' : ''}</p></div>
+              ${Object.keys(cb.grid.height ?? {}).length ? '<br>Shaded hexes are raised ground, numbered by level; thick edges are cliffs. Higher ground wins melee: blows reach only 1 level up or down, attacking up is harder, attacking down hits harder (hover an enemy for the numbers). Moving ignores levels for now.' : ''}</p></div>
           ${testerPanel(s)}
         </aside>
       </div>

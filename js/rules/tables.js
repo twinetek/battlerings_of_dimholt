@@ -83,3 +83,10 @@ export const TOME_MAX = 25;          // Tomes can push a stat this far
 export const STAT_POINT_EVERY = 2;   // a stat point at every 2nd level
 export const ITEM_SPEED = 3;         // initiative modifier when using an item
 export const COMBAT_LOG_LIMIT = 150;
+
+// Melee across terrain levels on the hex battlefield (beta; see rules/terrain.js).
+export const MELEE_HEIGHT_REACH = 1; // levels up or down a melee blow can reach
+export const TALL_HEIGHT_REACH = 2;  // the same, for monsters with move: ['tall']
+export const UPHILL_TO_HIT = 2;      // to-hit penalty per level when attacking up
+export const DOWNHILL_DMG = 2;       // damage bonus per level when attacking down
+export const HIGH_GROUND_SAVE = 2;   // save bonus per level for a defender above its attacker
