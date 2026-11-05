@@ -3,7 +3,7 @@
 
 import { roll } from '../engine/dice.js';
 import { WEAPON_BY_ID, ARMOR_BY_ID, ITEM_BY_ID } from '../data/equipment.js';
-import { MAX_WEAPONS, TOME_MAX, INN_PRICE, STATS } from './tables.js';
+import { TOME_MAX, INN_PRICE, STATS } from './tables.js';
 import { advanceClock } from './loot.js';
 import { maxHp, heal, armorOf, readTome } from './character.js';
 import { curePoison } from './poison.js';
@@ -24,7 +24,6 @@ export function itemSellPrice(entry) {
 export function buyWeapon(c, id) {
   const w = WEAPON_BY_ID[id];
   if (!w) return fail('No such weapon.');
-  if (c.weapons.length >= MAX_WEAPONS) return fail(`You can carry at most ${MAX_WEAPONS} weapons. Sell one first.`);
   if (c.gold < w.cost) return fail(`You can't afford the ${w.name}.`);
   c.gold -= w.cost;
   c.weapons.push({ id, coatings: [] });

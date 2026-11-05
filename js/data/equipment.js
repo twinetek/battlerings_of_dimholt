@@ -2,39 +2,44 @@
 // 2nd edition Player's Handbook. Magic items and prices are the original
 // game's list.
 
-// speed:  added to the initiative roll, lower is faster.
-// plus:   magic bonus to hit and damage, and what magicReq checks against.
-// ranged: (hex battlefield beta) { family: 'thrown', aim, throws, thing }
-//         aim     hexes at full accuracy and damage, before Str (rules/ranged.js)
-//         throws  per fight; you gather them up afterward
-//         thing   what one throw is called in the log ("dagger")
-//         Thrown weapons fight as ordinary melee weapons when the enemy is
-//         beside you, and in classic fights. The shops list them only in the beta.
+// Every weapon here is a melee weapon. Bows and other true ranged weapons will
+// come later with their own `ranged` field (see Todo_ranged.md).
+// speed:   added to the initiative roll, lower is faster.
+// plus:    magic bonus to hit and damage, and what magicReq checks against.
+// throw:   (hex battlefield beta) how well it flies when thrown: { aim, hit }
+//          aim  hexes at full accuracy and damage, before Str (rules/ranged.js)
+//          hit  to-hit adjustment for throwing it
+//          Any weapon you carry can be thrown, one throw per weapon per fight;
+//          you gather them up afterward.
+// betaOnly: made for throwing, so sold only on the hex battlefield (beta).
+const MADE_TO_THROW = { aim: 3, hit: 0 };  // daggers, throwing axes
+const HANDY = { aim: 2, hit: -1 };         // small and balanced enough
+const AWKWARD = { aim: 1, hit: -2 };       // one-handed weapons
+const CLUMSY = { aim: 1, hit: -4 };        // big two-handed weapons
+
 export const WEAPONS = [
-  { id: 'dagger',          name: 'Dagger',             cost: 2,     speed: 2,  dmg: '1d4',   plus: 0 },
-  { id: 'hand-axe',        name: 'Hand Axe',           cost: 4,     speed: 4,  dmg: '1d6',   plus: 0 },
-  { id: 'short-sword',     name: 'Short Sword',        cost: 10,    speed: 3,  dmg: '1d6',   plus: 0 },
-  { id: 'mace',            name: 'Mace',               cost: 8,     speed: 7,  dmg: '1d6+1', plus: 0 },
-  { id: 'morning-star',    name: 'Morning Star',       cost: 10,    speed: 7,  dmg: '2d4',   plus: 0 },
-  { id: 'battle-axe',      name: 'Battle Axe',         cost: 5,     speed: 7,  dmg: '1d8',   plus: 0 },
-  { id: 'long-sword',      name: 'Long Sword',         cost: 15,    speed: 5,  dmg: '1d8',   plus: 0 },
-  { id: 'bastard-sword',   name: 'Bastard Sword',      cost: 25,    speed: 6,  dmg: '1d10',  plus: 0 },
-  { id: 'halberd',         name: 'Halberd',            cost: 10,    speed: 9,  dmg: '1d10',  plus: 0 },
-  { id: 'two-handed-sword', name: 'Two-Handed Sword',  cost: 50,    speed: 10, dmg: '2d6',   plus: 0 },
-  { id: 'throwing-daggers', name: 'Throwing Daggers',  cost: 10,    speed: 2,  dmg: '1d4',   plus: 0,
-    ranged: { family: 'thrown', aim: 3, throws: 3, thing: 'dagger' } },
-  { id: 'throwing-axes',   name: 'Throwing Axes',      cost: 15,    speed: 4,  dmg: '1d6',   plus: 0,
-    ranged: { family: 'thrown', aim: 2, throws: 2, thing: 'axe' } },
-  { id: 'dagger-1',        name: 'Dagger +1',          cost: 500,   speed: 2,  dmg: '1d4',   plus: 1 },
-  { id: 'long-sword-1',    name: 'Long Sword +1',      cost: 1200,  speed: 5,  dmg: '1d8',   plus: 1 },
-  { id: 'battle-axe-1',    name: 'Battle Axe +1',      cost: 1000,  speed: 7,  dmg: '1d8',   plus: 1 },
-  { id: 'two-handed-sword-1', name: 'Two-Handed Sword +1', cost: 2500, speed: 10, dmg: '2d6', plus: 1 },
-  { id: 'long-sword-2',    name: 'Long Sword +2',      cost: 4000,  speed: 5,  dmg: '1d8',   plus: 2 },
-  { id: 'two-handed-sword-2', name: 'Two-Handed Sword +2', cost: 7000, speed: 10, dmg: '2d6', plus: 2 },
-  { id: 'long-sword-3',    name: 'Long Sword +3',      cost: 12000, speed: 5,  dmg: '1d8',   plus: 3 },
-  { id: 'two-handed-sword-3', name: 'Two-Handed Sword +3', cost: 18000, speed: 10, dmg: '2d6', plus: 3 },
+  { id: 'dagger',          name: 'Dagger',             cost: 2,     speed: 2,  dmg: '1d4',   plus: 0, throw: MADE_TO_THROW },
+  { id: 'throwing-axe',    name: 'Throwing Axe',       cost: 8,     speed: 4,  dmg: '1d6',   plus: 0, throw: MADE_TO_THROW, betaOnly: true },
+  { id: 'hand-axe',        name: 'Hand Axe',           cost: 4,     speed: 4,  dmg: '1d6',   plus: 0, throw: HANDY },
+  { id: 'short-sword',     name: 'Short Sword',        cost: 10,    speed: 3,  dmg: '1d6',   plus: 0, throw: AWKWARD },
+  { id: 'mace',            name: 'Mace',               cost: 8,     speed: 7,  dmg: '1d6+1', plus: 0, throw: AWKWARD },
+  { id: 'morning-star',    name: 'Morning Star',       cost: 10,    speed: 7,  dmg: '2d4',   plus: 0, throw: AWKWARD },
+  { id: 'battle-axe',      name: 'Battle Axe',         cost: 5,     speed: 7,  dmg: '1d8',   plus: 0, throw: AWKWARD },
+  { id: 'long-sword',      name: 'Long Sword',         cost: 15,    speed: 5,  dmg: '1d8',   plus: 0, throw: AWKWARD },
+  { id: 'bastard-sword',   name: 'Bastard Sword',      cost: 25,    speed: 6,  dmg: '1d10',  plus: 0, throw: CLUMSY },
+  { id: 'halberd',         name: 'Halberd',            cost: 10,    speed: 9,  dmg: '1d10',  plus: 0, throw: CLUMSY },
+  { id: 'two-handed-sword', name: 'Two-Handed Sword',  cost: 50,    speed: 10, dmg: '2d6',   plus: 0, throw: CLUMSY },
+  { id: 'dagger-1',        name: 'Dagger +1',          cost: 500,   speed: 2,  dmg: '1d4',   plus: 1, throw: MADE_TO_THROW },
+  { id: 'long-sword-1',    name: 'Long Sword +1',      cost: 1200,  speed: 5,  dmg: '1d8',   plus: 1, throw: AWKWARD },
+  { id: 'battle-axe-1',    name: 'Battle Axe +1',      cost: 1000,  speed: 7,  dmg: '1d8',   plus: 1, throw: AWKWARD },
+  { id: 'two-handed-sword-1', name: 'Two-Handed Sword +1', cost: 2500, speed: 10, dmg: '2d6', plus: 1, throw: CLUMSY },
+  { id: 'long-sword-2',    name: 'Long Sword +2',      cost: 4000,  speed: 5,  dmg: '1d8',   plus: 2, throw: AWKWARD },
+  { id: 'two-handed-sword-2', name: 'Two-Handed Sword +2', cost: 7000, speed: 10, dmg: '2d6', plus: 2, throw: CLUMSY },
+  { id: 'long-sword-3',    name: 'Long Sword +3',      cost: 12000, speed: 5,  dmg: '1d8',   plus: 3, throw: AWKWARD },
+  { id: 'two-handed-sword-3', name: 'Two-Handed Sword +3', cost: 18000, speed: 10, dmg: '2d6', plus: 3, throw: CLUMSY },
 ];
 
+// Fists can't be thrown.
 export const UNARMED = { id: 'fists', name: 'Fists', cost: 0, speed: 1, dmg: '1d2', plus: 0 };
 
 // ac: adjustment to armor class (an unarmored character is AC 10).

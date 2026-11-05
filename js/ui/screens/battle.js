@@ -4,15 +4,15 @@
 
 import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
 import { MERCS, MERC_BY_ID } from '../../data/mercs.js';
-import { ITEM_BY_ID } from '../../data/equipment.js';
-import { maxHp, armorClass, weaponEntry, weaponOf, rollToHit } from '../../rules/character.js';
+import { ITEM_BY_ID, WEAPON_BY_ID } from '../../data/equipment.js';
+import { maxHp, armorClass, weaponEntry, rollToHit } from '../../rules/character.js';
 import { playRound, setTarget, openingEvents, inReach, heightMods, PLAYER } from '../../rules/combat.js';
 import {
   DEFAULT_FIELD, boardHexes, isPillar, livingUnits, occupant, reachableFor, threatZone, moveOf,
-  moveYou, actYou, endTurn, autoYou, testerAddEnemy, testerAddMerc, testerHeal, testerRebuild,
+  moveYou, actYou, endTurn, autoYou, setThrowPick, testerAddEnemy, testerAddMerc, testerHeal, testerRebuild,
 } from '../../rules/battlefield.js';
 import { TERRAINS, levelOf, cliffEdges } from '../../rules/terrain.js';
-import { rangeProfile, rangedStats, throwsLeft } from '../../rules/ranged.js';
+import { rangeProfile, throwsLeft, throwGroups } from '../../rules/ranged.js';
 import * as H from '../../engine/hex.js';
 import { COMBAT_LOG_LIMIT, thac0 } from '../../rules/tables.js';
 import { toLines, describeAll, SUMMARIZE_ABOVE } from '../presenter.js';
@@ -151,15 +151,31 @@ function unitTip(s, uid) {
   return tip;
 }
 
-// With a thrown weapon in hand: your chance and damage at this distance, and
-// what changes it, or why you can't throw at it.
+// If you have anything to throw: the weapon you'd throw, your chance and
+// damage at this distance and what changes them, or why you can't throw.
 function throwNote(s, uid, m) {
-  if (!rangedStats(s.character)) return '';
+  if (!throwsLeft(s)) return '';
   const p = rangeProfile(s, uid);
   if (!p.ok) return `. Can't throw: ${p.reason}`;
   const need = Math.min(20, Math.max(2, thac0(s.character.level) - m.ac - p.toHit));
   const parts = p.parts.map(([name, n]) => `${name} ${n > 0 ? '+' : ''}${n}`).join(', ');
-  return `. Throw: ${p.distance} hexes, ${Math.round(((21 - need) / 20) * 100)}% to hit, ${Math.round(p.dmgMult * 100)}% damage${parts ? ` (${parts})` : ''}`;
+  const name = WEAPON_BY_ID[s.character.weapons[p.index].id].name;
+  return `. Throw your ${name}: ${p.distance} hexes, ${Math.round(((21 - need) / 20) * 100)}% to hit, ${Math.round(p.dmgMult * 100)}% damage${parts ? ` (${parts})` : ''}`;
+}
+
+// Which kind of weapon you'll throw next: "Best spare" lets the game choose
+// (never the weapon in your hand), or pick a kind yourself.
+function throwPicker(s) {
+  const cb = s.combat;
+  if (!s.character.weapons.length) return '';
+  const groups = throwGroups(s);
+  if (!groups.length) return "<p class='muted small'>Throw: you've thrown everything you carry. You'll gather it up after the fight.</p>";
+  const pick = groups.some(g => g.id === cb.throwPick) ? cb.throwPick : null;
+  const opt = (label, id, title) => button(label, 'throwPick', { id: id ?? '' }, { cls: `link${pick === id ? ' on' : ''}`, disabled: busy, title });
+  return `<p class="muted small row throw-pick">Throw:
+    ${opt('Best spare', null, "The best weapon you aren't holding that can hurt the target")}
+    ${groups.map(g => opt(`${esc(g.name)}${g.count > 1 ? ` ×${g.count}` : ''}${g.inHand && g.count === 1 ? ' (in hand)' : ''}`, g.id,
+      g.inHand && g.count === 1 ? 'Throwing the weapon in your hand: you draw another, or fight on with your fists' : '')).join(' ')}</p>`;
 }
 
 // Who has the high ground, and only the effects that apply: a side that
@@ -229,7 +245,7 @@ function hintText(s) {
   if (cb.paralyzed > 0) return 'You are paralyzed. End your turn.';
   const t = cb.turn;
   if (t.moved && t.acted) return 'You have moved and acted. End your turn.';
-  const thrower = !!rangedStats(s.character);
+  const thrower = throwsLeft(s) > 0;
   const attack = thrower ? 'attack an adjacent enemy (red) or throw at one in range (dashed)' : 'attack an adjacent enemy (red)';
   if (t.moved) return `${attack.charAt(0).toUpperCase()}${attack.slice(1)}, use an item, or end your turn.`;
   if (t.acted) return t.shot ? 'After a throw you can still step 1 hex, then end your turn.' : 'You can still move (blue hexes), then end your turn.';
@@ -274,13 +290,14 @@ export function render(ctx, params) {
         ${button('End turn', 'endTurn', {}, { cls: 'primary', disabled: busy, title: 'Shortcut: E' })}
         ${button('🧪 Use item', 'pickItem', {}, { disabled: busy || stuck || cb.turn.acted })}
         ${button(`🏳️ Surrender (${gp(Math.min(c.gold, m.fine))})`, 'surrender', {}, { cls: 'ghost', disabled: busy })}
-      </div>`;
+      </div>
+      ${throwPicker(s)}`;
   }
 
   const venom = coatingTag(s, weaponEntry(c));
   return `
     <section class="battle">
-      <p class="beta-note small">Beta: the hex battlefield. Round ${cb.round}.${rangedStats(c) ? ` ${esc(weaponOf(c).name)}: ${throwsLeft(s)} of ${rangedStats(c).throws} throws left.` : ''}${venom ? ` Blade venom:${venom}` : ''}</p>
+      <p class="beta-note small">Beta: the hex battlefield. Round ${cb.round}.${venom ? ` Blade venom:${venom}` : ''}</p>
       <div class="battle-grid">
         <div>
           <div class="board-wrap">${boardSvg(s, params)}</div>
@@ -408,6 +425,10 @@ export const actions = {
       if (!r.ok) break;
       if (!ctx.state.combat.over) await run(ctx, endTurn);
     }
+  },
+  throwPick(ctx, d) {
+    if (busy) return;
+    ctx.commit(st => { setThrowPick(st, d.id || null); });
   },
   pickItem: ctx => ctx.setParams({ picking: true }),
   cancelUse: ctx => ctx.setParams({ picking: false }),

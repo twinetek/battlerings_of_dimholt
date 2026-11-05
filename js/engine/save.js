@@ -47,6 +47,30 @@ const MIGRATIONS = {
     for (const e of state.combat?.enemies ?? []) e.poison ??= 0;
     return state;
   },
+  // Version 5: any weapon can be thrown, one throw per weapon. The beta's
+  // sets of throwing weapons become that many single weapons.
+  4: state => {
+    const c = state.character;
+    const SETS = { 'throwing-daggers': ['dagger', 3], 'throwing-axes': ['throwing-axe', 2] };
+    const weapons = [];
+    let equipped = -1;
+    c.weapons.forEach((w, i) => {
+      const [id, count] = SETS[w.id] ?? [w.id, 1];
+      if (i === c.equipped) equipped = weapons.length;
+      weapons.push({ ...w, id });
+      for (let k = 1; k < count; k++) weapons.push({ id, coatings: [] });
+    });
+    c.weapons = weapons;
+    c.equipped = equipped;
+    const cb = state.combat;
+    if (cb) {
+      delete cb.throwsUsed;
+      cb.thrown ??= [];
+      cb.throwPick ??= null;
+      cb.handBefore ??= null;
+    }
+    return state;
+  },
 };
 
 function migrate(state) {

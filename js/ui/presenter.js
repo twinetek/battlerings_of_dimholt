@@ -32,9 +32,11 @@ function breathText(e) {
   return `The ${e.actor} breathes ${e.name}! ${list.charAt(0).toUpperCase()}${list.slice(1)} damage.`;
 }
 
+// ['a', 'b', 'c'] -> "a, b and c"
+const list = names => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]);
+
 // "Wyvern and scorpion venom take hold: the Hill Giant is poisoned (strength 9)."
 function venomLine(e) {
-  const list = names => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]);
   const of = outcome => e.results.filter(r => r.outcome === outcome).map(r => r.venom.toLowerCase());
   const takes = of('takes'), resisted = of('resisted'), own = of('own');
   const parts = [];
@@ -47,12 +49,22 @@ function venomLine(e) {
   return { text: `${parts.join('; ')}.`, cls: takes.length ? 'good' : 'muted' };
 }
 
+// "You gather up the 3 Daggers and the Throwing Axe you threw, and take your
+// Long Sword back in hand."
+function recoverLine(e) {
+  const things = list(e.weapons.map(w => (w.count === 1 ? `the ${w.name}` : `${w.count} ${plural(w.name)}`)));
+  return { text: `You gather up ${things} you threw${e.rewield ? `, and take your ${e.rewield} back in hand` : ''}.`, cls: 'sys' };
+}
+
+// "Dagger" -> "Daggers", "Dagger +1" -> "Daggers +1".
+const plural = name => name.replace(/^(.*?)( \+\d)?$/, (_, base, plus = '') => `${base}s${plus}`);
+
 function attackLine(e) {
   if (e.ranged) {
-    const a = /^[aeiou]/i.test(e.thing) ? 'an' : 'a';
+    const hexes = `${e.distance} hex${e.distance === 1 ? '' : 'es'}`;
     return e.hit
-      ? { text: `You throw ${a} ${e.thing} at the ${e.target} (${e.distance} hex${e.distance === 1 ? '' : 'es'}) and hit for ${e.dmg} damage${e.dmgMult < 1 ? ', weakened by the distance' : ''}.`, cls: 'good' }
-      : { text: `Your ${e.thing} flies past the ${e.target} (${e.distance} hex${e.distance === 1 ? '' : 'es'}).`, cls: 'muted' };
+      ? { text: `You throw your ${e.weapon} at the ${e.target} (${hexes}) and hit for ${e.dmg} damage${e.dmgMult < 1 ? ', weakened by the distance' : ''}.`, cls: 'good' }
+      : { text: `Your ${e.weapon} flies past the ${e.target} (${hexes}).`, cls: 'muted' };
   }
   if (e.by === 'player') {
     return e.hit
@@ -110,8 +122,9 @@ export function describe(e) {
     case 'allyDown': return { text: `${e.name} falls!`, cls: 'bad' };
     case 'noReach': return { text: 'No enemy is within reach of your weapon.', cls: 'muted' };
     case 'noShot': return { text: 'You have no clear throw at any enemy.', cls: 'muted' };
-    case 'throwsSpent': return { text: `That was your last ${e.thing}. You'll gather them up after the fight.`, cls: 'sys' };
-    case 'throwsRecovered': return { text: `You gather up the ${e.count === 1 ? `${e.thing}` : `${e.count} ${e.thing}s`} you threw.`, cls: 'sys' };
+    case 'throwsSpent': return { text: "You've thrown every weapon you carry. You'll gather them up after the fight.", cls: 'sys' };
+    case 'draw': return { text: e.weapon ? `You draw your ${e.weapon}.` : 'You fight on with your fists.', cls: 'sys' };
+    case 'throwsRecovered': return recoverLine(e);
     case 'move': return null; // shown by the battlefield, not the log
     case 'loot': return { text: `The ${e.from} leaves behind a ${e.item} (potency ${e.potency})!`, cls: 'win' };
     case 'venom': return venomLine(e);

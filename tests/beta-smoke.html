@@ -65,13 +65,18 @@ frame.addEventListener('load', async () => {
     log(!!q('[data-action="continue"]') && st().character.name === 'Smokey', 'main game was copied into the beta');
     log(!!q('[data-action="copyMain"]') && [...q('#beta-select').options].some(o => o.value === '../?beta=true'), 'copy control, and the drop-down leads back to the main game');
     await click('[data-action="continue"]');
-    // The beta's Weaponsmith sells throwing weapons; buy daggers and take them in hand.
+    // The beta's Weaponsmith sells throwing axes and shows how far everything throws; buy two.
     await click('[data-to="weapons"]');
-    log(q('#screen').textContent.includes('Throwing Daggers') && q('#screen').textContent.includes('Thrown: 3 per fight'), 'the beta weaponsmith sells throwing weapons');
-    await click('[data-action="buy"][data-id="throwing-daggers"]');
-    const daggerIndex = st().character.weapons.findIndex(x => x.id === 'throwing-daggers');
-    await click(`[data-action="equip"][data-index="${daggerIndex}"]`);
-    log(st().character.equipped === daggerIndex, 'bought and equipped throwing daggers');
+    log(q('#screen').textContent.includes('Throwing Axe') && q('#screen').textContent.includes('Thrown: full power to'), 'the beta weaponsmith sells throwing axes and shows throwing numbers');
+    const axesBefore = st().character.weapons.filter(x => x.id === 'throwing-axe').length;
+    await click('[data-action="buy"][data-id="throwing-axe"]');
+    await click('[data-action="buy"][data-id="throwing-axe"]');
+    log(st().character.weapons.filter(x => x.id === 'throwing-axe').length === axesBefore + 2, 'bought two throwing axes');
+    await click('[data-action="go"][data-to="town"]');
+    await click('[data-to="guide"]');
+    const guideText = q('#screen').textContent.replace(/\s+/g, ' ');
+    log(screen() === 'guide' && guideText.includes('five daggers are five throws') && guideText.includes('Two-Handed Sword: full power to 1 hex, -4 to hit'),
+      'the beta guide explains throwing any weapon and how well each flies');
     await click('[data-action="go"][data-to="town"]');
     await click('[data-to="arena"]');
     await click('tr[data-id="kobold"]');
@@ -91,11 +96,13 @@ frame.addEventListener('load', async () => {
     await wait(400);
     const pos = st().combat.grid.pos.you;
     log(st().combat.turn.moved && `${pos.q},${pos.r}` === key, 'clicking a blue hex moves you');
+    await click('[data-action="throwPick"][data-id="throwing-axe"]');
+    log(st().combat.throwPick === 'throwing-axe' && q('[data-action="throwPick"][data-id="throwing-axe"]').classList.contains('on'), 'the Throw picker chooses throwing axes');
     const throwAt = q('.cell.throwable');
     if (throwAt && !st().combat.over) {
       await click(`[data-key="${throwAt.dataset.key}"]`);
       await wait(500);
-      log(st().combat.throwsUsed === 1 && /You throw a dagger|Your dagger flies past/.test(q('#combat-log').textContent), 'clicking a dashed enemy throws a dagger');
+      log(st().combat.thrown.length === 1 && /You throw your Throwing Axe|Your Throwing Axe flies past/.test(q('#combat-log').textContent), 'clicking a dashed enemy throws a throwing axe');
     } else {
       const s = st();
       const why = s.combat.over ? 'fight over' : s.combat.enemies.map(e => `${e.uid}: ${rangeProfile(s, e.uid).reason ?? 'ok'}`).join('; ');

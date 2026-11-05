@@ -5,11 +5,12 @@
 // (height comes from rules/terrain.js; melee reach and the height modifiers in
 // rules/combat.js read it, movement doesn't yet)
 // combat.turn = { moved, acted, movedHexes, shot } for your turn this round
-// combat.throwsUsed = throws you've made this fight (rules/ranged.js)
+// combat.thrown, throwPick, handBefore: the weapons you've thrown this fight
+// and which kind you'll throw next (rules/ranged.js)
 //
 // A round on the battlefield:
 //   1. You: move up to PLAYER_MOVE hexes and act once (attack an adjacent enemy,
-//      throw a thrown weapon at one in range, or use an item), in either order,
+//      throw one of your weapons at one in range, or use an item), in either order,
 //      then end your turn. After a throw you can move only SHOT_MOVE hexes.
 //   2. Each mercenary moves toward your target (or the nearest enemy) and
 //      attacks if it ends next to one.
@@ -22,8 +23,9 @@ import * as H from '../engine/hex.js';
 import { die } from '../engine/dice.js';
 import { MONSTER_BY_ID } from '../data/monsters.js';
 import { MERC_BY_ID } from '../data/mercs.js';
-import { maxHp, weaponOf } from './character.js';
-import { rangeProfile } from './ranged.js';
+import { WEAPON_BY_ID } from '../data/equipment.js';
+import { maxHp } from './character.js';
+import { rangeProfile, throwsLeft } from './ranged.js';
 import { SHOT_MOVE } from './tables.js';
 import { generateTerrain, levelOf } from './terrain.js';
 import {
@@ -171,7 +173,7 @@ export function moveYou(state, to) {
 
 // action: { type: 'fight', target, ranged? } | { type: 'use', index, target? }
 // A fight action strikes your target in melee if you can reach it. If not and
-// you hold a thrown weapon, you throw at it (ranged: true forces a throw).
+// you have a weapon to throw, you throw it (ranged: true forces a throw).
 // Otherwise you strike whoever else is in reach.
 export function actYou(state, action) {
   const cb = state.combat;
@@ -181,7 +183,7 @@ export function actYou(state, action) {
   if (action.target) setTarget(cb, action.target);
   let act = action;
   if (action.type === 'fight') {
-    const thrower = !!weaponOf(state.character).ranged;
+    const thrower = state.character.weapons.length > 0;
     const enemies = livingUnits(state).filter(u => u.side === 'enemy');
     const meleeTarget = !action.ranged && inReach(cb, PLAYER, cb.target);
     let shot = thrower && !meleeTarget ? rangeProfile(state, cb.target) : null;
@@ -190,7 +192,7 @@ export function actYou(state, action) {
       const alt = rangedTarget(state);
       if (alt) { setTarget(cb, alt.uid); shot = rangeProfile(state, alt.uid); }
     }
-    if (action.ranged && !shot?.ok) return fail(shot?.reason ?? "Your weapon can't be thrown.");
+    if (action.ranged && !shot?.ok) return fail(shot?.reason ?? "You have nothing left to throw.");
     if (shot?.ok) {
       act = { ...action, ranged: true };
     } else if (!meleeTarget && !enemies.some(u => inReach(cb, PLAYER, u.uid))) {
@@ -205,6 +207,14 @@ export function actYou(state, action) {
   cb.turn.acted = true;
   if (act.ranged) cb.turn.shot = true;
   return ok(ev);
+}
+
+// Choose which kind of weapon to throw next (a weapon id), or null to let
+// the game choose. Changing your mind doesn't use up your turn.
+export function setThrowPick(state, id) {
+  if (id && !WEAPON_BY_ID[id]?.throw) return fail("You can't throw that.");
+  state.combat.throwPick = id || null;
+  return ok([]);
 }
 
 // Step toward the nearest foe (preferring `preferUid`), up to the mover's
@@ -231,16 +241,17 @@ function advance(state, uid, ev, preferUid = null) {
   ev.push({ t: 'move', uid, path: steps });
 }
 
-// Let the AI play your turn (tester tool). A thrower not yet in melee throws
-// before moving (moving first costs accuracy); then everyone moves toward
-// their target and strikes, or throws if still out of reach.
+// Let the AI play your turn (tester tool). If you're not yet in melee and
+// have a spare weapon to throw, you throw before moving (moving first costs
+// accuracy); then you move toward your target and strike, or throw if still
+// out of reach.
 export function autoYou(state) {
   const cb = state.combat;
   const ev = [];
   if (cb.over || cb.paralyzed > 0) return ok(ev);
   const near = () => livingUnits(state).filter(u => u.side === 'enemy' && inReach(cb, PLAYER, u.uid));
   const tryThrow = () => {
-    if (cb.turn.acted || !weaponOf(state.character).ranged || near().length) return;
+    if (cb.turn.acted || !throwsLeft(state) || near().length) return;
     const r = actYou(state, { type: 'fight', ranged: true });
     if (r.ok) ev.push(...r.events);
   };

@@ -1,8 +1,8 @@
 // The weaponsmith, the armorer, and the magic shop.
 
 import { WEAPONS, WEAPON_BY_ID, ARMOR, ITEMS, ITEM_BY_ID } from '../../data/equipment.js';
-import { MAX_WEAPONS, FALLOFF_HEXES } from '../../rules/tables.js';
-import { rangedStats } from '../../rules/ranged.js';
+import { FALLOFF_HEXES } from '../../rules/tables.js';
+import { throwStats } from '../../rules/ranged.js';
 import { betaOn } from '../../config.js';
 import { LOOT_BY_ID } from '../../data/loot.js';
 import { coatingLabel, glandPotency, glandValue, freshness, sellLoot } from '../../rules/loot.js';
@@ -18,14 +18,33 @@ const confirmSale = (name, price) => price < 100 || window.confirm(`Sell the ${n
 
 const weaponName = w => (w.plus ? `<span class="magic">${esc(w.name)}</span>` : esc(w.name));
 
-// Thrown weapons exist only on the hex battlefield (beta), so only it sells them.
-export const forSaleHere = w => !w.ranged || betaOn('hex-battlefield');
+// Throwing happens only on the hex battlefield (beta), so only it sells
+// weapons made for throwing, and only it shows throwing numbers.
+export const forSaleHere = w => !w.betaOnly || betaOn('hex-battlefield');
 
-// "Thrown: 3 per fight, full power to 4 hexes, reaches 8" for this character.
-function throwText(c, w) {
-  const r = rangedStats(c, w);
-  return r ? `<span class="muted small block">Thrown: ${r.throws} per fight, full power to ${r.aim} hex${r.aim === 1 ? '' : 'es'}, reaches ${r.aim + FALLOFF_HEXES}</span>` : '';
+// "Thrown: full power to 4 hexes, reaches 8, -2 to hit" for this character.
+export function throwText(c, w) {
+  const r = betaOn('hex-battlefield') && throwStats(c, w);
+  if (!r) return '';
+  const hit = w.throw.hit ? `, ${w.throw.hit} to hit` : '';
+  return `<span class="muted small block">Thrown: full power to ${r.aim} hex${r.aim === 1 ? '' : 'es'}, reaches ${r.aim + FALLOFF_HEXES}${hit}</span>`;
 }
+
+// Your weapons with identical ones stacked: [{ id, indices, inHand, entry }].
+// The one in your hand and any with venom on them get rows of their own.
+export function weaponStacks(c) {
+  const stacks = new Map();
+  c.weapons.forEach((entry, i) => {
+    const inHand = i === c.equipped;
+    const key = inHand ? 'hand' : entry.coatings.length ? `coated ${i}` : entry.id;
+    const st = stacks.get(key) ?? { id: entry.id, indices: [], inHand, entry };
+    st.indices.push(i);
+    stacks.set(key, st);
+  });
+  return [...stacks.values()];
+}
+
+const countTag = n => (n > 1 ? ` <span class="muted">×${n}</span>` : '');
 
 // "☠ Wyvern 6, Scorpion 3" for a coated weapon, or ''.
 export function coatingTag(state, entry) {
@@ -36,28 +55,27 @@ export function coatingTag(state, entry) {
 export const weapons = {
   render(ctx) {
     const c = ctx.state.character;
-    const full = c.weapons.length >= MAX_WEAPONS;
     const forSale = WEAPONS.filter(forSaleHere).map(w => `
       <tr>
         <td>${weaponName(w)}${throwText(c, w)}</td>
         <td class="num">${rangeText(w.dmg, w.plus)}</td>
         <td class="num">${w.speed}</td>
         <td class="num">${gp(w.cost)}</td>
-        <td class="act">${button('Buy', 'buy', { id: w.id }, { disabled: full || c.gold < w.cost })}</td>
+        <td class="act">${button('Buy', 'buy', { id: w.id }, { disabled: c.gold < w.cost })}</td>
       </tr>`).join('');
     const owned = c.weapons.length
-      ? c.weapons.map((entry, i) => {
-        const w = WEAPON_BY_ID[entry.id];
-        const eq = i === c.equipped;
+      ? weaponStacks(c).map(st => {
+        const w = WEAPON_BY_ID[st.id];
+        const eq = st.inHand;
         return `
           <tr class="${eq ? 'equipped' : ''}">
-            <td>${weaponName(w)}${eq ? ' <span class="tag">in hand</span>' : ''}${coatingTag(ctx.state, entry)}</td>
+            <td>${weaponName(w)}${countTag(st.indices.length)}${eq ? ' <span class="tag">in hand</span>' : ''}${coatingTag(ctx.state, st.entry)}${throwText(c, w)}</td>
             <td class="num">${rangeText(w.dmg, w.plus)}</td>
             <td class="num">${w.speed}</td>
             <td class="num">${gp(town.sellPrice(w))}</td>
             <td class="act">
-              ${eq ? '' : button('Equip', 'equip', { index: i })}
-              ${button('Sell', 'sell', { index: i }, { cls: 'ghost' })}
+              ${eq ? '' : button('Equip', 'equip', { index: st.indices[0] })}
+              ${button(st.indices.length > 1 ? 'Sell one' : 'Sell', 'sell', { index: st.indices.at(-1) }, { cls: 'ghost' })}
             </td>
           </tr>`;
       }).join('')
@@ -66,7 +84,8 @@ export const weapons = {
       <section>
         <h2>🗡️ Weaponsmith</h2>
         <p class="muted">Damage includes any magic bonus. Speed is added to your initiative roll, so lower strikes first.
-          Gargoyles and wights need a +1 weapon to harm; earth elementals need +2.</p>
+          Gargoyles and wights need a +1 weapon to harm; earth elementals need +2.
+          ${betaOn('hex-battlefield') ? 'On the battlefield you can throw any weapon you carry, each one once per fight, so a spare dagger or two pays for itself.' : ''}</p>
         ${goldLine(c)}
         <div class="cols">
           <div class="panel">
@@ -77,7 +96,7 @@ export const weapons = {
             </table></div>
           </div>
           <div class="panel">
-            <h3>Your weapons <span class="muted small">(${c.weapons.length}/${MAX_WEAPONS})</span></h3>
+            <h3>Your weapons <span class="muted small">(${c.weapons.length})</span></h3>
             <div class="table-wrap"><table>
               <thead><tr><th>Weapon</th><th class="num">Damage</th><th class="num">Speed</th><th class="num">Sells for</th><th></th></tr></thead>
               <tbody>${owned}</tbody>

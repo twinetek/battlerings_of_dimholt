@@ -5,7 +5,7 @@ import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
 import { WEAPONS, WEAPON_BY_ID, ARMOR, ITEMS } from '../../data/equipment.js';
 import {
   STATS, strBonus, dexAc, conHp, XP_FOR_LEVEL, MAX_LEVEL, FIRST_LEVEL_HP, HIT_DIE, HP_AFTER_NINE,
-  thac0, attacksLabel, saveTarget, STARTING_GOLD, INN_PRICE, MAX_WEAPONS, GLAND_DECAY_TICKS, MAX_COATINGS,
+  thac0, attacksLabel, saveTarget, STARTING_GOLD, INN_PRICE, GLAND_DECAY_TICKS, MAX_COATINGS,
   NATURAL_MAX, TOME_MAX, STAT_POINT_EVERY, ITEM_SPEED,
   MELEE_HEIGHT_REACH, TALL_HEIGHT_REACH, UPHILL_TO_HIT, DOWNHILL_DMG, HIGH_GROUND_SAVE,
   FALLOFF_HEXES, HEIGHT_AIM_MAX, COVER_PENALTY, SHOT_MOVE, STEADY_DEX,
@@ -128,9 +128,13 @@ function battlefieldSection() {
           attacking down adds ${DOWNHILL_DMG} damage per level. Standing above your attacker adds ${HIGH_GROUND_SAVE} per level to your saving throws against
           its poison, paralysis and breath; a monster above you gets the same against your venom. Hover an enemy beside you to see the numbers.
           It all works the same for monsters and mercenaries.</li>
-        <li><strong>Throwing weapons.</strong> The Weaponsmith sells ${WEAPONS.filter(w => w.ranged).map(w => `${esc(w.name)} (${w.ranged.throws} per fight)`).join(' and ')}.
-          With one in hand, click an enemy that isn't beside you (a dashed red hex) to throw. Beside you, they fight as ordinary weapons.
-          They're never lost: when a fight you survive ends, you gather up every one you threw, hits and misses alike.
+        <li><strong>Throwing weapons.</strong> You can throw any weapon you carry, and each one you carry is one throw per fight: five daggers
+          are five throws. Click an enemy that isn't beside you (a dashed red hex) to throw at it. The <strong>Throw</strong> choices under the
+          battle buttons pick what you throw: <strong>Best spare</strong> throws the best weapon you aren't holding that can hurt the target,
+          or pick a kind yourself. Choose the weapon in your hand and you'll draw another (or fight on with your fists).
+          A thrown weapon stays where it lands until the fight is over; when a fight you survive ends, you gather up every one, hits and
+          misses alike, and take your weapon back in hand. A coated weapon carries its venom with it.
+          Some weapons fly better than others (the Weaponsmith shows your numbers): ${throwKinds()}.
           <ul>
             <li><strong>Range.</strong> Up to your full-power range a throw is at full accuracy and damage. Each hex beyond costs 1 to hit and an eighth
               of the damage, down to half at the most you can throw: ${FALLOFF_HEXES} hexes past full power. Strength adds range
@@ -227,6 +231,20 @@ function thac0Examples() {
   });
   return table(['Attacker', 'Target', num("Attacker's THAC0"), num("Target's AC"), num("Attacker's Bonuses"),
     num("Attacker's Roll Needed"), num('Chance'), 'Why'], rows, 'thac0-table');
+}
+
+// "Dagger, Throwing Axe and Dagger +1 are made for throwing (full power to 3
+// hexes); ..." from the weapons' throw profiles.
+function throwKinds() {
+  const kinds = new Map();
+  for (const w of WEAPONS.filter(forSaleHere)) {
+    const key = `${w.throw.aim},${w.throw.hit}`;
+    kinds.set(key, [...(kinds.get(key) ?? []), w]);
+  }
+  return [...kinds.values()]
+    .sort((a, b) => (b[0].throw.aim + b[0].throw.hit) - (a[0].throw.aim + a[0].throw.hit))
+    .map(ws => `${ws.filter(w => !w.plus).map(w => esc(w.name)).join(', ')}: full power to ${ws[0].throw.aim} hex${ws[0].throw.aim === 1 ? '' : 'es'}${ws[0].throw.hit ? `, ${ws[0].throw.hit} to hit` : ''}`)
+    .join('; ');
 }
 
 function weaponTable() {
@@ -437,7 +455,7 @@ export function render(ctx) {
       ${venomTargetsTable()}
 
       <h3 id="g-weapons">Weapons</h3>
-      <p>You can carry up to ${MAX_WEAPONS} weapons and switch between them at the Equipment screen. Damage includes the
+      <p>You can carry as many weapons as you like and switch between them at the Equipment screen. Damage includes the
         magic bonus but not your Strength bonus. Speed is added to your initiative roll, so lower is faster. Everything sells back for half price.</p>
       ${weaponTable()}
 

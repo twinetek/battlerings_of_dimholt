@@ -28,14 +28,14 @@
 
 import { roll, die, random } from '../engine/dice.js';
 import { MONSTERS, MONSTER_BY_ID } from '../data/monsters.js';
-import { ITEM_BY_ID } from '../data/equipment.js';
+import { ITEM_BY_ID, WEAPON_BY_ID } from '../data/equipment.js';
 import { MERCS, MERC_BY_ID, MERC_NAMES, crewCost, crewText } from '../data/mercs.js';
 import {
   attacksThisRound, saveTarget, strBonus, thac0, ITEM_SPEED,
   MELEE_HEIGHT_REACH, TALL_HEIGHT_REACH, UPHILL_TO_HIT, DOWNHILL_DMG, HIGH_GROUND_SAVE,
 } from './tables.js';
 import { levelOf } from './terrain.js';
-import { rangeProfile, rangedDamage, throwsLeft } from './ranged.js';
+import { rangeProfile, rangedDamage, throwsLeft, pickThrow } from './ranged.js';
 import { weaponOf, weaponEntry, armorClass, rollToHit, gainXp, drainLevel, heal } from './character.js';
 import { rollLoot, liveCoatings, venomName } from './loot.js';
 import { LOOT_BY_ID } from '../data/loot.js';
@@ -202,7 +202,8 @@ export function playRound(state, action) {
   let playerFirst = false;
   if (cb.paralyzed === 0) {
     const lead = living(cb.enemies).find(e => e.main) ?? living(cb.enemies)[0];
-    const speed = action.type === 'use' ? ITEM_SPEED : weaponOf(c).speed;
+    const thrown = action.ranged ? WEAPON_BY_ID[c.weapons[pickThrow(state, cb.target)]?.id] : null;
+    const speed = action.type === 'use' ? ITEM_SPEED : (thrown ?? weaponOf(c)).speed;
     playerFirst = die(10) + speed <= die(10) + MONSTER_BY_ID[lead.monsterId].speed;
   }
   ev.push({ t: 'initiative', first: playerFirst ? 'player' : 'monster' });
@@ -250,11 +251,11 @@ function playerTurn(state, action, ev) {
     useItem(state, action.index, ev);
     return;
   }
-  const w = weaponOf(c);
   if (action.ranged) {
-    rangedTurn(state, w, ev);
+    rangedTurn(state, ev);
     return;
   }
+  const w = weaponOf(c);
   const swings = attacksThisRound(c.level, cb.round);
   for (let i = 0; i < swings && !cb.over; i++) {
     const e = currentTarget(cb, cb.grid ? PLAYER : null);
@@ -282,48 +283,80 @@ function playerTurn(state, action, ev) {
 }
 
 // Throwing (hex battlefield beta): each of your attacks this round throws one
-// of your weapons at your target, or, if it's out of range or sight, at the
-// nearest enemy you can hit. Range, cover and moving first come from
-// rules/ranged.js; melee height modifiers don't apply to throws.
-function rangedTurn(state, w, ev) {
+// of your weapons (rules/ranged.js pickThrow) at your target, or, if it's out
+// of range or sight, at the nearest enemy you can hit. Range, cover and moving
+// first come from rules/ranged.js; melee height modifiers don't apply to
+// throws. A thrown weapon carries its venom coatings with it.
+function rangedTurn(state, ev) {
   const c = state.character;
   const cb = state.combat;
   const swings = attacksThisRound(c.level, cb.round);
   for (let i = 0; i < swings && !cb.over; i++) {
-    if (throwsLeft(state) <= 0) return;
     const e = rangedTarget(state);
     if (!e) {
-      ev.push({ t: 'noShot' });
+      if (i === 0) ev.push({ t: 'noShot' });
       return;
     }
+    const p = rangeProfile(state, e.uid);
+    const entry = c.weapons[p.index];
+    const w = WEAPON_BY_ID[entry.id];
     const m = MONSTER_BY_ID[e.monsterId];
     if (w.plus < m.magicReq) {
       ev.push({ t: 'immune', weapon: w.name, req: m.magicReq, target: e.name });
       return;
     }
-    const p = rangeProfile(state, e.uid);
-    cb.throwsUsed = (cb.throwsUsed ?? 0) + 1;
+    (cb.thrown ??= []).push(p.index);
     const need = thac0(c.level) - m.ac - p.toHit;
     const r = die(20);
     const hit = r === 20 || (r !== 1 && r >= need);
-    const base = { t: 'attack', by: 'player', ranged: true, thing: w.ranged.thing, weapon: w.name, distance: p.distance, dmgMult: p.dmgMult };
+    const base = { t: 'attack', by: 'player', ranged: true, weapon: w.name, distance: p.distance, dmgMult: p.dmgMult };
     if (!hit) {
       ev.push({ ...base, hit: false, target: e.name });
     } else {
       hurtEnemy(state, e, rangedDamage(roll(w.dmg), p), ev, { ...base, hit: true }, PLAYER);
-      if (e.hp > 0) envenom(state, e, ev);
+      if (e.hp > 0) envenom(state, e, ev, 0, entry);
     }
-    if (throwsLeft(state) === 0) ev.push({ t: 'throwsSpent', thing: w.ranged.thing });
+    if (p.index === c.equipped) drawWeapon(state, ev);
+    if (throwsLeft(state) === 0) ev.push({ t: 'throwsSpent' });
   }
 }
 
-// Thrown weapons are never lost: when a fight you survive ends, you pick up
-// every one you threw, hits and misses alike.
-function recoverThrows(state, ev) {
+// You threw the weapon in your hand: draw another one you haven't thrown,
+// another of the same kind if you have one, else the most valuable; or
+// fight on with your fists.
+function drawWeapon(state, ev) {
+  const c = state.character;
   const cb = state.combat;
-  if (!cb.throwsUsed || state.character.dead) return;
-  ev.push({ t: 'throwsRecovered', thing: weaponOf(state.character).ranged.thing, count: cb.throwsUsed });
-  cb.throwsUsed = 0;
+  cb.handBefore ??= c.equipped;
+  const thrownId = c.weapons[c.equipped].id;
+  const left = c.weapons.map((entry, index) => ({ index, w: WEAPON_BY_ID[entry.id] }))
+    .filter(x => !cb.thrown.includes(x.index))
+    .sort((a, b) => (b.w.id === thrownId) - (a.w.id === thrownId) || b.w.cost - a.w.cost);
+  c.equipped = left[0]?.index ?? -1;
+  ev.push({ t: 'draw', weapon: left[0]?.w.name ?? null });
+}
+
+// Thrown weapons are never lost: when a fight you survive ends, you pick up
+// every one you threw, hits and misses alike, and take back the weapon you
+// started with.
+function recoverThrows(state, ev) {
+  const c = state.character;
+  const cb = state.combat;
+  if (!cb.thrown?.length || c.dead) return;
+  const counts = new Map();
+  for (const i of cb.thrown) {
+    const name = WEAPON_BY_ID[c.weapons[i].id].name;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  const back = cb.handBefore != null && cb.handBefore !== c.equipped;
+  ev.push({
+    t: 'throwsRecovered',
+    weapons: [...counts].map(([name, count]) => ({ name, count })),
+    rewield: back ? WEAPON_BY_ID[c.weapons[cb.handBefore].id].name : null,
+  });
+  if (cb.handBefore != null) c.equipped = cb.handBefore;
+  cb.thrown = [];
+  cb.handBefore = null;
 }
 
 // Your target if you can throw at it, else the nearest enemy you can.
@@ -342,8 +375,9 @@ export const monsterSaveLevel = m => Math.max(1, 21 - m.thac0);
 // Each live coating on your weapon gets its own chance to poison the enemy
 // you just hit. Undead and earth creatures are immune, and no monster can be
 // poisoned by its own kind's venom. saveBonus: the monster's high ground.
-function envenom(state, e, ev, saveBonus = 0) {
-  const coatings = liveCoatings(state, weaponEntry(state.character));
+// entry: the weapon that hit, if not the one in your hand (a throw).
+function envenom(state, e, ev, saveBonus = 0, entry = weaponEntry(state.character)) {
+  const coatings = liveCoatings(state, entry);
   if (!coatings.length) return;
   const m = MONSTER_BY_ID[e.monsterId];
   if (m.immune.includes('poison')) {

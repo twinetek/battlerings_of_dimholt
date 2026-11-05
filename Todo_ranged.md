@@ -1,6 +1,6 @@
 # Ranged attacks on the hex battlefield: design
 
-Status: partly built. **Throwing weapons** (Throwing Daggers, Throwing Axes) are built, together with the machinery every ranged attack shares:
+Status: partly built. **Throwing** is built: you can throw any (melee) weapon you carry, one throw per weapon per fight, with each weapon's own `throw: { aim, hit }`. Built with it, the machinery every ranged attack shares:
 - the range profile;
 - Dexterity's missile bonus and Strength's range bonus;
 - range by height and line of sight in three dimensions;
@@ -31,7 +31,7 @@ The range profile, cover, moving first and line of sight are built (see `DESIGN.
 | **Armor piercing (`pierce`):** crossbows, against AC 3 or better | +2 to hit | Covers the Storm Giant, dragons, the Quickling and plated mercenaries. It gives crossbows a late-game role. |
 
 - **Engaged penalty:** shooting while engaged is allowed; it just costs to-hit.
-- **Built-in accuracy (`hit`):** light crossbow +1, heavy crossbow +2. `rangedStats` already adds `ranged.hit`.
+- **Built-in accuracy (`hit`):** light crossbow +1, heavy crossbow +2. `throwStats` already adds a weapon's throwing `hit`; the bow version should add `ranged.hit` the same way.
 
 ## Weapon families still to build
 
@@ -39,7 +39,8 @@ The **thrown** family is built. Each family uses Strength and Dexterity differen
 
 | Family | Weapons | Strength | Dexterity | Weapon's own edge |
 |---|---|---|---|---|
-| **Thrown** (built) | Throwing Daggers, Throwing Axes; still to add: Javelins, Sling | Full Str damage bonus and Str range bonus | Missile to-hit bonus | Never engaged; works in melee |
+| **Thrown** (built) | Any melee weapon, through its `throw` profile (daggers and Throwing Axes fly best); still to add: Javelin | Full Str damage bonus and Str range bonus | Missile to-hit bonus | Never engaged; it's your melee weapon too |
+| **Sling** | Sling | Full Str damage bonus and Str range bonus | Missile to-hit bonus | Unlimited stones; a true ranged weapon (`ranged`), so not a melee weapon |
 | **Self bow** (a plain bow) | Short Bow, Long Bow | Needs a minimum Str (`strMin`); no bonus above it | Missile to-hit bonus | Long reach, cheap |
 | **Composite bow** (built to a draw strength, its `pull`) | Composite Short Bow, Composite Long Bow | Str damage and range bonus, **up to the bow's pull** | Missile to-hit bonus | Strong archers get thrown-weapon damage at bow range |
 | **Crossbow** | Light, Heavy | None. Damage and range are fixed. | **Half** the missile to-hit bonus (rounded down) | Built-in accuracy, plus armor piercing |
@@ -87,14 +88,14 @@ New entries in `WEAPONS` (`data/equipment.js`) use the existing `ranged` field:
 ```
 
 - **New fields:** `strMin` (self bows), `pull` (composite bows), `pierce` and `reload` (crossbows). All are optional, defaulting to 0 or false.
-- **Ammunition:** unlimited for bows, crossbows and slings (no `throws`), as the original game never tracked consumables apart from wand charges. Javelins use `throws` like the built thrown weapons.
+- **Ammunition:** unlimited for bows, crossbows and slings, as the original game never tracked consumables apart from wand charges. A javelin is a single melee weapon with a good `throw` profile, like a dagger: carry three to throw three.
 - **Shots per round:** they follow `attacksThisRound` (3/2 at 7th, 2 at 13th), as throws already do.
 - **Melee:** bows and crossbows aren't melee weapons. Beside an enemy you're engaged; a bow user needs weapon switching (below) or a mercenary screen.
 
 | Weapon | Family | Cost | Damage | Base aim | Str | Accuracy | Notes |
 |---|---|---|---|---|---|---|---|
-| Sling | thrown | 1 | 1d4 | 3 | full dmg + range | Dex | Cheap starter; good for a strong novice. Unlimited stones. |
-| Javelins (3) | thrown | 6 | 1d6 | 2 | full dmg + range | Dex | 3 throws per fight; a 1d6 spear in melee. |
+| Sling | sling | 1 | 1d4 | 3 | full dmg + range | Dex | Cheap starter; good for a strong novice. Unlimited stones. |
+| Javelin | thrown | 2 | 1d6 | 4 | full dmg + range | Dex | One throw each, like a dagger; a 1d6 spear in melee. `throw: { aim: 4, hit: 0 }`, sold only in the beta. |
 | Short Bow | self | 30 | 1d6 | 4 | min 9 | Dex | |
 | Long Bow | self | 75 | 1d6 | 6 | min 12 | Dex | |
 | Composite Short Bow | composite | 100 | 1d6 | 4 | up to pull 17 | Dex | |
@@ -104,14 +105,13 @@ New entries in `WEAPONS` (`data/equipment.js`) use the existing `ranged` field:
 | Composite Long Bow +1 | composite | 1800 | 1d6 | 6 | up to pull 18 | Dex | Hurts Gargoyles and Wights; +1 aim. |
 | Heavy Crossbow +1 | crossbow | 1500 | 1d10 | 5 | none | ½ Dex, +3, pierce +2 | Hurts Gargoyles and Wights; +1 aim. |
 | Composite Long Bow +2 | composite | 6000 | 1d6 | 6 | up to pull 18 | Dex | Hurts the Earth Elemental; +2 aim. |
-| Throwing Daggers +1 | thrown | 600 | 1d4 | 3 | full dmg + range | Dex | Hurts Gargoyles and Wights; +1 aim. |
 
 - **Heavy crossbow:** after a shot, `cb.turn.reloading = true` (and the same on a mercenary). It clears at the start of your next turn but one. The UI shows "Reloading". `rangeProfile` gains the reason "Reloading".
-- **Classic fights (no grid):** bows and crossbows are used at their aim range, with no range, movement, cover or engaged modifiers. Their stat and weapon bonuses still apply: Dex, `hit`, `pierce`, Str damage, the `strMin` shortfall and magic. Point blank doesn't, since there are no distances. Built thrown weapons simply fight in melee there.
+- **Classic fights (no grid):** bows and crossbows are used at their aim range, with no range, movement, cover or engaged modifiers. Their stat and weapon bonuses still apply: Dex, `hit`, `pierce`, Str damage, the `strMin` shortfall and magic. Point blank doesn't, since there are no distances. There's no throwing in classic fights.
 
 ## Switching weapons mid-fight
 
-A bow user needs to draw a sword when the troll arrives. On the battlefield, **"Ready another weapon" replaces your move** for the round: you can switch and still act, but you can't move. Classic fights stay as they are, with no switching. Throws used (`cb.throwsUsed`) belong to the weapon thrown, so switching needs a per-weapon count.
+A bow user needs to draw a sword when the troll arrives. On the battlefield, **"Ready another weapon" replaces your move** for the round: you can switch and still act, but you can't move. Classic fights stay as they are, with no switching. Throws are already tracked per weapon (`cb.thrown`), and throwing the weapon in your hand already draws another (`drawWeapon` in `rules/combat.js`) and puts the original back after the fight (`cb.handBefore`); switching can reuse both.
 
 ## Monsters with ranged attacks
 
@@ -152,10 +152,10 @@ Archer AI:
 ## Where it goes in the code
 
 - **`rules/ranged.js`:**
-  - `rangedStats` gains the self bow, composite and crossbow families, `strMin`, `pull`, half Dex for crossbows, and `pierce`.
+  - A `rangedStats(c, weapon)` beside `throwStats` for the sling, self bow, composite and crossbow families: `strMin`, `pull`, half Dex for crossbows, and `pierce`. `rangeProfile` picks between them by whether the weapon has `ranged`.
   - `rangeProfile` gains a shooter uid (for monsters and mercenaries), the engaged penalty with quick draw, point blank, and `'Reloading'`.
 - **`rules/combat.js`:**
-  - Bow and crossbow attacks go through the same `rangedTurn` as throws, without a `throws` limit.
+  - Bow and crossbow attacks go through the same `rangedTurn` as throws, but shoot the weapon in hand and never use it up.
   - `allyTurn` and `enemyTurn` get ranged branches.
 - **`rules/tables.js`:** `ENGAGED_PENALTY = 4`, `PIERCE_AC = 3`.
 - **`ui/stat-text.js`:** Dex rows say "Armor class 2 better, +2 with thrown weapons and bows"; Str rows mention range for thrown and composite weapons.
@@ -164,13 +164,13 @@ Archer AI:
 - **`ui/screens/battle.js`:**
   - A faint ring shows the aim range and maximum range around you.
   - Hexes with no line of sight to your target are dimmed.
-- **Save:** bump `SAVE_VERSION` to 5 with a migration that sets `rangedLeft` on enemies of in-progress fights (`??=`).
+- **Save:** bump `SAVE_VERSION` to 6 with a migration that sets `rangedLeft` on enemies of in-progress fights (`??=`).
 
 ## Testing
 
 - **`tests/index.html`, unit checks:**
   - Engaged penalty for bows and crossbows, not for thrown weapons; quick draw at Dex 18.
-  - Scaling, through `rangedStats`:
+  - Scaling, through `rangedStats` (bows) and `throwStats`:
     - Composite bow damage and range capped at pull (Str 18 with pull 17 gives +2 damage, +1 aim).
     - Self bow shortfall: −1 hit and −1 aim per point.
     - Crossbows take half Dex and ignore Str.
@@ -186,12 +186,12 @@ Archer AI:
   - An average crossbowman: Str 10, Dex 10, heavy crossbow + long sword.
 
   Watch whether ranged builds beat slow giants or trolls far more often than the melee build. If so, tighten shoot-then-move, `AIM_CAP` or `strRange`. Also watch whether the crossbow is a fair choice for low-stat characters rather than a trap.
-- **`tests/beta-smoke.html`:** buy a short bow and shoot an enemy at range through the real screen, as the playthrough already does with throwing daggers.
+- **`tests/beta-smoke.html`:** buy a short bow and shoot an enemy at range through the real screen, as the playthrough already does with throwing axes.
 
 ## Build order
 
 1. ~~Throwing weapons and the shared range machinery~~ (built).
-2. Javelins and the sling; Throwing Daggers +1.
+2. Javelins and the sling.
 3. Bows and crossbows: the remaining families, the engaged penalty, point blank, pierce, reload.
 4. Weapon switching.
 5. Giant boulders, which need `rangeProfile` for monsters.

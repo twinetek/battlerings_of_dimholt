@@ -75,7 +75,6 @@ export function saveTarget(type, level) {
 
 export const STARTING_GOLD = '5d4';  // times 10
 export const INN_PRICE = 2;          // gold per night; one night heals 1 hp, as in the original
-export const MAX_WEAPONS = 6;        // from the original
 export const GLAND_DECAY_TICKS = 20;   // venom in your pack loses 1 potency this often
 export const MAX_COATINGS = 3;         // different venoms on one weapon
 export const NATURAL_MAX = 18;       // stat points from leveling stop here

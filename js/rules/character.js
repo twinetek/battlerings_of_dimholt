@@ -29,7 +29,7 @@ export function createCharacter(name, stats) {
     hpRolls: [FIRST_LEVEL_HP], // raw hit die per level; Con bonus is added when computing max hp
     hp: 0,
     gold: roll(STARTING_GOLD) * 10,
-    weapons: [],               // { id, coatings: [] }, at most MAX_WEAPONS
+    weapons: [],               // { id, coatings: [] }, one per weapon carried, any number
     equipped: -1,              // index into weapons, -1 for bare hands
     armor: null,               // armor id
     items: [],                 // { id, charges? }

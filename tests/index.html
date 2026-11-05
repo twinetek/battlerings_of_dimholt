@@ -30,7 +30,7 @@ import * as Ranged from '../js/rules/ranged.js';
 import { dexMissile, strRange } from '../js/rules/tables.js';
 import { forSaleHere } from '../js/ui/screens/shops.js';
 import { config } from '../js/config.js';
-import { WEAPON_BY_ID } from '../js/data/equipment.js';
+import { WEAPONS, WEAPON_BY_ID, UNARMED } from '../js/data/equipment.js';
 import { describe } from '../js/ui/presenter.js';
 import { glandPotency, coatingStrength, applyVenom, sellLoot, rollLoot, endArenaVisit, advanceClock, liveCoatings } from '../js/rules/loot.js';
 import { readSlot, deleteSlot } from '../js/engine/save.js';
@@ -91,9 +91,9 @@ const g = c.gold;
 check('trade in chain for plate', buyArmor(c, 'plate').ok && c.gold === g - (600 - 37));
 check('ring of protection', buyItem(c, 'ring-protection-2').ok && armorClass(c) === 0);
 check('only best ring counts', buyItem(c, 'ring-protection-1').ok && armorClass(c) === 0);
-for (let i = 0; i < 5; i++) buyWeapon(c, 'dagger');
-check('weapon limit is 6', !buyWeapon(c, 'dagger').ok);
-check('sell equipped weapon re-equips', sellWeapon(c, 0).ok && c.equipped === 0 && c.weapons.length === 5);
+for (let i = 0; i < 6; i++) buyWeapon(c, 'dagger');
+check('no weapon limit: a 7th weapon', c.weapons.length === 7);
+check('sell equipped weapon re-equips', sellWeapon(c, 0).ok && c.equipped === 0 && c.weapons.length === 6);
 const ups = gainXp(c, XP_FOR_LEVEL[3]);
 check('gain 2 levels', c.level === 3 && ups.length === 2);
 check('drain level', !drainLevel(c).died && c.level === 2 && c.hpRolls.length === 2);
@@ -397,6 +397,19 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   const c3 = up3?.state.character;
   check('version 3 save migrates weapons, loot, and the clock',
     c3 && c3.weapons[0].id === 'long-sword' && Array.isArray(c3.weapons[1].coatings) && Array.isArray(c3.loot) && up3.state.clock === 0);
+
+  // Version 4 saves: the beta's sets of throwing weapons become single weapons.
+  const v4 = newGameState(createCharacter('Older', { str: 12, int: 10, wis: 10, dex: 12, con: 12, cha: 10 }));
+  v4.version = 4;
+  const venom = [{ source: 'wyvern', item: 'wyvern-venom', strength: 5, appliedAt: 0 }];
+  v4.character.weapons = [{ id: 'throwing-daggers', coatings: venom }, { id: 'long-sword', coatings: [] }, { id: 'throwing-axes', coatings: [] }];
+  v4.character.equipped = 1;
+  localStorage.setItem('dimholt.save.migtest4', JSON.stringify({ format: 'dimholt-save', version: 4, state: v4 }));
+  const c4 = readSlot('migtest4')?.state.character;
+  deleteSlot('migtest4');
+  check('version 4 save: 3 throwing daggers become 3 daggers (the first keeps its venom), 2 throwing axes become 2, the sword stays in hand',
+    c4 && c4.weapons.map(w => w.id).join() === 'dagger,dagger,dagger,long-sword,throwing-axe,throwing-axe'
+    && c4.weapons[0].coatings.length === 1 && !c4.weapons[1].coatings.length && c4.equipped === 3);
   setRng(seeded(42));
 }
 
@@ -708,13 +721,15 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   check('Str range bonus: 15 none, 16 +1, 18 +2, 19 +3, 25 +6', [15, 16, 18, 19, 25].map(strRange).join() === '0,1,2,3,6');
 
   // A thrower on the floor at (0,4), a sturdy centipede (AC 9) somewhere up the r axis.
+  // By default a long sword in hand and three daggers to throw.
   setRng(() => 0.5); // every d20 is an 11; a d4 rolls 3
   const ME = { q: 0, r: 4 };
   const ahead = n => ({ q: 0, r: 4 - n }); // n hexes away
-  const thrower = (stats = {}, weapon = 'throwing-daggers', monster = 'giant-centipede') => {
+  const KIT = ['long-sword', 'dagger', 'dagger', 'dagger'];
+  const thrower = (stats = {}, weapons = KIT, monster = 'giant-centipede') => {
     const st = newGameState(createCharacter('Thrower', { str: 16, int: 10, wis: 10, dex: 15, con: 15, cha: 10, ...stats }));
     st.character.gold = 100000;
-    buyWeapon(st.character, weapon);
+    for (const w of weapons) buyWeapon(st.character, w);
     st.character.hp = 999;
     BF.startBattle(st, monster, {}, { radius: 5, pillars: false });
     st.combat.grid.pos.you = ME;
@@ -725,20 +740,40 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   const raise = (st, h, n) => { st.combat.grid.height[Hex.key(h)] = n; };
   const profileAt = (st, n) => { st.combat.grid.pos.e1 = ahead(n); return Ranged.rangeProfile(st, 'e1'); };
   const newTurn = st => { st.combat.turn = { moved: false, acted: false, movedHexes: 0, shot: false }; };
+  const statsOf = (id, stats = {}) => Ranged.throwStats(thrower(stats, []).character, WEAPON_BY_ID[id]);
 
-  // The character's numbers.
-  const stats16 = Ranged.rangedStats(thrower().character);
-  check('daggers with Str 16: full power to 4 hexes (3 + 1), +1 damage, 3 throws',
-    stats16.aim === 4 && stats16.dmgBonus === 1 && stats16.throws === 3);
-  check('Str 18 throws 1 hex farther; Str 25 is capped at 8', Ranged.rangedStats(thrower({ str: 18 }).character).aim === 5
-    && Ranged.rangedStats(thrower({ str: 25 }).character).aim === 8);
-  check('axes: full power to 3 hexes with Str 16, 2 throws', Ranged.rangedStats(thrower({}, 'throwing-axes').character).aim === 3
-    && Ranged.rangedStats(thrower({}, 'throwing-axes').character).throws === 2);
-  check('Dex 17 adds +2 to hit', Ranged.rangedStats(thrower({ dex: 17 }).character).toHit === 2);
-  check('a melee weapon has no ranged numbers', Ranged.rangedStats({ ...thrower().character, equipped: -1 }) === null);
+  // The character's numbers, per weapon.
+  check('a dagger with Str 16: full power to 4 hexes (3 + 1), +1 damage, no to-hit change',
+    statsOf('dagger').aim === 4 && statsOf('dagger').dmgBonus === 1 && statsOf('dagger').toHit === 0);
+  check('Str 18 throws 1 hex farther; Str 25 is capped at 8', statsOf('dagger', { str: 18 }).aim === 5 && statsOf('dagger', { str: 25 }).aim === 8);
+  check('Dex 17 adds +2 to hit', statsOf('dagger', { dex: 17 }).toHit === 2);
+  check('a hand axe: 3 hexes, -1 to hit; a long sword: 2 hexes, -2; a two-handed sword: 2 hexes, -4',
+    statsOf('hand-axe').aim === 3 && statsOf('hand-axe').toHit === -1 && statsOf('long-sword').aim === 2 && statsOf('long-sword').toHit === -2
+    && statsOf('two-handed-sword').aim === 2 && statsOf('two-handed-sword').toHit === -4);
+  check('magic adds range, to hit and damage: a Dagger +1 reaches 5 at full power, +1 to hit',
+    statsOf('dagger-1').aim === 5 && statsOf('dagger-1').toHit === 1 && statsOf('dagger-1').dmgBonus === 2);
+  check('every weapon can be thrown; fists can\'t', WEAPONS.every(w => Ranged.throwStats(thrower({}, []).character, w))
+    && Ranged.throwStats(thrower({}, []).character, UNARMED) === null);
+
+  // What you have to throw: one throw per weapon you carry.
+  let st = thrower({}, ['long-sword', 'dagger', 'dagger', 'dagger', 'dagger', 'dagger', 'dagger-1', 'dagger-1', 'throwing-axe', 'throwing-axe']);
+  check('5 daggers, 2 Daggers +1, 2 throwing axes and a sword in hand: 10 throws', Ranged.throwsLeft(st) === 10);
+  check('the throw picker groups them by kind, best throwers first, the sword in hand last',
+    Ranged.throwGroups(st).map(g => `${g.id}:${g.count}${g.inHand ? ':hand' : ''}`).join() === 'dagger:5,throwing-axe:2,dagger-1:2,long-sword:1:hand');
+  check('with no choice made you throw a plain dagger first (the cheaper of the best throwers)',
+    st.character.weapons[Ranged.pickThrow(st, 'e1')].id === 'dagger');
+  st.combat.enemies[0].monsterId = 'gargoyle';
+  check('...but a Dagger +1 at a gargoyle, which only magic hurts', st.character.weapons[Ranged.pickThrow(st, 'e1')].id === 'dagger-1');
+  st.combat.enemies[0].monsterId = 'giant-centipede';
+  BF.setThrowPick(st, 'throwing-axe');
+  check('choosing a kind throws that kind', st.character.weapons[Ranged.pickThrow(st, 'e1')].id === 'throwing-axe');
+  st = thrower({}, ['long-sword']);
+  check('with only the weapon in hand, the game won\'t throw it for you',
+    Ranged.pickThrow(st, 'e1') === -1 && /only weapon you have left/.test(Ranged.rangeProfile(st, 'e1').reason));
+  check('...and clicking a distant enemy says why', /only weapon you have left/.test(BF.actYou(st, { type: 'fight', target: 'e1' }).msg));
 
   // Range falloff.
-  let st = thrower();
+  st = thrower();
   const p4 = profileAt(st, 4), p5 = profileAt(st, 5), p8 = profileAt(st, 8);
   check('at full power: no penalty, full damage', p4.ok && p4.toHit === 0 && p4.dmgMult === 1);
   check('1 hex beyond: -1 to hit, 7/8 damage', p5.ok && p5.toHit === -1 && p5.dmgMult === 0.875);
@@ -746,6 +781,9 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   st.combat.grid.pos.you = { q: 0, r: 5 };
   st.combat.grid.pos.e1 = { q: 0, r: -4 };
   check('beyond that you can\'t throw', !Ranged.rangeProfile(st, 'e1').ok && /Out of range/.test(Ranged.rangeProfile(st, 'e1').reason));
+  st = thrower();
+  check('a long sword thrown at 4 hexes: 2 beyond its full power and -2 for the weapon',
+    Ranged.rangeProfile(st, 'e1', 0).toHit === -4 && Ranged.rangeProfile(st, 'e1', 0).dmgMult === 0.75);
 
   // Height.
   st = thrower();
@@ -785,45 +823,68 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   st = thrower();
   const first = BF.actYou(st, { type: 'fight', target: 'e1' });
   const shot = first.events.find(e => e.t === 'attack');
-  check('clicking an enemy 4 hexes away throws: an 11 hits for 4 (3 + Str 1)',
-    first.ok && shot.ranged && shot.hit && shot.dmg === 4 && shot.distance === 4 && st.combat.throwsUsed === 1 && st.combat.turn.shot);
+  check('clicking an enemy 4 hexes away throws a dagger: an 11 hits for 4 (3 + Str 1)',
+    first.ok && shot.ranged && shot.hit && shot.dmg === 4 && shot.distance === 4 && shot.weapon === 'Dagger'
+    && st.combat.thrown.join() === '1' && st.combat.turn.shot && st.character.equipped === 0);
   check('after a throw you can move only 1 hex', !BF.moveYou(st, { q: 0, r: 2 }).ok && BF.moveYou(st, { q: 1, r: 3 }).ok);
+  st.combat.grid.pos.you = ME;
   newTurn(st);
   BF.actYou(st, { type: 'fight', target: 'e1' });
   newTurn(st);
-  const third = BF.actYou(st, { type: 'fight', target: 'e1' });
-  check('the last throw says so, and none are left', third.events.some(e => e.t === 'throwsSpent' && e.thing === 'dagger') && Ranged.throwsLeft(st) === 0);
+  BF.actYou(st, { type: 'fight', target: 'e1' });
   newTurn(st);
   const fourth = BF.actYou(st, { type: 'fight', target: 'e1' });
-  check('with no throws left you can\'t throw', !fourth.ok && /thrown all your daggers/.test(fourth.msg));
+  check('with every spare thrown, the sword in hand stays in hand', !fourth.ok && Ranged.throwsLeft(st) === 1 && st.character.equipped === 0);
+  BF.setThrowPick(st, 'long-sword');
+  const sword = BF.actYou(st, { type: 'fight', target: 'e1' });
+  check('choose it and you throw it, then fight on with your fists, and that was everything',
+    sword.ok && sword.events.some(e => e.ranged && e.weapon === 'Long Sword') && sword.events.some(e => e.t === 'draw' && e.weapon === null)
+    && sword.events.some(e => e.t === 'throwsSpent') && st.character.equipped === -1 && Ranged.throwsLeft(st) === 0);
+  newTurn(st);
+  check('with nothing left you can\'t throw', /thrown every weapon/.test(BF.actYou(st, { type: 'fight', target: 'e1' }).msg));
   st.combat.grid.pos.e1 = Hex.neighbors(st.combat.grid.pos.you).find(h => BF.onBoard(st.combat, h) && !BF.occupant(st, h));
-  const stab = BF.actYou(st, { type: 'fight', target: 'e1' });
-  check('...but you still fight with them beside an enemy', stab.ok && stab.events.some(e => e.t === 'attack' && !e.ranged));
-  st.combat = null;
-  BF.startBattle(st, 'giant-centipede', {}, { radius: 5, pillars: false });
-  check('you gather your throws up for the next fight', Ranged.throwsLeft(st) === 3);
+  const punch = BF.actYou(st, { type: 'fight', target: 'e1' });
+  check('...but you still fight beside an enemy, with your fists', punch.ok && punch.events.some(e => e.t === 'attack' && !e.ranged && e.weapon === 'Fists'));
+
+  st = thrower({}, ['dagger', 'dagger']);
+  BF.setThrowPick(st, 'dagger');
+  BF.actYou(st, { type: 'fight', target: 'e1' });
+  check('choosing the kind in your hand throws a spare one first', st.combat.thrown.join() === '1' && st.character.equipped === 0);
+  newTurn(st);
+  const lastDagger = BF.actYou(st, { type: 'fight', target: 'e1' }).events;
+  check('throwing the one in your hand draws your next weapon, or none', lastDagger.some(e => e.t === 'draw' && e.weapon === null));
+  st = thrower({}, ['dagger', 'dagger', 'long-sword']);
+  BF.setThrowPick(st, 'dagger');
+  BF.actYou(st, { type: 'fight', target: 'e1' }); newTurn(st);
+  const drew = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'draw');
+  check('...here the long sword', drew?.weapon === 'Long Sword' && st.character.equipped === 2);
 
   setRng(() => 0.99); // a natural 20, and a d4 rolls 4
   // Recovery: every throw comes back when a fight you survive ends, hits and misses alike.
-  st = thrower();
+  st = thrower({}, ['dagger', 'dagger', 'throwing-axe', 'long-sword']);
+  BF.setThrowPick(st, 'dagger');
   BF.actYou(st, { type: 'fight', target: 'e1' }); newTurn(st);
   BF.actYou(st, { type: 'fight', target: 'e1' }); newTurn(st);
+  check('(threw both daggers and drew the long sword)', st.character.equipped === 3);
   st.combat.enemies[0].hp = 1;
+  BF.setThrowPick(st, 'throwing-axe');
   const win = BF.actYou(st, { type: 'fight', target: 'e1' }).events;
   const back = win.find(e => e.t === 'throwsRecovered');
-  check('winning a fight recovers all your thrown weapons, after the victory',
-    st.combat.result === 'victory' && back?.count === 3 && back.thing === 'dagger'
-    && win.findIndex(e => e.t === 'victory') < win.indexOf(back) && Ranged.throwsLeft(st) === 3);
-  check('...with no "last dagger" line once they\'re back', !win.some(e => e.t === 'throwsSpent'));
+  check('winning a fight recovers all your thrown weapons, after the victory, and puts your first weapon back in hand',
+    st.combat.result === 'victory' && JSON.stringify(back?.weapons) === '[{"name":"Dagger","count":2},{"name":"Throwing Axe","count":1}]'
+    && back.rewield === 'Dagger' && win.findIndex(e => e.t === 'victory') < win.indexOf(back)
+    && Ranged.throwsLeft(st) === 4 && st.character.equipped === 0);
+  check('...with no "thrown everything" line once they\'re back', !win.some(e => e.t === 'throwsSpent'));
   st = thrower();
   BF.actYou(st, { type: 'fight', target: 'e1' });
   const yielded = playRound(st, { type: 'surrender' });
-  check('surrendering recovers them too', yielded.some(e => e.t === 'throwsRecovered' && e.count === 1) && Ranged.throwsLeft(st) === 3);
+  check('surrendering recovers them too', yielded.some(e => e.t === 'throwsRecovered' && e.weapons[0].count === 1 && !e.rewield) && Ranged.throwsLeft(st) === 4);
   st = thrower();
   check('a fight with no throws says nothing about recovering them', !playRound(st, { type: 'surrender' }).some(e => e.t === 'throwsRecovered'));
   check('the log names what you gather up',
-    describe({ t: 'throwsRecovered', thing: 'axe', count: 1 }).text === 'You gather up the axe you threw.'
-    && describe({ t: 'throwsRecovered', thing: 'dagger', count: 3 }).text === 'You gather up the 3 daggers you threw.');
+    describe({ t: 'throwsRecovered', weapons: [{ name: 'Throwing Axe', count: 1 }], rewield: null }).text === 'You gather up the Throwing Axe you threw.'
+    && describe({ t: 'throwsRecovered', weapons: [{ name: 'Dagger', count: 3 }, { name: 'Dagger +1', count: 2 }], rewield: 'Long Sword' }).text
+      === 'You gather up 3 Daggers and 2 Daggers +1 you threw, and take your Long Sword back in hand.');
 
   st = thrower();
   st.combat.grid.pos.e1 = ahead(8);
@@ -834,16 +895,22 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   st = thrower();
   st.combat.grid.pos.e1 = { q: 1, r: 3 };
   const melee = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
-  check('beside an enemy you strike rather than throw', !melee.ranged && !st.combat.throwsUsed);
+  check('beside an enemy you strike rather than throw', !melee.ranged && melee.weapon === 'Long Sword' && !st.combat.thrown?.length);
   st = thrower();
   st.combat.grid.pos.e1 = { q: 1, r: 3 };
   raise(st, { q: 1, r: 3 }, 2);
   const upCliff = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
   check('an enemy beside you but 2 levels up is out of melee reach, so you throw', upCliff?.ranged === true);
-  st = thrower({}, 'throwing-daggers', 'gargoyle');
+  st = thrower({}, KIT, 'gargoyle');
   const stone = BF.actYou(st, { type: 'fight', target: 'e1' });
-  check('plain thrown weapons can\'t harm a gargoyle, and the throw isn\'t spent',
-    stone.events.some(e => e.t === 'immune') && !st.combat.throwsUsed);
+  check('plain weapons can\'t harm a gargoyle, and the throw isn\'t spent',
+    stone.events.some(e => e.t === 'immune') && !st.combat.thrown?.length);
+
+  // A coated weapon carries its venom.
+  st = thrower();
+  st.character.weapons[1].coatings = [{ source: 'giant-spider', item: 'spider-venom', strength: 4, appliedAt: st.clock }];
+  const coated = BF.actYou(st, { type: 'fight', target: 'e1' }).events;
+  check('a thrown dagger with venom on it poisons what it hits', coated.some(e => e.ranged && e.hit) && coated.some(e => e.t === 'venom'));
 
   // Auto-play throws before moving.
   st = thrower();
@@ -852,24 +919,26 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   check('auto-play throws first, then steps at most 1 hex',
     auto.findIndex(e => e.ranged) === 0 && (!autoMove || autoMove.path.length <= 1));
 
-  // Classic fights: thrown weapons are plain melee weapons.
+  // Classic fights: no throwing.
   st = newGameState(createCharacter('Classic', { str: 16, int: 10, wis: 10, dex: 15, con: 15, cha: 10 }));
-  st.character.gold = 1000; buyWeapon(st.character, 'throwing-daggers'); st.character.hp = 999;
+  st.character.gold = 1000; buyWeapon(st.character, 'dagger'); buyWeapon(st.character, 'dagger'); st.character.hp = 999;
   startCombat(st, 'giant-centipede');
   const classic = playRound(st, { type: 'fight' }).find(e => e.t === 'attack' && e.by === 'player');
-  check('in a classic fight thrown weapons strike in melee', classic && !classic.ranged && !st.combat.throwsUsed);
+  check('in a classic fight you strike in melee', classic && !classic.ranged && !st.combat.thrown?.length);
 
-  // Only the beta sells them.
-  const daggers = WEAPON_BY_ID['throwing-daggers'];
-  const inMain = forSaleHere(daggers);
+  // Only the beta sells weapons made for throwing.
+  const axe = WEAPON_BY_ID['throwing-axe'];
+  const inMain = forSaleHere(axe);
   config.betaFeature = 'hex-battlefield';
-  const inBeta = forSaleHere(daggers);
+  const inBeta = forSaleHere(axe);
   config.betaFeature = null;
-  check('thrown weapons are sold only in the hex battlefield beta', !inMain && inBeta && forSaleHere(WEAPON_BY_ID['long-sword']));
+  check('throwing axes are sold only in the hex battlefield beta', !inMain && inBeta && forSaleHere(WEAPON_BY_ID.dagger));
 
   // The log.
-  check('the log describes a throw', describe({ t: 'attack', by: 'player', ranged: true, hit: true, thing: 'axe', target: 'Orc', dmg: 3, distance: 5, dmgMult: 0.75 }).text
-    === 'You throw an axe at the Orc (5 hexes) and hit for 3 damage, weakened by the distance.');
+  check('the log describes a throw', describe({ t: 'attack', by: 'player', ranged: true, hit: true, weapon: 'Throwing Axe', target: 'Orc', dmg: 3, distance: 5, dmgMult: 0.75 }).text
+    === 'You throw your Throwing Axe at the Orc (5 hexes) and hit for 3 damage, weakened by the distance.'
+    && describe({ t: 'draw', weapon: 'Long Sword' }).text === 'You draw your Long Sword.'
+    && describe({ t: 'draw', weapon: null }).text === 'You fight on with your fists.');
   setRng(seeded(42));
 }
 

@@ -7,7 +7,7 @@ import { weaponOf, armorOf, armorClass, ringBonus, maxHp, toHitBonus, damageBonu
 import { equipWeapon, useItemInTown } from '../../rules/town.js';
 import { rangeText } from '../../engine/dice.js';
 import { button, backToTown, esc, signed, gp } from '../format.js';
-import { itemLabel, coatingTag } from './shops.js';
+import { itemLabel, coatingTag, weaponStacks, throwText } from './shops.js';
 import { LOOT_BY_ID } from '../../data/loot.js';
 import { glandPotency, glandValue, freshness, ticksToNextFade, applyVenom } from '../../rules/loot.js';
 import { MAX_COATINGS } from '../../rules/tables.js';
@@ -32,7 +32,7 @@ function lootPanel(ctx, params) {
       <div class="apply-choose">
         <p class="small">Coat which weapon? Coatings fade by 1 each night and each arena visit. Up to ${MAX_COATINGS} different venoms per weapon.</p>
         ${c.weapons.length
-          ? c.weapons.map((w, wi) => button(`${esc(WEAPON_BY_ID[w.id].name)}${wi === c.equipped ? ' (in hand)' : ''}`, 'apply', { loot: i, weapon: wi }, { cls: 'small' })).join(' ')
+          ? weaponStacks(c).map(st => button(`${esc(WEAPON_BY_ID[st.id].name)}${st.inHand ? ' (in hand)' : st.indices.length > 1 ? ' (one of them)' : ''}`, 'apply', { loot: i, weapon: st.indices[0] }, { cls: 'small' })).join(' ')
           : '<span class="muted">You have no weapons to coat.</span>'}
         ${button('Cancel', 'cancelApply', {}, { cls: 'ghost small' })}
       </div>` : '';
@@ -52,11 +52,11 @@ export function render(ctx, params = {}) {
     <tr><th scope="row">${label}</th><td class="num stat">${c.stats[key]}</td><td class="muted small">${statNote(key, c.stats[key])}</td></tr>`).join('');
 
   const weapons = c.weapons.length
-    ? c.weapons.map((entry, i) => {
-      const wp = WEAPON_BY_ID[entry.id];
-      return `<li class="${i === c.equipped ? 'equipped' : ''}">
-        <span>${esc(wp.name)} <span class="muted small">${rangeText(wp.dmg, wp.plus)} dmg, speed ${wp.speed}</span>${coatingTag(ctx.state, entry)}</span>
-        ${i === c.equipped ? '<span class="tag">in hand</span>' : button('Equip', 'equip', { index: i }, { cls: 'small' })}
+    ? weaponStacks(c).map(st => {
+      const wp = WEAPON_BY_ID[st.id];
+      return `<li class="${st.inHand ? 'equipped' : ''}">
+        <span>${esc(wp.name)}${st.indices.length > 1 ? ` ×${st.indices.length}` : ''} <span class="muted small">${rangeText(wp.dmg, wp.plus)} dmg, speed ${wp.speed}</span>${coatingTag(ctx.state, st.entry)}${throwText(c, wp)}</span>
+        ${st.inHand ? '<span class="tag">in hand</span>' : button('Equip', 'equip', { index: st.indices[0] }, { cls: 'small' })}
       </li>`;
     }).join('')
     : '<li class="muted">No weapons. Visit the Weaponsmith.</li>';

@@ -158,6 +158,8 @@ Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and s
 - `character.loot` and `state.clock` are added.
 - Enemies in a fight gain `poison`.
 
+**Save format version 5** (any weapon can be thrown; see "Ranged attacks"): the beta's Throwing Daggers and Throwing Axes sets become that many single weapons, and a fight's `throwsUsed` becomes `thrown`, `throwPick` and `handBefore`.
+
 ### Beta features (hex battlefield)
 
 **Beta features** are listed in `BETA_FEATURES` in `js/config.js`. Each one is the full game (town, shops, Training Yard, saves and guide) running from the same code as the main game, with one experimental feature switched on, and published in its own folder.
@@ -193,7 +195,7 @@ The first beta feature is the **hex battlefield** (`hex_battlefield/`), where ar
 **Battlefield rules so far (to workshop):**
 
 - **Turn order:**
-  1. You move up to 4 hexes and attack one adjacent enemy (or throw at one in range; see "Ranged attacks"), in either order.
+  1. You move up to 4 hexes and attack one adjacent enemy (or throw one of your weapons at one in range; see "Ranged attacks"), in either order.
   2. Each mercenary moves 4 toward the nearest enemy (preferring the one you last attacked) and attacks if adjacent.
   3. Each enemy moves toward the nearest fighter on your side and makes all its attacks if adjacent.
 - **Monster movement** is a first guess from initiative speed: `6 − speed/2`, clamped to 2-8. That gives the Quickling 8, rats and spiders 4-5, and giants 2-3.
@@ -283,27 +285,40 @@ The full design for multi-level terrain is in `todo_terrain.md`: movement points
 
   Ranged range by height and line of sight in three dimensions are built (see "Ranged attacks").
 
-**Ranged attacks (beta): throwing weapons**
+**Ranged attacks (beta): throwing any weapon**
 
-The full ranged design (bows, crossbows, giants throwing boulders, archer mercenaries) is in `Todo_ranged.md`. So far **throwing weapons** are built, by you only, along with the rules every later ranged attack will share.
+The full ranged design (bows, crossbows, giants throwing boulders, archer mercenaries) is in `Todo_ranged.md`. So far **throwing** is built, by you only, along with the rules every later ranged attack will share. Every weapon in `data/equipment.js` is a melee weapon; true ranged weapons (bows) will get their own `ranged` field later.
 
-- **The weapons** (`data/equipment.js`, `ranged: { family: 'thrown', aim, throws, thing }`):
+- **Any weapon you carry can be thrown, once per fight each.** Five daggers, two Daggers +1 and two Throwing Axes are nine throws. A thrown weapon stays on the field until the fight ends.
+  - **No weapon limit:** the original's 6-weapon cap (`MAX_WEAPONS`) is gone, in the main game too, so you can carry as many spares as you can pay for. The Weaponsmith and the Equipment screen stack identical weapons ("Dagger ×5"; "Sell one"). The weapon in your hand, and any with venom on it, get a row of their own.
+  - **How well each one flies** (`throw: { aim, hit }` on each weapon):
 
-  | Weapon | Damage | Base aim | Throws per fight | Cost |
-  |---|---|---|---|---|
-  | Throwing Daggers | 1d4 | 3 | 3 | 10 |
-  | Throwing Axes | 1d6 | 2 | 2 | 15 |
+    | Profile | Weapons | Base aim | To hit |
+    |---|---|---|---|
+    | Made to throw | Dagger, Dagger +1, Throwing Axe | 3 | 0 |
+    | Handy | Hand Axe | 2 | −1 |
+    | Awkward | Short Sword, Mace, Morning Star, Battle Axe, Long Sword (and their magic versions) | 1 | −2 |
+    | Clumsy | Bastard Sword, Halberd, Two-Handed Sword (and magic versions) | 1 | −4 |
 
-  - **Melee:** beside an enemy (in melee reach) they fight as ordinary melee weapons, with all the melee rules, including height.
-  - **Throws are never lost:** when a fight you survive ends (victory or surrender), you recover every weapon you threw, hits and misses alike.
-    - `recoverThrows` in `rules/combat.js` runs at the start of `afterFight`. It logs "You gather up the 3 daggers you threw." and resets `combat.throwsUsed`, so the counter on the board refills.
-    - The count lives on the fight, so a new fight always starts full and no save migration was needed.
-  - **Classic fights** have no grid, so they're simply melee weapons there.
-  - **Only the beta sells them:** `forSaleHere` in `ui/screens/shops.js` hides them from the main game's Weaponsmith and the Guide's weapon table.
+    Fists (`UNARMED`) have no profile and can't be thrown.
+  - **The Throwing Axe** (1d6, speed 4, 8 gold) is `betaOnly`: it exists to be thrown, so `forSaleHere` in `ui/screens/shops.js` hides it from the main game's Weaponsmith and the Guide's weapon table.
+  - **Which weapon you throw:** the **Throw** picker under the battle buttons sets `combat.throwPick` (`setThrowPick` in `rules/battlefield.js`), a weapon id or null. `pickThrow` in `rules/ranged.js` turns it into one weapon:
+    - With a kind chosen, a spare of that kind before the one in your hand. When that kind runs out, it falls back to no choice.
+    - With no choice ("Best spare"), the best spare weapon that can hurt the target (its plus meets the monster's `magicReq`): best `aim + hit` first, then the lower plus, then the cheaper one, so plain daggers go before the Dagger +1 unless the target needs magic.
+    - The game never throws the weapon in your hand unless you choose its kind. With nothing else left, clicking a distant enemy says so.
+  - **Throwing the weapon in your hand** draws another (`drawWeapon` in `rules/combat.js`): one of the same kind you haven't thrown, else the most expensive left, else your fists. `combat.handBefore` remembers what you started with. Log: "You draw your Long Sword." / "You fight on with your fists."
+  - **Venom:** a coated weapon carries its coatings when thrown, and poisons what it hits like a melee blow.
+  - **Initiative:** a throw rolls with the thrown weapon's speed.
+  - **Throws are never lost:** when a fight you survive ends (victory or surrender), you recover every weapon you threw, hits and misses alike, and the weapon you started with goes back in your hand.
+    - `recoverThrows` in `rules/combat.js` runs at the start of `afterFight`. It logs "You gather up 3 Daggers and the Throwing Axe you threw, and take your Long Sword back in hand." and clears `combat.thrown`.
+  - **Melee:** beside an enemy (in melee reach) you fight with the weapon in your hand, with all the melee rules, including height.
+  - **Classic fights** have no grid, so there's no throwing there.
+- **State:** `combat.thrown` (indices into `character.weapons`), `combat.throwPick`, `combat.handBefore`. Save version 5 turns the old beta sets into single weapons: Throwing Daggers into 3 Daggers (the first keeps any venom), Throwing Axes into 2 Throwing Axes.
 - **Where it lives:** `js/rules/ranged.js`, which is pure: no DOM, no dice.
-  - `rangedStats(c, weapon)`: the character's numbers anywhere.
-  - `rangeProfile(state, targetUid)`: those plus the board.
-  - `lineOfSight`, `throwsLeft` and `rangedDamage`.
+  - `throwStats(c, weapon)`: the character's numbers with that weapon, anywhere.
+  - `throwable`, `throwsLeft`, `throwGroups` (for the picker) and `pickThrow`: what you have left to throw.
+  - `rangeProfile(state, targetUid, index = pickThrow(...))`: those plus the board; the result's `index` is the weapon.
+  - `lineOfSight` and `rangedDamage`.
   - `rangedTurn` in `rules/combat.js` makes the throws.
 - **The range profile:**
   - Up to the **full-power range** (the effective aim) a throw is at full accuracy and damage.
@@ -315,7 +330,7 @@ The full ranged design (bows, crossbows, giants throwing boulders, archer mercen
   - Height: +1 per level throwing down, at most `HEIGHT_AIM_MAX` (2), added after the cap; −1 per level throwing up.
 - **To hit:** `need = THAC0(level) − AC − toHit`, where `toHit` adds up:
   - `dexMissile(Dex)`: Dex 16 +1, 17 +2, 18 +3, then +1 per 2 points. Dexterity, not Strength, aims a throw.
-  - The weapon's magic.
+  - The weapon's magic, and its throwing `hit`.
   - −1 per hex past full power.
   - −`COVER_PENALTY` (2) per fighter on the line.
   - −1 per hex you moved first (halved, rounded up, from Dex `STEADY_DEX` 17).
@@ -329,23 +344,23 @@ The full ranged design (bows, crossbows, giants throwing boulders, archer mercen
 - **Turn rules:**
   - Clicking an enemy strikes it if it's in melee reach, else throws at it if `rangeProfile` allows, else strikes whoever is in reach.
   - An enemy beside you but 2 levels up is out of melee reach, so you throw.
-  - A throw is your action. Each of your attacks that round throws once (3/2 at 7th level, 2 at 13th).
+  - A throw is your action. Each of your attacks that round throws one weapon (3/2 at 7th level, 2 at 13th), picked afresh each time.
   - A throw at a target that falls goes to the nearest enemy you can still hit.
   - After a throw you can move only `SHOT_MOVE` (1) hex, so you can't throw and then run (`cb.turn.shot`).
   - Moving first records `cb.turn.movedHexes`.
   - Magic-only monsters ignore plain throws, without using one up.
-- **Auto-play** (tester tool): a thrower not yet in melee throws before moving (so it pays no moved-first penalty), then advances 1 hex. Otherwise it advances and strikes, or throws if still out of reach.
+- **Auto-play** (tester tool): if you're not yet in melee and have a spare weapon, you throw before moving (so you pay no moved-first penalty), then advance 1 hex. Otherwise you advance and strike, or throw if still out of reach.
 - **What the player sees:**
   - Enemies you can throw at get a dashed red hex.
-  - The top line counts throws left.
+  - The Throw picker lists what's left by kind ("Best spare · Dagger ×4 · Throwing Axe ×2 · Long Sword (in hand)"), or says you've thrown everything.
   - The hint mentions throwing.
-  - Hovering an enemy shows "Throw: 5 hexes, 30% to hit, 88% damage (Dex +2, range −1, cover −2)", or why you can't throw: out of range, line of sight, none left.
-  - Log lines: "You throw a dagger at the Orc (5 hexes) and hit for 3 damage, weakened by the distance.", and "That was your last dagger…".
-  - The Weaponsmith shows your own numbers ("Thrown: 3 per fight, full power to 4 hexes, reaches 8"), and the Guide explains the rules.
+  - Hovering an enemy shows "Throw your Dagger: 5 hexes, 30% to hit, 88% damage (Dex +2, range −1, cover −2)", or why you can't throw: out of range, line of sight, nothing left, only the weapon in hand.
+  - Log lines: "You throw your Dagger at the Orc (5 hexes) and hit for 3 damage, weakened by the distance.", the draw lines, and "You've thrown every weapon you carry…".
+  - In the beta, the Weaponsmith and Equipment screen show each weapon's throw for you ("Thrown: full power to 4 hexes, reaches 8, −2 to hit"), and the Guide explains the rules.
 - **Tests:**
-  - **Unit checks:** hex lines; the Dex and Str tables; `rangedStats`; falloff at aim, aim + 1 and max; height; pillars, hills and cover from above; moving first; and a fixed-roll throw.
-  - **Throwing in play:** running out of throws; melee beside an enemy; throwing up a cliff; the gargoyle; auto-play; classic fights; the beta-only shop; the log.
-  - **The beta playthrough** buys and equips daggers, rebuilds without pillars, walks up and throws through the real board.
+  - **Unit checks:** hex lines; the Dex and Str tables; `throwStats` per weapon profile and with magic; counting, grouping and picking throws (including magic for a gargoyle); falloff at aim, aim + 1 and max; height; pillars, hills and cover from above; moving first; and a fixed-roll throw.
+  - **Throwing in play:** throwing every spare; choosing the weapon in hand and drawing (another of its kind, the long sword, fists); recovery and putting your weapon back; melee beside an enemy; throwing up a cliff; the gargoyle; venom on a thrown dagger; auto-play; classic fights; the beta-only shop; the log; the version 4 save migration.
+  - **The beta playthrough** buys two Throwing Axes, rebuilds without pillars, walks up, picks axes in the Throw picker and throws one through the real board.
 
 ### Player guide
 
@@ -472,7 +487,7 @@ battlerings_of_dimholt/   (repository root)
     └── beta-smoke.html   Scripted playthrough of the hex battlefield beta
 ```
 
-Design docs for work not built yet sit next to this file: `TODO.md` (decided ideas and open review findings), `Todo_ranged.md` (ranged attacks on the battlefield; throwing weapons are built) and `todo_terrain.md` (multi-level terrain; generation, the board display, melee height and ranged height are built). When part of one is built, document it here and mark it built there.
+Design docs for work not built yet sit next to this file: `TODO.md` (decided ideas and open review findings), `Todo_ranged.md` (ranged attacks on the battlefield; throwing any weapon is built) and `todo_terrain.md` (multi-level terrain; generation, the board display, melee height and ranged height are built). When part of one is built, document it here and mark it built there.
 
 ### Key decisions
 
