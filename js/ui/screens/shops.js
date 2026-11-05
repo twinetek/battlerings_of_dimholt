@@ -1,7 +1,9 @@
 // The weaponsmith, the armorer, and the magic shop.
 
 import { WEAPONS, WEAPON_BY_ID, ARMOR, ITEMS, ITEM_BY_ID } from '../../data/equipment.js';
-import { MAX_WEAPONS } from '../../rules/tables.js';
+import { MAX_WEAPONS, FALLOFF_HEXES } from '../../rules/tables.js';
+import { rangedStats } from '../../rules/ranged.js';
+import { betaOn } from '../../config.js';
 import { LOOT_BY_ID } from '../../data/loot.js';
 import { coatingLabel, glandPotency, glandValue, freshness, sellLoot } from '../../rules/loot.js';
 import { armorOf } from '../../rules/character.js';
@@ -16,6 +18,15 @@ const confirmSale = (name, price) => price < 100 || window.confirm(`Sell the ${n
 
 const weaponName = w => (w.plus ? `<span class="magic">${esc(w.name)}</span>` : esc(w.name));
 
+// Thrown weapons exist only on the hex battlefield (beta), so only it sells them.
+export const forSaleHere = w => !w.ranged || betaOn('hex-battlefield');
+
+// "Thrown: 3 per fight, full power to 4 hexes, reaches 8" for this character.
+function throwText(c, w) {
+  const r = rangedStats(c, w);
+  return r ? `<span class="muted small block">Thrown: ${r.throws} per fight, full power to ${r.aim} hex${r.aim === 1 ? '' : 'es'}, reaches ${r.aim + FALLOFF_HEXES}</span>` : '';
+}
+
 // "☠ Wyvern 6, Scorpion 3" for a coated weapon, or ''.
 export function coatingTag(state, entry) {
   const label = coatingLabel(state, entry);
@@ -26,9 +37,9 @@ export const weapons = {
   render(ctx) {
     const c = ctx.state.character;
     const full = c.weapons.length >= MAX_WEAPONS;
-    const forSale = WEAPONS.map(w => `
+    const forSale = WEAPONS.filter(forSaleHere).map(w => `
       <tr>
-        <td>${weaponName(w)}</td>
+        <td>${weaponName(w)}${throwText(c, w)}</td>
         <td class="num">${rangeText(w.dmg, w.plus)}</td>
         <td class="num">${w.speed}</td>
         <td class="num">${gp(w.cost)}</td>

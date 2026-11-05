@@ -31,10 +31,11 @@ import { MONSTERS, MONSTER_BY_ID } from '../data/monsters.js';
 import { ITEM_BY_ID } from '../data/equipment.js';
 import { MERCS, MERC_BY_ID, MERC_NAMES, crewCost, crewText } from '../data/mercs.js';
 import {
-  attacksThisRound, saveTarget, strBonus, ITEM_SPEED,
+  attacksThisRound, saveTarget, strBonus, thac0, ITEM_SPEED,
   MELEE_HEIGHT_REACH, TALL_HEIGHT_REACH, UPHILL_TO_HIT, DOWNHILL_DMG, HIGH_GROUND_SAVE,
 } from './tables.js';
 import { levelOf } from './terrain.js';
+import { rangeProfile, rangedDamage, throwsLeft } from './ranged.js';
 import { weaponOf, weaponEntry, armorClass, rollToHit, gainXp, drainLevel, heal } from './character.js';
 import { rollLoot, liveCoatings, venomName } from './loot.js';
 import { LOOT_BY_ID } from '../data/loot.js';
@@ -250,6 +251,10 @@ function playerTurn(state, action, ev) {
     return;
   }
   const w = weaponOf(c);
+  if (action.ranged) {
+    rangedTurn(state, w, ev);
+    return;
+  }
   const swings = attacksThisRound(c.level, cb.round);
   for (let i = 0; i < swings && !cb.over; i++) {
     const e = currentTarget(cb, cb.grid ? PLAYER : null);
@@ -274,6 +279,61 @@ function playerTurn(state, action, ev) {
     hurtEnemy(state, e, dmg, ev, { t: 'attack', by: 'player', hit: true, weapon: w.name, ...heightTag(hm) }, PLAYER);
     if (e.hp > 0) envenom(state, e, ev, hm.save);
   }
+}
+
+// Throwing (hex battlefield beta): each of your attacks this round throws one
+// of your weapons at your target, or, if it's out of range or sight, at the
+// nearest enemy you can hit. Range, cover and moving first come from
+// rules/ranged.js; melee height modifiers don't apply to throws.
+function rangedTurn(state, w, ev) {
+  const c = state.character;
+  const cb = state.combat;
+  const swings = attacksThisRound(c.level, cb.round);
+  for (let i = 0; i < swings && !cb.over; i++) {
+    if (throwsLeft(state) <= 0) return;
+    const e = rangedTarget(state);
+    if (!e) {
+      ev.push({ t: 'noShot' });
+      return;
+    }
+    const m = MONSTER_BY_ID[e.monsterId];
+    if (w.plus < m.magicReq) {
+      ev.push({ t: 'immune', weapon: w.name, req: m.magicReq, target: e.name });
+      return;
+    }
+    const p = rangeProfile(state, e.uid);
+    cb.throwsUsed = (cb.throwsUsed ?? 0) + 1;
+    const need = thac0(c.level) - m.ac - p.toHit;
+    const r = die(20);
+    const hit = r === 20 || (r !== 1 && r >= need);
+    const base = { t: 'attack', by: 'player', ranged: true, thing: w.ranged.thing, weapon: w.name, distance: p.distance, dmgMult: p.dmgMult };
+    if (!hit) {
+      ev.push({ ...base, hit: false, target: e.name });
+    } else {
+      hurtEnemy(state, e, rangedDamage(roll(w.dmg), p), ev, { ...base, hit: true }, PLAYER);
+      if (e.hp > 0) envenom(state, e, ev);
+    }
+    if (throwsLeft(state) === 0) ev.push({ t: 'throwsSpent', thing: w.ranged.thing });
+  }
+}
+
+// Thrown weapons are never lost: when a fight you survive ends, you pick up
+// every one you threw, hits and misses alike.
+function recoverThrows(state, ev) {
+  const cb = state.combat;
+  if (!cb.throwsUsed || state.character.dead) return;
+  ev.push({ t: 'throwsRecovered', thing: weaponOf(state.character).ranged.thing, count: cb.throwsUsed });
+  cb.throwsUsed = 0;
+}
+
+// Your target if you can throw at it, else the nearest enemy you can.
+export function rangedTarget(state) {
+  const cb = state.combat;
+  const can = e => e && e.hp > 0 && rangeProfile(state, e.uid).ok;
+  const chosen = cb.enemies.find(e => e.uid === cb.target);
+  if (can(chosen)) return chosen;
+  return living(cb.enemies).filter(can)
+    .sort((a, b) => rangeProfile(state, a.uid).distance - rangeProfile(state, b.uid).distance)[0] ?? null;
 }
 
 // Monsters save against poison like a fighter of level 21 - THAC0.
@@ -648,9 +708,11 @@ export function spawnEnemy(state, monsterId) {
 
 // ---- Endings ----
 
-// Leftover poison is applied when you walk out of the ring.
+// Walking out of the ring alive: you gather up everything you threw, then any
+// leftover poison is applied.
 function afterFight(state, ev) {
   const c = state.character;
+  recoverThrows(state, ev);
   if (c.poison <= 0 || c.dead) return;
   const { dmg, lingering } = sweatOut(c);
   ev.push({ t: 'sweat', dmg, lingering, hp: { uid: PLAYER, hp: c.hp } });

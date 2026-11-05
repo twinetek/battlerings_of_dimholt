@@ -2,8 +2,14 @@
 // 2nd edition Player's Handbook. Magic items and prices are the original
 // game's list.
 
-// speed: added to the initiative roll, lower is faster.
-// plus:  magic bonus to hit and damage, and what magicReq checks against.
+// speed:  added to the initiative roll, lower is faster.
+// plus:   magic bonus to hit and damage, and what magicReq checks against.
+// ranged: (hex battlefield beta) { family: 'thrown', aim, throws, thing }
+//         aim     hexes at full accuracy and damage, before Str (rules/ranged.js)
+//         throws  per fight; you gather them up afterward
+//         thing   what one throw is called in the log ("dagger")
+//         Thrown weapons fight as ordinary melee weapons when the enemy is
+//         beside you, and in classic fights. The shops list them only in the beta.
 export const WEAPONS = [
   { id: 'dagger',          name: 'Dagger',             cost: 2,     speed: 2,  dmg: '1d4',   plus: 0 },
   { id: 'hand-axe',        name: 'Hand Axe',           cost: 4,     speed: 4,  dmg: '1d6',   plus: 0 },
@@ -15,6 +21,10 @@ export const WEAPONS = [
   { id: 'bastard-sword',   name: 'Bastard Sword',      cost: 25,    speed: 6,  dmg: '1d10',  plus: 0 },
   { id: 'halberd',         name: 'Halberd',            cost: 10,    speed: 9,  dmg: '1d10',  plus: 0 },
   { id: 'two-handed-sword', name: 'Two-Handed Sword',  cost: 50,    speed: 10, dmg: '2d6',   plus: 0 },
+  { id: 'throwing-daggers', name: 'Throwing Daggers',  cost: 10,    speed: 2,  dmg: '1d4',   plus: 0,
+    ranged: { family: 'thrown', aim: 3, throws: 3, thing: 'dagger' } },
+  { id: 'throwing-axes',   name: 'Throwing Axes',      cost: 15,    speed: 4,  dmg: '1d6',   plus: 0,
+    ranged: { family: 'thrown', aim: 2, throws: 2, thing: 'axe' } },
   { id: 'dagger-1',        name: 'Dagger +1',          cost: 500,   speed: 2,  dmg: '1d4',   plus: 1 },
   { id: 'long-sword-1',    name: 'Long Sword +1',      cost: 1200,  speed: 5,  dmg: '1d8',   plus: 1 },
   { id: 'battle-axe-1',    name: 'Battle Axe +1',      cost: 1000,  speed: 7,  dmg: '1d8',   plus: 1 },

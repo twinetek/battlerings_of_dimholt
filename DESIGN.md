@@ -193,7 +193,7 @@ The first beta feature is the **hex battlefield** (`hex_battlefield/`), where ar
 **Battlefield rules so far (to workshop):**
 
 - **Turn order:**
-  1. You move up to 4 hexes and attack one adjacent enemy, in either order.
+  1. You move up to 4 hexes and attack one adjacent enemy (or throw at one in range; see "Ranged attacks"), in either order.
   2. Each mercenary moves 4 toward the nearest enemy (preferring the one you last attacked) and attacks if adjacent.
   3. Each enemy moves toward the nearest fighter on your side and makes all its attacks if adjacent.
 - **Monster movement** is a first guess from initiative speed: `6 − speed/2`, clamped to 2-8. That gives the Quickling 8, rats and spiders 4-5, and giants 2-3.
@@ -279,8 +279,73 @@ The full design for multi-level terrain is in `todo_terrain.md`: movement points
 - **Next steps,** in the build order of `todo_terrain.md`:
   1. Switch movement to movement points.
   2. Add stats and monster movement traits.
-  3. Add ranged range by height (which needs `Todo_ranged.md` built first).
-  4. Make Hills the default once movement uses levels.
+  3. Make Hills the default once movement uses levels.
+
+  Ranged range by height and line of sight in three dimensions are built (see "Ranged attacks").
+
+**Ranged attacks (beta): throwing weapons**
+
+The full ranged design (bows, crossbows, giants throwing boulders, archer mercenaries) is in `Todo_ranged.md`. So far **throwing weapons** are built, by you only, along with the rules every later ranged attack will share.
+
+- **The weapons** (`data/equipment.js`, `ranged: { family: 'thrown', aim, throws, thing }`):
+
+  | Weapon | Damage | Base aim | Throws per fight | Cost |
+  |---|---|---|---|---|
+  | Throwing Daggers | 1d4 | 3 | 3 | 10 |
+  | Throwing Axes | 1d6 | 2 | 2 | 15 |
+
+  - **Melee:** beside an enemy (in melee reach) they fight as ordinary melee weapons, with all the melee rules, including height.
+  - **Throws are never lost:** when a fight you survive ends (victory or surrender), you recover every weapon you threw, hits and misses alike.
+    - `recoverThrows` in `rules/combat.js` runs at the start of `afterFight`. It logs "You gather up the 3 daggers you threw." and resets `combat.throwsUsed`, so the counter on the board refills.
+    - The count lives on the fight, so a new fight always starts full and no save migration was needed.
+  - **Classic fights** have no grid, so they're simply melee weapons there.
+  - **Only the beta sells them:** `forSaleHere` in `ui/screens/shops.js` hides them from the main game's Weaponsmith and the Guide's weapon table.
+- **Where it lives:** `js/rules/ranged.js`, which is pure: no DOM, no dice.
+  - `rangedStats(c, weapon)`: the character's numbers anywhere.
+  - `rangeProfile(state, targetUid)`: those plus the board.
+  - `lineOfSight`, `throwsLeft` and `rangedDamage`.
+  - `rangedTurn` in `rules/combat.js` makes the throws.
+- **The range profile:**
+  - Up to the **full-power range** (the effective aim) a throw is at full accuracy and damage.
+  - Each hex beyond costs 1 to hit and 1/8 of the damage, down to half at the maximum range: aim + `FALLOFF_HEXES` (4).
+  - Damage is `max(1, floor((roll + bonuses) × multiplier))`.
+  - A natural 20 still always hits and a 1 always misses.
+- **Effective aim** = min(`AIM_CAP` 8, base aim + magic + `strRange(Str)`) + height.
+  - `strRange`: Str 16-17 +1, 18 +2, then +1 per 2 points (Tomes).
+  - Height: +1 per level throwing down, at most `HEIGHT_AIM_MAX` (2), added after the cap; −1 per level throwing up.
+- **To hit:** `need = THAC0(level) − AC − toHit`, where `toHit` adds up:
+  - `dexMissile(Dex)`: Dex 16 +1, 17 +2, 18 +3, then +1 per 2 points. Dexterity, not Strength, aims a throw.
+  - The weapon's magic.
+  - −1 per hex past full power.
+  - −`COVER_PENALTY` (2) per fighter on the line.
+  - −1 per hex you moved first (halved, rounded up, from Dex `STEADY_DEX` 17).
+
+  Damage adds Strength's melee damage bonus and magic.
+- **Line of sight in three dimensions:**
+  - The line runs from your eye to the target's body, each half a level above its hex (`H.line`, drawn twice, nudged to either side of an ambiguous hex edge).
+  - A pillar on it, or ground higher than it, blocks the throw.
+  - Another fighter gives cover only if its body (1 level tall) reaches the line, so from high ground you throw over heads.
+  - The throw is allowed if either nudged line is clear; cover counts from the clearer one.
+- **Turn rules:**
+  - Clicking an enemy strikes it if it's in melee reach, else throws at it if `rangeProfile` allows, else strikes whoever is in reach.
+  - An enemy beside you but 2 levels up is out of melee reach, so you throw.
+  - A throw is your action. Each of your attacks that round throws once (3/2 at 7th level, 2 at 13th).
+  - A throw at a target that falls goes to the nearest enemy you can still hit.
+  - After a throw you can move only `SHOT_MOVE` (1) hex, so you can't throw and then run (`cb.turn.shot`).
+  - Moving first records `cb.turn.movedHexes`.
+  - Magic-only monsters ignore plain throws, without using one up.
+- **Auto-play** (tester tool): a thrower not yet in melee throws before moving (so it pays no moved-first penalty), then advances 1 hex. Otherwise it advances and strikes, or throws if still out of reach.
+- **What the player sees:**
+  - Enemies you can throw at get a dashed red hex.
+  - The top line counts throws left.
+  - The hint mentions throwing.
+  - Hovering an enemy shows "Throw: 5 hexes, 30% to hit, 88% damage (Dex +2, range −1, cover −2)", or why you can't throw: out of range, line of sight, none left.
+  - Log lines: "You throw a dagger at the Orc (5 hexes) and hit for 3 damage, weakened by the distance.", and "That was your last dagger…".
+  - The Weaponsmith shows your own numbers ("Thrown: 3 per fight, full power to 4 hexes, reaches 8"), and the Guide explains the rules.
+- **Tests:**
+  - **Unit checks:** hex lines; the Dex and Str tables; `rangedStats`; falloff at aim, aim + 1 and max; height; pillars, hills and cover from above; moving first; and a fixed-roll throw.
+  - **Throwing in play:** running out of throws; melee beside an enemy; throwing up a cliff; the gargoyle; auto-play; classic fights; the beta-only shop; the log.
+  - **The beta playthrough** buys and equips daggers, rebuilds without pillars, walks up and throws through the real board.
 
 ### Player guide
 
@@ -393,7 +458,8 @@ battlerings_of_dimholt/   (repository root)
 │   │   ├── town.js       Shops, inn, using items in town
 │   │   ├── combat.js     Round-by-round combat that returns events
 │   │   ├── battlefield.js Hex battlefield (beta): deployment, movement, turn order
-│   │   └── terrain.js    Hex battlefield (beta): terrain level generation
+│   │   ├── terrain.js    Hex battlefield (beta): terrain level generation
+│   │   └── ranged.js     Hex battlefield (beta): range, line of sight, throwing
 │   └── ui/               Everything that touches the DOM
 │       ├── app.js        Router, autosave, click/key dispatch
 │       ├── presenter.js  Turns combat events into log lines (and later animations)
@@ -406,7 +472,7 @@ battlerings_of_dimholt/   (repository root)
     └── beta-smoke.html   Scripted playthrough of the hex battlefield beta
 ```
 
-Design docs for work not built yet sit next to this file: `TODO.md` (decided ideas and open review findings), `Todo_ranged.md` (ranged attacks on the battlefield) and `todo_terrain.md` (multi-level terrain; generation and the board display are built). When part of one is built, document it here and mark it built there.
+Design docs for work not built yet sit next to this file: `TODO.md` (decided ideas and open review findings), `Todo_ranged.md` (ranged attacks on the battlefield; throwing weapons are built) and `todo_terrain.md` (multi-level terrain; generation, the board display, melee height and ranged height are built). When part of one is built, document it here and mark it built there.
 
 ### Key decisions
 

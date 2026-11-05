@@ -48,6 +48,12 @@ function venomLine(e) {
 }
 
 function attackLine(e) {
+  if (e.ranged) {
+    const a = /^[aeiou]/i.test(e.thing) ? 'an' : 'a';
+    return e.hit
+      ? { text: `You throw ${a} ${e.thing} at the ${e.target} (${e.distance} hex${e.distance === 1 ? '' : 'es'}) and hit for ${e.dmg} damage${e.dmgMult < 1 ? ', weakened by the distance' : ''}.`, cls: 'good' }
+      : { text: `Your ${e.thing} flies past the ${e.target} (${e.distance} hex${e.distance === 1 ? '' : 'es'}).`, cls: 'muted' };
+  }
   if (e.by === 'player') {
     return e.hit
       ? { text: `You hit the ${e.target} with your ${e.weapon} for ${e.dmg} damage.`, cls: 'good' }
@@ -103,6 +109,9 @@ export function describe(e) {
     case 'enemyDown': return e.crowd ? { text: `The ${e.name} falls!`, cls: 'good' } : null;
     case 'allyDown': return { text: `${e.name} falls!`, cls: 'bad' };
     case 'noReach': return { text: 'No enemy is within reach of your weapon.', cls: 'muted' };
+    case 'noShot': return { text: 'You have no clear throw at any enemy.', cls: 'muted' };
+    case 'throwsSpent': return { text: `That was your last ${e.thing}. You'll gather them up after the fight.`, cls: 'sys' };
+    case 'throwsRecovered': return { text: `You gather up the ${e.count === 1 ? `${e.thing}` : `${e.count} ${e.thing}s`} you threw.`, cls: 'sys' };
     case 'move': return null; // shown by the battlefield, not the log
     case 'loot': return { text: `The ${e.from} leaves behind a ${e.item} (potency ${e.potency})!`, cls: 'win' };
     case 'venom': return venomLine(e);

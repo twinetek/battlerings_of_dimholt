@@ -299,6 +299,7 @@ button.fighter:hover:not(:disabled) { border-color: var(--accent); }
 .cell.reach { fill: color-mix(in srgb, var(--magic) 22%, var(--panel-2)); cursor: pointer; }
 .cell.path { fill: color-mix(in srgb, var(--magic) 45%, var(--panel-2)); cursor: pointer; }
 .cell.attackable { fill: color-mix(in srgb, var(--bad) 35%, var(--panel-2)); cursor: crosshair; }
+.cell.throwable { fill: color-mix(in srgb, var(--bad) 18%, var(--panel-2)); stroke: var(--bad); stroke-dasharray: 4 3; cursor: crosshair; }
 .cell.threat { fill: color-mix(in srgb, var(--warn) 18%, var(--panel-2)); }
 .cell.targeted { stroke: var(--accent); stroke-width: 3; }
 /* Terrain: higher ground is tinted toward the ink color (lighter in the dark theme, darker in the light one). */

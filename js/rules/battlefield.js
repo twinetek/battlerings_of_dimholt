@@ -4,11 +4,13 @@
 // combat.grid = { radius, pillars: [hex keys], height: { key: level }, pos: { uid: { q, r } } }
 // (height comes from rules/terrain.js; melee reach and the height modifiers in
 // rules/combat.js read it, movement doesn't yet)
-// combat.turn = { moved, acted } for your turn this round
+// combat.turn = { moved, acted, movedHexes, shot } for your turn this round
+// combat.throwsUsed = throws you've made this fight (rules/ranged.js)
 //
 // A round on the battlefield:
-//   1. You: move up to PLAYER_MOVE hexes and act once (attack an adjacent enemy
-//      or use an item), in either order, then end your turn.
+//   1. You: move up to PLAYER_MOVE hexes and act once (attack an adjacent enemy,
+//      throw a thrown weapon at one in range, or use an item), in either order,
+//      then end your turn. After a throw you can move only SHOT_MOVE hexes.
 //   2. Each mercenary moves toward your target (or the nearest enemy) and
 //      attacks if it ends next to one.
 //   3. Each enemy moves toward the nearest fighter on your side and attacks
@@ -20,10 +22,12 @@ import * as H from '../engine/hex.js';
 import { die } from '../engine/dice.js';
 import { MONSTER_BY_ID } from '../data/monsters.js';
 import { MERC_BY_ID } from '../data/mercs.js';
-import { maxHp } from './character.js';
+import { maxHp, weaponOf } from './character.js';
+import { rangeProfile } from './ranged.js';
+import { SHOT_MOVE } from './tables.js';
 import { generateTerrain, levelOf } from './terrain.js';
 import {
-  startCombat, setTarget, inReach, meleeReach, spawnEnemy, PLAYER,
+  startCombat, setTarget, inReach, meleeReach, spawnEnemy, rangedTarget, PLAYER,
   beginRound, playerTurn, allyTurn, enemyTurn, endOfRound,
 } from './combat.js';
 
@@ -47,6 +51,9 @@ export function moveOf(cb, uid) {
   const e = cb.enemies.find(x => x.uid === uid);
   return e ? moveFor(MONSTER_BY_ID[e.monsterId]) : MERC_MOVE;
 }
+
+// How far a fighter can move right now: after a ranged attack you only step.
+const stepsLeft = (cb, uid) => (uid === PLAYER && cb.turn?.shot ? SHOT_MOVE : moveOf(cb, uid));
 
 export const isPillar = (cb, h) => cb.grid.pillars.includes(H.key(h));
 export const onBoard = (cb, h) => H.distance(h, ORIGIN) <= cb.grid.radius && !isPillar(cb, h);
@@ -74,7 +81,7 @@ export const passableFor = (state, uid) => h => {
 };
 
 export const reachableFor = (state, uid) =>
-  H.reachable(state.combat.grid.pos[uid], moveOf(state.combat, uid), passableFor(state, uid));
+  H.reachable(state.combat.grid.pos[uid], stepsLeft(state.combat, uid), passableFor(state, uid));
 
 // Can a fighter of `uid` on hex `from` strike someone on hex `to`? Adjacent and
 // within its height reach (the same test as inReach, for hexes not yet occupied).
@@ -130,9 +137,11 @@ export function deploy(state, field = DEFAULT_FIELD) {
     for (let i = 0; i < radius && candidates.length; i++) pillars.push(H.key(candidates.splice(die(candidates.length) - 1, 1)[0]));
   }
   cb.grid = { radius, pillars, height, pos: {} };
-  cb.turn = { moved: false, acted: false };
+  cb.turn = newTurn();
   placeNewcomers(state);
 }
+
+const newTurn = () => ({ moved: false, acted: false, movedHexes: 0, shot: false });
 
 // Start a fight on the battlefield: the normal startCombat, then deployment.
 export function startBattle(state, monsterId, crew = {}, field = DEFAULT_FIELD) {
@@ -151,31 +160,50 @@ export function moveYou(state, to) {
   if (cb.paralyzed > 0) return fail('You are paralyzed and cannot move.');
   if (cb.turn.moved) return fail('You have already moved this round.');
   const path = H.pathToHex(cb.grid.pos[PLAYER], to, passableFor(state, PLAYER));
-  if (!path || !path.length || path.length > PLAYER_MOVE) return fail("You can't get there this round.");
+  if (!path || !path.length || path.length > stepsLeft(cb, PLAYER)) {
+    return fail(cb.turn.shot ? `After a throw you can move only ${SHOT_MOVE} hex.` : "You can't get there this round.");
+  }
   cb.grid.pos[PLAYER] = path.at(-1);
   cb.turn.moved = true;
+  cb.turn.movedHexes = path.length;
   return ok([{ t: 'move', uid: PLAYER, path }]);
 }
 
-// action: { type: 'fight', target } | { type: 'use', index, target? }
+// action: { type: 'fight', target, ranged? } | { type: 'use', index, target? }
+// A fight action strikes your target in melee if you can reach it. If not and
+// you hold a thrown weapon, you throw at it (ranged: true forces a throw).
+// Otherwise you strike whoever else is in reach.
 export function actYou(state, action) {
   const cb = state.combat;
   if (cb.over) return fail('The fight is over.');
   if (cb.paralyzed > 0) return fail('You are paralyzed and cannot act.');
   if (cb.turn.acted) return fail('You have already acted this round.');
   if (action.target) setTarget(cb, action.target);
-  if (action.type === 'fight' && !inReach(cb, PLAYER, cb.target)) {
+  let act = action;
+  if (action.type === 'fight') {
+    const thrower = !!weaponOf(state.character).ranged;
     const enemies = livingUnits(state).filter(u => u.side === 'enemy');
-    if (!enemies.some(u => inReach(cb, PLAYER, u.uid))) {
+    const meleeTarget = !action.ranged && inReach(cb, PLAYER, cb.target);
+    let shot = thrower && !meleeTarget ? rangeProfile(state, cb.target) : null;
+    if (action.ranged && !action.target && !shot?.ok) {
+      // A throw with no target named: the nearest enemy you can hit.
+      const alt = rangedTarget(state);
+      if (alt) { setTarget(cb, alt.uid); shot = rangeProfile(state, alt.uid); }
+    }
+    if (action.ranged && !shot?.ok) return fail(shot?.reason ?? "Your weapon can't be thrown.");
+    if (shot?.ok) {
+      act = { ...action, ranged: true };
+    } else if (!meleeTarget && !enemies.some(u => inReach(cb, PLAYER, u.uid))) {
       const besideOnly = enemies.some(u => H.adjacent(cb.grid.pos[PLAYER], cb.grid.pos[u.uid]));
       return fail(besideOnly
         ? 'That enemy is too far above or below you to reach. Find a hex within 1 level of it.'
-        : 'No enemy is within reach. Move next to one first.');
+        : shot ? shot.reason : 'No enemy is within reach. Move next to one first.');
     }
   }
   const ev = [];
-  playerTurn(state, action, ev);
+  playerTurn(state, act, ev);
   cb.turn.acted = true;
+  if (act.ranged) cb.turn.shot = true;
   return ok(ev);
 }
 
@@ -197,25 +225,37 @@ function advance(state, uid, ev, preferUid = null) {
     .filter(x => x.path)
     .sort((a, b) => (b.f === preferred) - (a.f === preferred) || a.path.length - b.path.length);
   if (!options.length || !options[0].path.length) return;
-  const steps = options[0].path.slice(0, moveOf(cb, uid));
+  const steps = options[0].path.slice(0, stepsLeft(cb, uid));
   cb.grid.pos[uid] = steps.at(-1);
+  if (uid === PLAYER) cb.turn.movedHexes = steps.length;
   ev.push({ t: 'move', uid, path: steps });
 }
 
-// Let the AI play your turn (tester tool): move toward your target, attack.
+// Let the AI play your turn (tester tool). A thrower not yet in melee throws
+// before moving (moving first costs accuracy); then everyone moves toward
+// their target and strikes, or throws if still out of reach.
 export function autoYou(state) {
   const cb = state.combat;
   const ev = [];
   if (cb.over || cb.paralyzed > 0) return ok(ev);
-  if (!cb.turn.moved) {
+  const near = () => livingUnits(state).filter(u => u.side === 'enemy' && inReach(cb, PLAYER, u.uid));
+  const tryThrow = () => {
+    if (cb.turn.acted || !weaponOf(state.character).ranged || near().length) return;
+    const r = actYou(state, { type: 'fight', ranged: true });
+    if (r.ok) ev.push(...r.events);
+  };
+  tryThrow();
+  if (!cb.turn.moved && !cb.over) {
     advance(state, PLAYER, ev, cb.target);
     cb.turn.moved = true;
   }
-  if (!cb.turn.acted) {
-    const near = livingUnits(state).filter(u => u.side === 'enemy' && inReach(cb, PLAYER, u.uid));
-    if (near.length) {
-      const target = near.find(u => u.uid === cb.target) ?? near[0];
+  if (!cb.turn.acted && !cb.over) {
+    const close = near();
+    if (close.length) {
+      const target = close.find(u => u.uid === cb.target) ?? close[0];
       ev.push(...actYou(state, { type: 'fight', target: target.uid }).events);
+    } else {
+      tryThrow();
     }
   }
   return ok(ev);
@@ -245,7 +285,7 @@ export function endTurn(state) {
   if (!cb.over) {
     beginRound(state, ev);
     placeNewcomers(state);
-    cb.turn = { moved: false, acted: false };
+    cb.turn = newTurn();
   }
   return ok(ev);
 }

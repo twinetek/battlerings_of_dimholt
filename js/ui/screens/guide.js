@@ -8,11 +8,13 @@ import {
   thac0, attacksLabel, saveTarget, STARTING_GOLD, INN_PRICE, MAX_WEAPONS, GLAND_DECAY_TICKS, MAX_COATINGS,
   NATURAL_MAX, TOME_MAX, STAT_POINT_EVERY, ITEM_SPEED,
   MELEE_HEIGHT_REACH, TALL_HEIGHT_REACH, UPHILL_TO_HIT, DOWNHILL_DMG, HIGH_GROUND_SAVE,
+  FALLOFF_HEXES, HEIGHT_AIM_MAX, COVER_PENALTY, SHOT_MOVE, STEADY_DEX,
 } from '../../rules/tables.js';
 import { earnsStatPoint } from '../../rules/stats.js';
 import { rangeText, span } from '../../engine/dice.js';
 import { button, esc, gp, signed, d20Chance } from '../format.js';
 import { specialText } from './arena.js';
+import { forSaleHere } from './shops.js';
 import { poisonTotal } from '../../rules/poison.js';
 import { betaOn } from '../../config.js';
 import { PLAYER_MOVE, MERC_MOVE, moveFor } from '../../rules/battlefield.js';
@@ -126,6 +128,20 @@ function battlefieldSection() {
           attacking down adds ${DOWNHILL_DMG} damage per level. Standing above your attacker adds ${HIGH_GROUND_SAVE} per level to your saving throws against
           its poison, paralysis and breath; a monster above you gets the same against your venom. Hover an enemy beside you to see the numbers.
           It all works the same for monsters and mercenaries.</li>
+        <li><strong>Throwing weapons.</strong> The Weaponsmith sells ${WEAPONS.filter(w => w.ranged).map(w => `${esc(w.name)} (${w.ranged.throws} per fight)`).join(' and ')}.
+          With one in hand, click an enemy that isn't beside you (a dashed red hex) to throw. Beside you, they fight as ordinary weapons.
+          They're never lost: when a fight you survive ends, you gather up every one you threw, hits and misses alike.
+          <ul>
+            <li><strong>Range.</strong> Up to your full-power range a throw is at full accuracy and damage. Each hex beyond costs 1 to hit and an eighth
+              of the damage, down to half at the most you can throw: ${FALLOFF_HEXES} hexes past full power. Strength adds range
+              (+1 at 16-17, +2 at 18) and its damage bonus; Dexterity adds to hit (+1 at 16, +2 at 17, +3 at 18). The Weaponsmith shows your numbers.</li>
+            <li><strong>Height.</strong> Throwing down adds 1 hex of full-power range per level (up to ${HEIGHT_AIM_MAX}); throwing up takes 1 away.</li>
+            <li><strong>Line of sight.</strong> Pillars, and ground higher than the line of the throw, block it. Each fighter in the way costs ${COVER_PENALTY} to hit,
+              unless you're throwing over their heads from above.</li>
+            <li><strong>Moving.</strong> Each hex you move before throwing costs 1 to hit (half that from Dex ${STEADY_DEX}). After a throw you can still
+              move ${SHOT_MOVE} hex.</li>
+            <li>Hover an enemy to see your chance, damage and what changes them.</li>
+          </ul></li>
       </ul>`;
 }
 
@@ -215,7 +231,7 @@ function thac0Examples() {
 
 function weaponTable() {
   return table(['Weapon', num('Damage'), num('Speed'), num('Magic'), num('Cost'), num('Sells for')],
-    WEAPONS.map(w => tr([esc(w.name), n(rangeText(w.dmg, w.plus)), n(w.speed), n(w.plus ? `+${w.plus}` : ''), n(gp(w.cost)), n(gp(Math.floor(w.cost / 2)))])));
+    WEAPONS.filter(forSaleHere).map(w => tr([esc(w.name), n(rangeText(w.dmg, w.plus)), n(w.speed), n(w.plus ? `+${w.plus}` : ''), n(gp(w.cost)), n(gp(Math.floor(w.cost / 2)))])));
 }
 
 function armorTable() {

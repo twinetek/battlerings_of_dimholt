@@ -96,5 +96,30 @@ export function pathTo(start, done, passable, limit = 200) {
   return null;
 }
 
+// Round fractional axial coordinates to the nearest hex.
+export function round(fq, fr) {
+  const fs = -fq - fr;
+  let q = Math.round(fq), r = Math.round(fr);
+  const s = Math.round(fs);
+  const dq = Math.abs(q - fq), dr = Math.abs(r - fr), ds = Math.abs(s - fs);
+  if (dq > dr && dq > ds) q = -r - s;
+  else if (dr > ds) r = -q - s;
+  return { q: q + 0, r: r + 0 }; // + 0 turns -0 into 0
+}
+
+// The hexes on a straight line from a to b, both included (distance + 1 hexes).
+// A line along the edge between two hexes is ambiguous; `nudge` (+1 or -1)
+// tips it to one side or the other, so callers can try both.
+export function line(a, b, nudge = 1) {
+  const n = distance(a, b);
+  const eq = 1e-6 * nudge, er = 2e-6 * nudge;
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const t = n ? i / n : 0;
+    out.push(round(a.q + eq + (b.q - a.q) * t, a.r + er + (b.r - a.r) * t));
+  }
+  return out;
+}
+
 export const pathToHex = (start, goal, passable) => pathTo(start, h => equal(h, goal), passable);
 export const pathToAdjacent = (start, target, passable) => pathTo(start, h => adjacent(h, target), passable);

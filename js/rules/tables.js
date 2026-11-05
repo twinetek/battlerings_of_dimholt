@@ -90,3 +90,28 @@ export const TALL_HEIGHT_REACH = 2;  // the same, for monsters with move: ['tall
 export const UPHILL_TO_HIT = 2;      // to-hit penalty per level when attacking up
 export const DOWNHILL_DMG = 2;       // damage bonus per level when attacking down
 export const HIGH_GROUND_SAVE = 2;   // save bonus per level for a defender above its attacker
+
+// Ranged attacks on the hex battlefield (beta; see rules/ranged.js).
+export const FALLOFF_HEXES = 4;      // past its aim range a shot loses 1 to hit and 1/8 of its damage per hex, to half at aim + 4
+export const AIM_CAP = 8;            // the most a weapon and your stats can push aim range
+export const HEIGHT_AIM_MAX = 2;     // aim range gained shooting down (1 per level), on top of AIM_CAP
+export const COVER_PENALTY = 2;      // to hit, per fighter on the line of fire
+export const SHOT_MOVE = 1;          // hexes you may still move after a ranged attack
+export const STEADY_DEX = 17;        // from this Dex, moving before a shot costs half
+
+// Missile to-hit bonus from Dexterity, following AD&D. 19-25 only with Tomes.
+export function dexMissile(d) {
+  if (d <= 3) return -3;
+  if (d <= 5) return -2;
+  if (d <= 15) return 0;
+  if (d <= 18) return d - 15; // 16: +1, 17: +2, 18: +3
+  return 3 + Math.ceil((d - 18) / 2); // 19: +4 ... 25: +7
+}
+
+// Extra aim range from Strength, for thrown weapons.
+export function strRange(s) {
+  if (s <= 15) return 0;
+  if (s <= 17) return 1;
+  if (s === 18) return 2;
+  return 2 + Math.ceil((s - 18) / 2); // 19: +3 ... 25: +6
+}

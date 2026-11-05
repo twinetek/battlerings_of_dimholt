@@ -26,6 +26,11 @@ import * as Hex from '../js/engine/hex.js';
 import * as BF from '../js/rules/battlefield.js';
 import * as Terrain from '../js/rules/terrain.js';
 import { heightMods, inReach, enemyTurn } from '../js/rules/combat.js';
+import * as Ranged from '../js/rules/ranged.js';
+import { dexMissile, strRange } from '../js/rules/tables.js';
+import { forSaleHere } from '../js/ui/screens/shops.js';
+import { config } from '../js/config.js';
+import { WEAPON_BY_ID } from '../js/data/equipment.js';
 import { describe } from '../js/ui/presenter.js';
 import { glandPotency, coatingStrength, applyVenom, sellLoot, rollLoot, endArenaVisit, advanceClock, liveCoatings } from '../js/rules/loot.js';
 import { readSlot, deleteSlot } from '../js/engine/save.js';
@@ -684,6 +689,187 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   st.combat.grid.pos.e1 = { q: 3, r: -3 };
   const zone = BF.threatZone(st);
   check('the threat zone leaves out hexes an enemy could stand beside but not reach', !zone.has(Hex.key(BESIDE)) && zone.has(Hex.key(YOU)));
+  setRng(seeded(42));
+}
+
+// Throwing weapons (beta)
+{
+  // Hex lines.
+  const o = { q: 0, r: 0 };
+  const ln = Hex.line(o, { q: 3, r: -1 });
+  check('a hex line runs end to end, distance + 1 hexes, each step to a neighbor',
+    Hex.equal(ln[0], o) && Hex.equal(ln.at(-1), { q: 3, r: -1 }) && ln.length === 4 && ln.every((h, i) => !i || Hex.adjacent(ln[i - 1], h)));
+  check('a line along a hex edge can be tipped to either side',
+    !Hex.equal(Hex.line(o, { q: 1, r: -2 }, 1)[1], Hex.line(o, { q: 1, r: -2 }, -1)[1]));
+
+  // Tables.
+  check('Dex missile bonus: 15 none, 16 +1, 17 +2, 18 +3, 19 +4, 25 +7, 3 -3',
+    [15, 16, 17, 18, 19, 25, 3].map(dexMissile).join() === '0,1,2,3,4,7,-3');
+  check('Str range bonus: 15 none, 16 +1, 18 +2, 19 +3, 25 +6', [15, 16, 18, 19, 25].map(strRange).join() === '0,1,2,3,6');
+
+  // A thrower on the floor at (0,4), a sturdy centipede (AC 9) somewhere up the r axis.
+  setRng(() => 0.5); // every d20 is an 11; a d4 rolls 3
+  const ME = { q: 0, r: 4 };
+  const ahead = n => ({ q: 0, r: 4 - n }); // n hexes away
+  const thrower = (stats = {}, weapon = 'throwing-daggers', monster = 'giant-centipede') => {
+    const st = newGameState(createCharacter('Thrower', { str: 16, int: 10, wis: 10, dex: 15, con: 15, cha: 10, ...stats }));
+    st.character.gold = 100000;
+    buyWeapon(st.character, weapon);
+    st.character.hp = 999;
+    BF.startBattle(st, monster, {}, { radius: 5, pillars: false });
+    st.combat.grid.pos.you = ME;
+    st.combat.grid.pos.e1 = ahead(4);
+    st.combat.enemies[0].hp = st.combat.enemies[0].maxHp = 999;
+    return st;
+  };
+  const raise = (st, h, n) => { st.combat.grid.height[Hex.key(h)] = n; };
+  const profileAt = (st, n) => { st.combat.grid.pos.e1 = ahead(n); return Ranged.rangeProfile(st, 'e1'); };
+  const newTurn = st => { st.combat.turn = { moved: false, acted: false, movedHexes: 0, shot: false }; };
+
+  // The character's numbers.
+  const stats16 = Ranged.rangedStats(thrower().character);
+  check('daggers with Str 16: full power to 4 hexes (3 + 1), +1 damage, 3 throws',
+    stats16.aim === 4 && stats16.dmgBonus === 1 && stats16.throws === 3);
+  check('Str 18 throws 1 hex farther; Str 25 is capped at 8', Ranged.rangedStats(thrower({ str: 18 }).character).aim === 5
+    && Ranged.rangedStats(thrower({ str: 25 }).character).aim === 8);
+  check('axes: full power to 3 hexes with Str 16, 2 throws', Ranged.rangedStats(thrower({}, 'throwing-axes').character).aim === 3
+    && Ranged.rangedStats(thrower({}, 'throwing-axes').character).throws === 2);
+  check('Dex 17 adds +2 to hit', Ranged.rangedStats(thrower({ dex: 17 }).character).toHit === 2);
+  check('a melee weapon has no ranged numbers', Ranged.rangedStats({ ...thrower().character, equipped: -1 }) === null);
+
+  // Range falloff.
+  let st = thrower();
+  const p4 = profileAt(st, 4), p5 = profileAt(st, 5), p8 = profileAt(st, 8);
+  check('at full power: no penalty, full damage', p4.ok && p4.toHit === 0 && p4.dmgMult === 1);
+  check('1 hex beyond: -1 to hit, 7/8 damage', p5.ok && p5.toHit === -1 && p5.dmgMult === 0.875);
+  check('at the most you can throw (4 + 4): -4 to hit, half damage', p8.ok && p8.toHit === -4 && p8.dmgMult === 0.5 && p8.max === 8);
+  st.combat.grid.pos.you = { q: 0, r: 5 };
+  st.combat.grid.pos.e1 = { q: 0, r: -4 };
+  check('beyond that you can\'t throw', !Ranged.rangeProfile(st, 'e1').ok && /Out of range/.test(Ranged.rangeProfile(st, 'e1').reason));
+
+  // Height.
+  st = thrower();
+  raise(st, ME, 1);
+  check('throwing down a level adds a hex of full-power range', profileAt(st, 5).toHit === 0);
+  raise(st, ME, 3);
+  check('throwing down adds at most 2', profileAt(st, 6).toHit === 0 && profileAt(st, 7).toHit === -1);
+  st = thrower();
+  raise(st, ahead(4), 1);
+  check('throwing up a level takes a hex away', profileAt(st, 4).toHit === -1);
+
+  // Line of sight and cover.
+  st = thrower();
+  st.combat.grid.pillars = [Hex.key(ahead(2))];
+  check('a pillar in the way blocks the throw', !profileAt(st, 4).ok && /line of sight/.test(profileAt(st, 4).reason));
+  st = thrower();
+  raise(st, ahead(2), 1);
+  check('a hill between two fighters on the floor blocks the throw', !profileAt(st, 4).ok);
+  raise(st, ME, 2);
+  check('from higher ground you throw over the hill', profileAt(st, 4).ok);
+  st = thrower();
+  BF.testerAddEnemy(st, 'orc');
+  st.combat.grid.pos.e2 = ahead(2);
+  check('a fighter in the way gives cover: -2', profileAt(st, 4).toHit === -2);
+  raise(st, ME, 2);
+  check('from above you throw over their heads: no cover', profileAt(st, 4).toHit === 0);
+
+  // Moving first.
+  st = thrower();
+  st.combat.turn.movedHexes = 3;
+  check('each hex moved before throwing costs 1', profileAt(st, 4).toHit === -3);
+  st = thrower({ dex: 17 });
+  st.combat.turn.movedHexes = 3;
+  check('from Dex 17 it costs half, rounded up (and Dex adds +2)', profileAt(st, 4).toHit === 2 - 2);
+
+  // Throwing for real. Level 1 (THAC0 20) against AC 9 needs 11 - bonus.
+  st = thrower();
+  const first = BF.actYou(st, { type: 'fight', target: 'e1' });
+  const shot = first.events.find(e => e.t === 'attack');
+  check('clicking an enemy 4 hexes away throws: an 11 hits for 4 (3 + Str 1)',
+    first.ok && shot.ranged && shot.hit && shot.dmg === 4 && shot.distance === 4 && st.combat.throwsUsed === 1 && st.combat.turn.shot);
+  check('after a throw you can move only 1 hex', !BF.moveYou(st, { q: 0, r: 2 }).ok && BF.moveYou(st, { q: 1, r: 3 }).ok);
+  newTurn(st);
+  BF.actYou(st, { type: 'fight', target: 'e1' });
+  newTurn(st);
+  const third = BF.actYou(st, { type: 'fight', target: 'e1' });
+  check('the last throw says so, and none are left', third.events.some(e => e.t === 'throwsSpent' && e.thing === 'dagger') && Ranged.throwsLeft(st) === 0);
+  newTurn(st);
+  const fourth = BF.actYou(st, { type: 'fight', target: 'e1' });
+  check('with no throws left you can\'t throw', !fourth.ok && /thrown all your daggers/.test(fourth.msg));
+  st.combat.grid.pos.e1 = Hex.neighbors(st.combat.grid.pos.you).find(h => BF.onBoard(st.combat, h) && !BF.occupant(st, h));
+  const stab = BF.actYou(st, { type: 'fight', target: 'e1' });
+  check('...but you still fight with them beside an enemy', stab.ok && stab.events.some(e => e.t === 'attack' && !e.ranged));
+  st.combat = null;
+  BF.startBattle(st, 'giant-centipede', {}, { radius: 5, pillars: false });
+  check('you gather your throws up for the next fight', Ranged.throwsLeft(st) === 3);
+
+  setRng(() => 0.99); // a natural 20, and a d4 rolls 4
+  // Recovery: every throw comes back when a fight you survive ends, hits and misses alike.
+  st = thrower();
+  BF.actYou(st, { type: 'fight', target: 'e1' }); newTurn(st);
+  BF.actYou(st, { type: 'fight', target: 'e1' }); newTurn(st);
+  st.combat.enemies[0].hp = 1;
+  const win = BF.actYou(st, { type: 'fight', target: 'e1' }).events;
+  const back = win.find(e => e.t === 'throwsRecovered');
+  check('winning a fight recovers all your thrown weapons, after the victory',
+    st.combat.result === 'victory' && back?.count === 3 && back.thing === 'dagger'
+    && win.findIndex(e => e.t === 'victory') < win.indexOf(back) && Ranged.throwsLeft(st) === 3);
+  check('...with no "last dagger" line once they\'re back', !win.some(e => e.t === 'throwsSpent'));
+  st = thrower();
+  BF.actYou(st, { type: 'fight', target: 'e1' });
+  const yielded = playRound(st, { type: 'surrender' });
+  check('surrendering recovers them too', yielded.some(e => e.t === 'throwsRecovered' && e.count === 1) && Ranged.throwsLeft(st) === 3);
+  st = thrower();
+  check('a fight with no throws says nothing about recovering them', !playRound(st, { type: 'surrender' }).some(e => e.t === 'throwsRecovered'));
+  check('the log names what you gather up',
+    describe({ t: 'throwsRecovered', thing: 'axe', count: 1 }).text === 'You gather up the axe you threw.'
+    && describe({ t: 'throwsRecovered', thing: 'dagger', count: 3 }).text === 'You gather up the 3 daggers you threw.');
+
+  st = thrower();
+  st.combat.grid.pos.e1 = ahead(8);
+  const far = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
+  check('at 8 hexes a hit does half: (4 + 1) / 2 rounds down to 2', far.hit && far.dmg === 2 && far.dmgMult === 0.5);
+  setRng(() => 0.5);
+
+  st = thrower();
+  st.combat.grid.pos.e1 = { q: 1, r: 3 };
+  const melee = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
+  check('beside an enemy you strike rather than throw', !melee.ranged && !st.combat.throwsUsed);
+  st = thrower();
+  st.combat.grid.pos.e1 = { q: 1, r: 3 };
+  raise(st, { q: 1, r: 3 }, 2);
+  const upCliff = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
+  check('an enemy beside you but 2 levels up is out of melee reach, so you throw', upCliff?.ranged === true);
+  st = thrower({}, 'throwing-daggers', 'gargoyle');
+  const stone = BF.actYou(st, { type: 'fight', target: 'e1' });
+  check('plain thrown weapons can\'t harm a gargoyle, and the throw isn\'t spent',
+    stone.events.some(e => e.t === 'immune') && !st.combat.throwsUsed);
+
+  // Auto-play throws before moving.
+  st = thrower();
+  const auto = BF.autoYou(st).events;
+  const autoMove = auto.find(e => e.t === 'move' && e.uid === 'you');
+  check('auto-play throws first, then steps at most 1 hex',
+    auto.findIndex(e => e.ranged) === 0 && (!autoMove || autoMove.path.length <= 1));
+
+  // Classic fights: thrown weapons are plain melee weapons.
+  st = newGameState(createCharacter('Classic', { str: 16, int: 10, wis: 10, dex: 15, con: 15, cha: 10 }));
+  st.character.gold = 1000; buyWeapon(st.character, 'throwing-daggers'); st.character.hp = 999;
+  startCombat(st, 'giant-centipede');
+  const classic = playRound(st, { type: 'fight' }).find(e => e.t === 'attack' && e.by === 'player');
+  check('in a classic fight thrown weapons strike in melee', classic && !classic.ranged && !st.combat.throwsUsed);
+
+  // Only the beta sells them.
+  const daggers = WEAPON_BY_ID['throwing-daggers'];
+  const inMain = forSaleHere(daggers);
+  config.betaFeature = 'hex-battlefield';
+  const inBeta = forSaleHere(daggers);
+  config.betaFeature = null;
+  check('thrown weapons are sold only in the hex battlefield beta', !inMain && inBeta && forSaleHere(WEAPON_BY_ID['long-sword']));
+
+  // The log.
+  check('the log describes a throw', describe({ t: 'attack', by: 'player', ranged: true, hit: true, thing: 'axe', target: 'Orc', dmg: 3, distance: 5, dmgMult: 0.75 }).text
+    === 'You throw an axe at the Orc (5 hexes) and hit for 3 damage, weakened by the distance.');
   setRng(seeded(42));
 }
 

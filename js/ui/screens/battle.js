@@ -5,15 +5,16 @@
 import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
 import { MERCS, MERC_BY_ID } from '../../data/mercs.js';
 import { ITEM_BY_ID } from '../../data/equipment.js';
-import { maxHp, armorClass, weaponEntry, rollToHit } from '../../rules/character.js';
+import { maxHp, armorClass, weaponEntry, weaponOf, rollToHit } from '../../rules/character.js';
 import { playRound, setTarget, openingEvents, inReach, heightMods, PLAYER } from '../../rules/combat.js';
 import {
   DEFAULT_FIELD, boardHexes, isPillar, livingUnits, occupant, reachableFor, threatZone, moveOf,
   moveYou, actYou, endTurn, autoYou, testerAddEnemy, testerAddMerc, testerHeal, testerRebuild,
 } from '../../rules/battlefield.js';
 import { TERRAINS, levelOf, cliffEdges } from '../../rules/terrain.js';
+import { rangeProfile, rangedStats, throwsLeft } from '../../rules/ranged.js';
 import * as H from '../../engine/hex.js';
-import { COMBAT_LOG_LIMIT } from '../../rules/tables.js';
+import { COMBAT_LOG_LIMIT, thac0 } from '../../rules/tables.js';
 import { toLines, describeAll, SUMMARIZE_ABOVE } from '../presenter.js';
 import { button, esc, gp } from '../format.js';
 import { itemLabel, coatingTag } from './shops.js';
@@ -70,6 +71,7 @@ function boardSvg(s, params) {
     const cls = ['cell'];
     if (isPillar(cb, h)) cls.push('pillar');
     else if (who?.startsWith('e') && canAct && inReach(cb, PLAYER, who)) cls.push('attackable');
+    else if (who?.startsWith('e') && canAct && rangeProfile(s, who).ok) cls.push('throwable');
     else if (pathKeys.has(k)) cls.push('path');
     else if (!who && reach.has(k) && reach.get(k) > 0) cls.push('reach');
     else if (threat.has(k)) cls.push('threat');
@@ -141,11 +143,23 @@ function unitTip(s, uid) {
     const itReaches = !beside || inReach(cb, uid, PLAYER);
     const pct = need => Math.round(((21 - Math.min(20, Math.max(2, need))) / 20) * 100);
     const levels = n => `${n} level${n === 1 ? '' : 's'} ${mine.h < 0 ? 'up' : 'down'}`;
-    tip += youReach ? `. You hit it ${pct(rollNeed(s, m.ac) - mine.toHit)}%` : `. You can't reach it (${levels(Math.abs(mine.h))})`;
+    tip += youReach ? `. ${beside ? 'You' : 'In melee you'} hit it ${pct(rollNeed(s, m.ac) - mine.toHit)}%` : `. You can't reach it (${levels(Math.abs(mine.h))})`;
     tip += itReaches ? `, it hits you ${pct(m.thac0 - me.ac - theirs.toHit)}%` : ", and it can't reach you";
     tip += heightNotes(mine, theirs, youReach, itReaches);
+    if (!(beside && youReach)) tip += throwNote(s, uid, m);
   }
   return tip;
+}
+
+// With a thrown weapon in hand: your chance and damage at this distance, and
+// what changes it, or why you can't throw at it.
+function throwNote(s, uid, m) {
+  if (!rangedStats(s.character)) return '';
+  const p = rangeProfile(s, uid);
+  if (!p.ok) return `. Can't throw: ${p.reason}`;
+  const need = Math.min(20, Math.max(2, thac0(s.character.level) - m.ac - p.toHit));
+  const parts = p.parts.map(([name, n]) => `${name} ${n > 0 ? '+' : ''}${n}`).join(', ');
+  return `. Throw: ${p.distance} hexes, ${Math.round(((21 - need) / 20) * 100)}% to hit, ${Math.round(p.dmgMult * 100)}% damage${parts ? ` (${parts})` : ''}`;
 }
 
 // Who has the high ground, and only the effects that apply: a side that
@@ -215,9 +229,11 @@ function hintText(s) {
   if (cb.paralyzed > 0) return 'You are paralyzed. End your turn.';
   const t = cb.turn;
   if (t.moved && t.acted) return 'You have moved and acted. End your turn.';
-  if (t.moved) return 'Attack an adjacent enemy (red), use an item, or end your turn.';
-  if (t.acted) return 'You can still move (blue hexes), then end your turn.';
-  return 'Move (blue hexes) and attack an adjacent enemy (red), in either order. Click any enemy to make it your target.';
+  const thrower = !!rangedStats(s.character);
+  const attack = thrower ? 'attack an adjacent enemy (red) or throw at one in range (dashed)' : 'attack an adjacent enemy (red)';
+  if (t.moved) return `${attack.charAt(0).toUpperCase()}${attack.slice(1)}, use an item, or end your turn.`;
+  if (t.acted) return t.shot ? 'After a throw you can still step 1 hex, then end your turn.' : 'You can still move (blue hexes), then end your turn.';
+  return `Move (blue hexes) and ${attack}, in either order. Click any enemy to make it your target.${thrower ? ' Moving before a throw costs accuracy.' : ''}`;
 }
 
 // ---- Render ----
@@ -264,7 +280,7 @@ export function render(ctx, params) {
   const venom = coatingTag(s, weaponEntry(c));
   return `
     <section class="battle">
-      <p class="beta-note small">Beta: the hex battlefield. Round ${cb.round}.${venom ? ` Blade venom:${venom}` : ''}</p>
+      <p class="beta-note small">Beta: the hex battlefield. Round ${cb.round}.${rangedStats(c) ? ` ${esc(weaponOf(c).name)}: ${throwsLeft(s)} of ${rangedStats(c).throws} throws left.` : ''}${venom ? ` Blade venom:${venom}` : ''}</p>
       <div class="battle-grid">
         <div>
           <div class="board-wrap">${boardSvg(s, params)}</div>
@@ -276,7 +292,7 @@ export function render(ctx, params) {
         </div>
         <aside>
           <div class="panel"><h3>Fighters</h3><div class="table-wrap">${roster(s)}</div>
-            <p class="muted small">Legend: blue hexes, where you can move · red, an enemy you can attack ·
+            <p class="muted small">Legend: blue hexes, where you can move · red, an enemy you can attack · dashed red, one you can throw at ·
               amber, where an enemy could reach and strike this round · 🪨 pillar.
               ${Object.keys(cb.grid.height ?? {}).length ? '<br>Shaded hexes are raised ground, numbered by level; thick edges are cliffs. Higher ground wins melee: blows reach only 1 level up or down, attacking up is harder, attacking down hits harder (hover an enemy for the numbers). Moving ignores levels for now.' : ''}</p></div>
           ${testerPanel(s)}
@@ -369,7 +385,7 @@ export const actions = {
     const h = H.fromKey(d.key);
     const who = occupant(s, h);
     if (who?.startsWith('e')) {
-      if (!cb.turn.acted && cb.paralyzed === 0 && inReach(cb, PLAYER, who)) {
+      if (!cb.turn.acted && cb.paralyzed === 0 && (inReach(cb, PLAYER, who) || rangeProfile(s, who).ok)) {
         run(ctx, st => actYou(st, { type: 'fight', target: who }));
       } else {
         ctx.mutate(st => setTarget(st.combat, who));

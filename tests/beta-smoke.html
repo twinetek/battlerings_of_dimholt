@@ -15,6 +15,7 @@
 import { createCharacter } from '../js/rules/character.js';
 import { buyWeapon, buyArmor } from '../js/rules/town.js';
 import { newGameState } from '../js/engine/state.js';
+import { rangeProfile } from '../js/rules/ranged.js';
 
 const out = document.getElementById('out');
 const frame = document.getElementById('game');
@@ -64,16 +65,42 @@ frame.addEventListener('load', async () => {
     log(!!q('[data-action="continue"]') && st().character.name === 'Smokey', 'main game was copied into the beta');
     log(!!q('[data-action="copyMain"]') && [...q('#beta-select').options].some(o => o.value === '../?beta=true'), 'copy control, and the drop-down leads back to the main game');
     await click('[data-action="continue"]');
+    // The beta's Weaponsmith sells throwing weapons; buy daggers and take them in hand.
+    await click('[data-to="weapons"]');
+    log(q('#screen').textContent.includes('Throwing Daggers') && q('#screen').textContent.includes('Thrown: 3 per fight'), 'the beta weaponsmith sells throwing weapons');
+    await click('[data-action="buy"][data-id="throwing-daggers"]');
+    const daggerIndex = st().character.weapons.findIndex(x => x.id === 'throwing-daggers');
+    await click(`[data-action="equip"][data-index="${daggerIndex}"]`);
+    log(st().character.equipped === daggerIndex, 'bought and equipped throwing daggers');
+    await click('[data-action="go"][data-to="town"]');
     await click('[data-to="arena"]');
     await click('tr[data-id="kobold"]');
     await click('[data-action="fight"][data-id="kobold"]');
     log(screen() === 'battle' && d.querySelectorAll('#board polygon').length === 91, 'arena fight opens the hex battlefield');
     log(!!q('.tester') && q('#combat-log').textContent.includes('Round 1'), 'tester controls and log are shown');
-    const key = q('.cell.reach')?.dataset.key;
+    // Pillars are random and can block a throw; rebuild the arena without them so this check is repeatable.
+    q('#tester-pillars').checked = false;
+    await click('[data-action="rebuild"]');
+    await wait(300);
+    log(st().combat.grid.pillars.length === 0, 'tester can rebuild the arena without pillars');
+    // Walk to the blue hex nearest the kobold.
+    const foe = st().combat.grid.pos.e1;
+    const dist = k => { const [kq, kr] = k.split(',').map(Number); return (Math.abs(kq - foe.q) + Math.abs(kr - foe.r) + Math.abs(kq + kr - foe.q - foe.r)) / 2; };
+    const key = [...d.querySelectorAll('.cell.reach')].map(c => c.dataset.key).sort((a, b) => dist(a) - dist(b))[0];
     await click(`[data-key="${key}"]`);
     await wait(400);
     const pos = st().combat.grid.pos.you;
     log(st().combat.turn.moved && `${pos.q},${pos.r}` === key, 'clicking a blue hex moves you');
+    const throwAt = q('.cell.throwable');
+    if (throwAt && !st().combat.over) {
+      await click(`[data-key="${throwAt.dataset.key}"]`);
+      await wait(500);
+      log(st().combat.throwsUsed === 1 && /You throw a dagger|Your dagger flies past/.test(q('#combat-log').textContent), 'clicking a dashed enemy throws a dagger');
+    } else {
+      const s = st();
+      const why = s.combat.over ? 'fight over' : s.combat.enemies.map(e => `${e.uid}: ${rangeProfile(s, e.uid).reason ?? 'ok'}`).join('; ');
+      log(s.combat.over, `an enemy is in throwing range after moving (${why}; you at ${JSON.stringify(s.combat.grid.pos.you)}, pillars ${s.combat.grid.pillars.join(' ')})`);
+    }
     await click('[data-action="endTurn"]');
     await wait(600);
     log(st().combat.round === 2 || st().combat.over, 'end turn plays the round');
