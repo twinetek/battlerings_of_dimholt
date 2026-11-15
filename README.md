@@ -14,10 +14,9 @@ Once GitHub Pages is on, the game is at https://twinetek.github.io/battlerings_o
 
 - Each beta feature is the full game with one experimental feature switched on, in its own folder with its own saves.
 - It starts from a copy of your main game and never changes it.
-- Today there's one beta feature: **Battlefield terrain** (`hex_battlefield/`). It adds raised terrain to the battlefield, with tester controls for setting up scenarios.
-- **Terrain, being built:** in the tester controls, pick an **Arena layout** (hills, a stepped ziggurat, or raised ledges with ramps) and rebuild the arena to see it. The board shades raised ground by level and marks cliffs. High ground already matters in melee: you can only strike 1 level up or down, attacking up is harder, and attacking down hits harder. Moving still ignores levels; climbing comes next.
+- Today there's one beta feature: **Battlefield tester** (`hex_battlefield/`): the battlefield with tester controls for setting up scenarios (add enemies or mercenaries, heal, pick an arena layout, auto-play). New battlefield rules land there first; climbing is next.
 
-**The battlefield** (main game): every fight is on a flat hex arena with pillars. Move up to 4 hexes and attack an adjacent enemy, or throw any weapon you carry at one in range; each weapon is one throw per fight, so five daggers are five throws. Daggers and Throwing Axes fly best; a two-handed sword barely flies at all. You gather everything up after each fight, and you can carry any number of weapons. Bows and crossbows come later.
+**The battlefield** (main game): every fight is on a hex arena with pillars and a layout rolled at random: flat, hills, a stepped ziggurat, or raised ledges with ramps. High ground matters: you can only strike 1 level up or down, attacking up is harder, attacking down hits harder, and throwing down reaches farther. Moving still ignores levels; climbing comes next. Move up to 4 hexes and attack an adjacent enemy, or throw any weapon you carry at one in range; each weapon is one throw per fight, so five daggers are five throws. Daggers and Throwing Axes fly best; a two-handed sword barely flies at all. You gather everything up after each fight, and you can carry any number of weapons. Bows and crossbows come later.
 
 ## Run locally
 
@@ -33,10 +32,10 @@ Then open these pages:
 |---|---|
 | http://localhost:8000/ | The game |
 | http://localhost:8000/?beta=true | The game, with the beta features drop-down |
-| http://localhost:8000/hex_battlefield/ | The battlefield terrain beta |
+| http://localhost:8000/hex_battlefield/ | The battlefield tester beta |
 | http://localhost:8000/tests/ | Rule tests and balance simulations |
 | http://localhost:8000/tests/smoke.html | Main-game playthrough |
-| http://localhost:8000/tests/beta-smoke.html | Beta playthrough: the drop-down, then the terrain beta |
+| http://localhost:8000/tests/beta-smoke.html | Beta playthrough: the drop-down, then the tester beta |
 
 The test pages report PASS or FAIL lines. The playthroughs drive the real screens and overwrite autosaves in that browser.
 

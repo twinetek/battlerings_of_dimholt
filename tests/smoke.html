@@ -44,14 +44,22 @@ frame.addEventListener('load', async () => {
     return true;
   };
   // Play the battlefield the way a player would: each round attack an enemy in
-  // reach, or walk to the blue hex nearest an enemy and attack from there,
+  // reach, or walk to the blue hex nearest an enemy (avoiding spots right under
+  // or over a cliff from it, where blows can't reach) and attack from there,
   // then end the turn.
   const playFight = async (rounds = 60) => {
     for (let i = 0; i < rounds && !q('[data-action="leave"]'); i++) {
       if (!await strike()) {
         const s = autosave();
         const foes = s.combat.enemies.filter(e => e.hp > 0).map(e => s.combat.grid.pos[e.uid]).filter(Boolean);
-        const gap = k => { const [kq, kr] = k.split(',').map(Number); return Math.min(...foes.map(f => hexDist({ q: kq, r: kr }, f))); };
+        const level = (q0, r0) => s.combat.grid.height?.[`${q0},${r0}`] ?? 0;
+        const gap = k => {
+          const [kq, kr] = k.split(',').map(Number);
+          return Math.min(...foes.map(f => {
+            const dist = hexDist({ q: kq, r: kr }, f);
+            return dist === 1 && Math.abs(level(kq, kr) - level(f.q, f.r)) > 1 ? 2.5 : dist;
+          }));
+        };
         const best = [...d.querySelectorAll('.cell.reach')].map(c => c.dataset.key).sort((a, b) => gap(a) - gap(b))[0];
         if (best) {
           await click(`[data-key="${best}"]`);
@@ -103,9 +111,10 @@ frame.addEventListener('load', async () => {
     log(q('.foe-card h3').textContent === 'Kobold', 'selected the kobold');
     await click('[data-action="fight"][data-id="kobold"]');
     const opening = autosave().combat;
-    log(screen() === 'battle' && d.querySelectorAll('#board polygon').length === 91, 'the fight opens on the hex battlefield');
-    log(Object.keys(opening.grid.height).length === 0 && !q('.tester') && !q('[data-action="autoTurn"]') && !q('.beta-note'),
-      'a flat floor, with no tester or auto-play controls');
+    log(screen() === 'battle' && d.querySelectorAll('#board .cell').length === 91, 'the fight opens on the hex battlefield');
+    log(['flat', 'hills', 'ziggurat', 'ledges'].includes(opening.grid.terrain) && q('#screen').textContent.includes('Arena: '),
+      `a random layout is rolled and named (${opening.grid.terrain})`);
+    log(!q('.tester') && !q('[data-action="autoTurn"]') && !q('.beta-note'), 'no tester or auto-play controls');
     log(!navLink(), 'no town link mid-fight');
     await click('[data-action="speed"][data-speed="instant"]');
     const stopInCombat = new URLSearchParams(location.search).get('stop') === 'combat';

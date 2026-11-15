@@ -169,17 +169,17 @@ Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and s
 - **Promoting a feature:** when it's ready to graduate, the main game switches it on too; nothing is duplicated.
 - **Adding a feature:** add an entry to `BETA_FEATURES`, create its folder with an `index.html` like `hex_battlefield/index.html`, and check `betaOn('<id>')` where the game should differ.
 
-**The hex battlefield** started as the first beta feature and has graduated: **every arena fight in the main game is on it**, on a flat arena with pillars. The beta (`hex_battlefield/`, id `hex-battlefield`, now named **Battlefield terrain**) keeps what isn't ready: raised terrain and the tester controls.
+**The hex battlefield** started as the first beta feature and has graduated: **every arena fight in the main game is on it**, with pillars and a terrain layout rolled at random each fight. The beta (`hex_battlefield/`, id `hex-battlefield`, now named **Battlefield tester**) keeps the tester controls, and new battlefield rules (climbing next) land there first.
 
 - **Main game vs. beta:**
 
-  | | Main game | Battlefield terrain beta |
+  | | Main game | Battlefield tester beta |
   |---|---|---|
-  | Arena | `DEFAULT_FIELD`: radius 5, random pillars, flat | Whatever the tester controls last built (`settings.battle`) |
+  | Arena | `DEFAULT_FIELD`: radius 5, random pillars, random layout each fight | Random too by default; the tester controls can fix a layout, radius or pillars (`settings.battle`) |
   | Tester controls | None: no adding enemies or mercenaries, healing, rebuilding or auto-play | All of them |
   | Mercenaries | Only the crew hired on the Battlerings screen before the fight | The same, plus free ones from the tester controls |
   | Throwing | Yes, including the Throwing Axe for sale | Yes |
-  | Guide | "The battlefield" section, without terrain or high ground | Adds tester controls, terrain and high ground |
+  | Guide | "The battlefield" section, with terrain, high ground and throwing | Adds the tester controls |
 
 - **Saves:** each beta feature keeps its own saves (prefix `dimholt-<id>.save.`, for example `dimholt-hex-battlefield.save.`), so it never touches the main game.
   - On first launch it copies the main game's autosave.
@@ -198,7 +198,7 @@ Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and s
   - Show or hide the enemy threat zone.
   - Auto-play your turn or the whole fight.
 - **`js/engine/hex.js`** is the grid math: axial coordinates, distance, boards, reachable hexes and pathfinding. It's unit-tested.
-- **Tests:** `tests/index.html` covers the battlefield rules and checks the default arena is flat. `tests/smoke.html` plays the main game's fights on the board the way a player would (attack a red hex, or walk to the blue hex nearest an enemy, then end the turn); checks the floor is flat with no tester or auto-play controls and that a hired mercenary is deployed; and loads a fight saved without a grid onto the classic screen. `tests/beta-smoke.html` opens the drop-down with `?beta=true`, picks the beta, and plays it through its real screens.
+- **Tests:** `tests/index.html` covers the battlefield rules and the random layouts. `tests/smoke.html` plays the main game's fights on the board the way a player would (attack a red hex, or walk to the blue hex nearest an enemy, then end the turn); checks a layout was rolled and named, with no tester or auto-play controls and that a hired mercenary is deployed; and loads a fight saved without a grid onto the classic screen. `tests/beta-smoke.html` opens the drop-down with `?beta=true`, picks the beta, and plays it through its real screens.
 - **The old standalone lab** (`lab/`) has been retired. Its board and AI now live in the battle screen and `battlefield.js`.
 
 **Battlefield rules so far (to workshop):**
@@ -227,9 +227,12 @@ Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and s
 - **Moving vs. attacking:** does moving cost attacks (for example, no 3/2 extra attack after a full move)?
 - **Threat display:** show the threat zone inside your movement range too, so you can see which of your moves are dangerous.
 
-**Terrain (beta): generated, shown, and used in melee**
+**Terrain: rolled at random each fight, shown, and used in melee and throwing**
 
-The full design for multi-level terrain is in `todo_terrain.md`: movement points with costs for climbing and descending, stats that change them, melee height rules, and ranged range by height. So far the terrain is **generated**, **shown on the board**, testers can pick a layout, and **melee uses it** (see "Melee and height" below). Movement still ignores levels: anyone can walk up any cliff for the normal cost, and the board legend says so. Battles default to a flat arena (`DEFAULT_FIELD.terrain = 'flat'` in `rules/battlefield.js`), and the main game always uses it, until movement uses levels too.
+The full design for multi-level terrain is in `todo_terrain.md`: movement points with costs for climbing and descending, stats that change them, melee height rules, and ranged range by height. So far the terrain is **generated**, **rolled at random for every fight**, **shown on the board**, testers can pick a layout, and **melee and throwing use it** (see "Melee and height" below). Movement still ignores levels: anyone can walk up any cliff for the normal cost, and the board legend and the Guide say so.
+
+- **Random layouts:** `DEFAULT_FIELD.terrain` is `RANDOM`, so `deploy` calls `pickTerrain()` (`rules/terrain.js`), which rolls through `dice.js` by each layout's `weight`: Flat 3, Hills 3, Ziggurat 2, Ledges 2 (30/30/20/20%). The chosen id is stored as `combat.grid.terrain`, so reloading shows the same arena; the battle screen's round line names it ("Arena: Hills."). A field with no `terrain` (as tests pass) is flat, and saves from before have no `grid.terrain` and simply show no name.
+- **Balance check:** a simulation of a level-1 gladiator (all 12s, long sword, leather) playing by auto-play, 300 fights per layout: deaths against a Kobold 11% flat, 6-13% raised; against an Orc 44% flat, 22-33% raised. Raised ground doesn't make fights deadlier; if anything it gives you somewhere to stand.
 
 - **Where it lives:** `js/rules/terrain.js`. It's pure and uses only `engine/hex.js` and `engine/dice.js`, so it's unit-testable and seedable.
 - **The model:**
@@ -482,7 +485,7 @@ battlerings_of_dimholt/   (repository root)
 │   │   ├── town.js       Shops, inn, using items in town
 │   │   ├── combat.js     Round-by-round combat that returns events
 │   │   ├── battlefield.js The battlefield: deployment, movement, turn order
-│   │   ├── terrain.js    Battlefield terrain (beta): level generation
+│   │   ├── terrain.js    Battlefield terrain: random layouts, level generation
 │   │   └── ranged.js     The battlefield: range, line of sight, throwing
 │   └── ui/               Everything that touches the DOM
 │       ├── app.js        Router, autosave, click/key dispatch
@@ -493,7 +496,7 @@ battlerings_of_dimholt/   (repository root)
 └── tests/
     ├── index.html        Rule unit tests and the balance simulator
     ├── smoke.html        Scripted playthrough of the real UI
-    └── beta-smoke.html   Scripted playthrough of the battlefield terrain beta
+    └── beta-smoke.html   Scripted playthrough of the battlefield tester beta
 ```
 
 Design docs for work not built yet sit next to this file: `TODO.md` (decided ideas and open review findings), `Todo_ranged.md` (ranged attacks on the battlefield; throwing any weapon is built) and `todo_terrain.md` (multi-level terrain; generation, the board display, melee height and ranged height are built). When part of one is built, document it here and mark it built there.
@@ -532,7 +535,7 @@ python -m http.server
 Run it from the repository root, then open these pages:
 
 - http://localhost:8000/ for the game.
-- http://localhost:8000/?beta=true for the game with the beta features drop-down, and http://localhost:8000/hex_battlefield/ for the battlefield terrain beta.
+- http://localhost:8000/?beta=true for the game with the beta features drop-down, and http://localhost:8000/hex_battlefield/ for the battlefield tester beta.
 - `/tests/` for rule tests and the balance simulations.
 - `/tests/smoke.html` for the main-game UI playthrough.
 - `/tests/beta-smoke.html` for the beta playthrough.

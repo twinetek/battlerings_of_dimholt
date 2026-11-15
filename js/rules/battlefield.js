@@ -1,7 +1,7 @@
 // The hex battlefield, where every arena fight takes place. Fights keep every rule from rules/combat.js;
 // this module adds positions, movement, and the turn order on the grid.
 //
-// combat.grid = { radius, pillars: [hex keys], height: { key: level }, pos: { uid: { q, r } } }
+// combat.grid = { radius, pillars: [hex keys], height: { key: level }, terrain: layout id, pos: { uid: { q, r } } }
 // (height comes from rules/terrain.js; melee reach and the height modifiers in
 // rules/combat.js read it, movement doesn't yet)
 // combat.turn = { moved, acted, movedHexes, shot } for your turn this round
@@ -27,7 +27,7 @@ import { WEAPON_BY_ID } from '../data/equipment.js';
 import { maxHp } from './character.js';
 import { rangeProfile, throwsLeft } from './ranged.js';
 import { SHOT_MOVE } from './tables.js';
-import { generateTerrain, levelOf } from './terrain.js';
+import { generateTerrain, levelOf, pickTerrain, RANDOM } from './terrain.js';
 import {
   startCombat, setTarget, inReach, meleeReach, spawnEnemy, rangedTarget, PLAYER,
   beginRound, playerTurn, allyTurn, enemyTurn, endOfRound,
@@ -35,10 +35,10 @@ import {
 
 export const PLAYER_MOVE = 4;
 export const MERC_MOVE = 4;
-// The main game always fights here: flat, with pillars. Only the beta's
-// tester controls change it, until movement uses terrain levels (see
-// todo_terrain.md).
-export const DEFAULT_FIELD = { radius: 5, pillars: true, terrain: 'flat' };
+// The main game always fights here: pillars, and a layout rolled at random
+// each fight. Only the beta's tester controls change it. A field that names
+// no terrain is flat.
+export const DEFAULT_FIELD = { radius: 5, pillars: true, terrain: RANDOM };
 
 // First guess, tuned in playtests: lower initiative speed moves farther.
 export const moveFor = m => Math.max(2, Math.min(8, 6 - Math.round(m.speed / 2)));
@@ -131,7 +131,8 @@ export function deploy(state, field = DEFAULT_FIELD) {
   const cb = state.combat;
   const radius = field.radius ?? DEFAULT_FIELD.radius;
   // Terrain first, so pillars can keep clear of the ramps onto raised ground.
-  const { height, ramps } = generateTerrain(radius, field.terrain ?? DEFAULT_FIELD.terrain);
+  const terrain = field.terrain === RANDOM ? pickTerrain() : field.terrain ?? 'flat';
+  const { height, ramps } = generateTerrain(radius, terrain);
   const keepOpen = new Set(ramps.flatMap(k => [k, ...H.neighbors(H.fromKey(k)).map(H.key)]));
   const pillars = [];
   if (field.pillars ?? true) {
@@ -139,7 +140,7 @@ export function deploy(state, field = DEFAULT_FIELD) {
       .filter(h => H.distance(h, ORIGIN) >= 1 && Math.abs(h.r) <= radius - 2 && !keepOpen.has(H.key(h)));
     for (let i = 0; i < radius && candidates.length; i++) pillars.push(H.key(candidates.splice(die(candidates.length) - 1, 1)[0]));
   }
-  cb.grid = { radius, pillars, height, pos: {} };
+  cb.grid = { radius, pillars, height, terrain, pos: {} };
   cb.turn = newTurn();
   placeNewcomers(state);
 }

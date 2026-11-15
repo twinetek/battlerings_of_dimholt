@@ -17,7 +17,7 @@ import { specialText } from './arena.js';
 import { poisonTotal } from '../../rules/poison.js';
 import { betaOn } from '../../config.js';
 import { PLAYER_MOVE, MERC_MOVE, moveFor } from '../../rules/battlefield.js';
-import { TERRAINS, MAX_HEIGHT } from '../../rules/terrain.js';
+import { TERRAINS, MAX_HEIGHT, terrainChance } from '../../rules/terrain.js';
 import { MERCS } from '../../data/mercs.js';
 import { LOOT_BY_ID } from '../../data/loot.js';
 import { summonKind, SUMMON_CHANCE_PER_MERC, SUMMON_CHANCE_MAX } from '../../rules/combat.js';
@@ -100,14 +100,13 @@ function monsterTable() {
     'Weapon needed', 'Special', num('XP'), num('Award'), num('Fine')], rows, 'monster-table');
 }
 
-// The battlefield, plus, in the hex-battlefield beta, its tester controls,
-// terrain and high ground.
+// The battlefield, plus, in the hex-battlefield beta, its tester controls.
 function battlefieldSection() {
   const moves = MONSTERS.map(m => `${esc(m.name)} ${moveFor(m)}`).join(', ');
   const beta = betaOn('hex-battlefield');
   return `
       <h3 id="g-battlefield">The battlefield</h3>
-      <p>Every arena fight takes place on a flat, hex-shaped arena scattered with stone pillars. All the rules above still apply; the battlefield adds positions.</p>
+      <p>Every arena fight takes place on a hex-shaped arena scattered with stone pillars, and often with raised ground. All the rules above still apply; the battlefield adds positions and height.</p>
       <ul>
         <li><strong>Your turn.</strong> Move up to ${PLAYER_MOVE} hexes (the blue ones; hover to see the path) and attack one adjacent enemy
           (red), in either order. Using an item replaces your attack. Then press <strong>End turn</strong>.</li>
@@ -120,16 +119,16 @@ function battlefieldSection() {
         <li><strong>Reinforcements</strong> enter at the far edge of the arena.</li>
         <li><strong>The amber zone</strong> marks every hex an enemy could reach and strike this round.</li>
         ${beta ? `<li><strong>Tester controls</strong> on the battle screen let you add enemies or free mercenaries, heal, rebuild the arena,
-          and auto-play turns. They're for trying out scenarios and bend the rules.</li>
-        <li><strong>Terrain (being built).</strong> Arenas are flat unless you pick another <strong>Arena layout</strong> in the tester controls
-          and press <strong>Rebuild battlefield</strong>. Raised ground goes up to ${MAX_HEIGHT} levels: shaded hexes show their level, and thick edges are
-          cliffs. Moving ignores levels for now. The layouts: ${TERRAINS.filter(t => t.id !== 'flat').map(t => `${esc(t.name)} (${esc(t.description.charAt(0).toLowerCase() + t.description.slice(1, -1))})`).join('; ')}.
-          Every layout is the same on both sides, and you always start on the floor.</li>
+          and auto-play turns. They're for trying out scenarios and bend the rules. Pick an <strong>Arena layout</strong> and press
+          <strong>Rebuild battlefield</strong> to fight on a particular one.</li>` : ''}
+        <li><strong>Terrain.</strong> Each fight's arena is chosen at random: ${TERRAINS.map(t => `${esc(t.name)} ${Math.round(terrainChance(t) * 100)}%${t.id === 'flat' ? '' : ` (${esc(t.description.charAt(0).toLowerCase() + t.description.slice(1, -1))})`}`).join('; ')}.
+          The round line above the board names the arena. Raised ground goes up to ${MAX_HEIGHT} levels: shaded hexes show their level, and thick edges are
+          cliffs. Every layout is the same on both sides, and you always start on the floor. Moving ignores levels for now: you can walk up any slope or cliff.</li>
         <li><strong>High ground in melee.</strong> A blow reaches a fighter beside you only if they're at most ${MELEE_HEIGHT_REACH} level up or down
           (tall monsters reach ${TALL_HEIGHT_REACH}: ${MONSTERS.filter(m => m.move.includes('tall')).map(m => esc(m.name)).join(', ')}). Attacking up costs ${UPHILL_TO_HIT} to hit per level;
           attacking down adds ${DOWNHILL_DMG} damage per level. Standing above your attacker adds ${HIGH_GROUND_SAVE} per level to your saving throws against
           its poison, paralysis and breath; a monster above you gets the same against your venom. Hover an enemy beside you to see the numbers.
-          It all works the same for monsters and mercenaries.</li>` : ''}
+          It all works the same for monsters and mercenaries.</li>
         <li><strong>Throwing weapons.</strong> You can throw any weapon you carry, and each one you carry is one throw per fight: five daggers
           are five throws. Click an enemy that isn't beside you (a dashed red hex) to throw at it. The <strong>Throw</strong> choices under the
           battle buttons pick what you throw: <strong>Best spare</strong> throws the best weapon you aren't holding that can hurt the target,
@@ -141,9 +140,9 @@ function battlefieldSection() {
             <li><strong>Range.</strong> Up to your full-power range a throw is at full accuracy and damage. Each hex beyond costs 1 to hit and an eighth
               of the damage, down to half at the most you can throw: ${FALLOFF_HEXES} hexes past full power. Strength adds range
               (+1 at 16-17, +2 at 18) and its damage bonus; Dexterity adds to hit (+1 at 16, +2 at 17, +3 at 18). The Weaponsmith shows your numbers.</li>
-            ${beta ? `<li><strong>Height.</strong> Throwing down adds 1 hex of full-power range per level (up to ${HEIGHT_AIM_MAX}); throwing up takes 1 away.</li>` : ''}
-            <li><strong>Line of sight.</strong> Pillars${beta ? ', and ground higher than the line of the throw,' : ''} block it. Each fighter in the way costs ${COVER_PENALTY} to hit${beta ? `,
-              unless you're throwing over their heads from above` : ''}.</li>
+            <li><strong>Height.</strong> Throwing down adds 1 hex of full-power range per level (up to ${HEIGHT_AIM_MAX}); throwing up takes 1 away.</li>
+            <li><strong>Line of sight.</strong> Pillars, and ground higher than the line of the throw, block it. Each fighter in the way costs ${COVER_PENALTY} to hit,
+              unless you're throwing over their heads from above.</li>
             <li><strong>Moving.</strong> Each hex you move before throwing costs 1 to hit (half that from Dex ${STEADY_DEX}). After a throw you can still
               move ${SHOT_MOVE} hex.</li>
             <li>Hover an enemy to see your chance, damage and what changes them.</li>

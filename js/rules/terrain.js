@@ -1,8 +1,9 @@
-// Battlefield terrain (beta): the level of every hex, from 0 (the arena
-// floor) to MAX_HEIGHT. See todo_terrain.md for the full design and DESIGN.md
-// ("Terrain") for what's built. This module only generates the levels;
-// nothing reads them for movement or combat yet. The Guide lists TERRAINS
-// for players, so keep the descriptions in plain words.
+// Battlefield terrain: the level of every hex, from 0 (the arena floor) to
+// MAX_HEIGHT. Every fight rolls its layout at random (pickTerrain, weighted
+// by TERRAINS[].weight). See todo_terrain.md for the full design and
+// DESIGN.md ("Terrain") for what's built: melee reach and throwing use the
+// levels, movement doesn't yet. The Guide lists TERRAINS for players, so keep
+// the names and descriptions in plain words.
 //
 // combat.grid.height = { "q,r": level }. Hexes that aren't listed are level
 // 0, so flat boards and older saves need no height map at all.
@@ -18,13 +19,28 @@ export const MAX_HEIGHT = 3;
 export const MESA_CHANCE = 0.25; // a hill pair gets a flat top and cliff sides
 export const LEDGE_LEVEL = 2;
 
+// weight: how often pickTerrain chooses it, out of the total.
 export const TERRAINS = [
-  { id: 'flat',     name: 'Flat',     description: 'An even floor.' },
-  { id: 'hills',    name: 'Hills',    description: 'One to three hills, some with sheer sides.' },
-  { id: 'ziggurat', name: 'Ziggurat', description: 'A stepped pyramid in the middle, levels 3, 2, 1.' },
-  { id: 'ledges',   name: 'Ledges',   description: 'A raised band across the middle, with a ramp up from each side.' },
+  { id: 'flat',     name: 'Flat',     weight: 3, description: 'An even floor.' },
+  { id: 'hills',    name: 'Hills',    weight: 3, description: 'One to three hills, some with sheer sides.' },
+  { id: 'ziggurat', name: 'Ziggurat', weight: 2, description: 'A stepped pyramid in the middle, levels 3, 2, 1.' },
+  { id: 'ledges',   name: 'Ledges',   weight: 2, description: 'A raised band across the middle, with a ramp up from each side.' },
 ];
 export const TERRAIN_BY_ID = Object.fromEntries(TERRAINS.map(t => [t.id, t]));
+
+// A field's terrain can be a layout id or RANDOM: roll one per fight.
+export const RANDOM = 'random';
+const TOTAL_WEIGHT = TERRAINS.reduce((sum, t) => sum + t.weight, 0);
+export const terrainChance = t => t.weight / TOTAL_WEIGHT;
+
+export function pickTerrain() {
+  let n = die(TOTAL_WEIGHT);
+  for (const t of TERRAINS) {
+    n -= t.weight;
+    if (n <= 0) return t.id;
+  }
+  return 'flat';
+}
 
 const ORIGIN = { q: 0, r: 0 };
 export const mirror = h => ({ q: -h.q, r: -h.r });

@@ -61,7 +61,7 @@ frame.addEventListener('load', async () => {
   const screen = () => q('#screen').dataset.screen;
   const st = () => JSON.parse(localStorage.getItem('dimholt-hex-battlefield.save.auto')).state;
   try {
-    log(w.location.pathname.endsWith('/hex_battlefield/') && !!q('.beta-badge') && q('.kicker').textContent.includes('Battlefield terrain'), 'opening it lands on the hex battlefield beta');
+    log(w.location.pathname.endsWith('/hex_battlefield/') && !!q('.beta-badge') && q('.kicker').textContent.includes('Battlefield tester'), 'opening it lands on the hex battlefield beta');
     log(!!q('[data-action="continue"]') && st().character.name === 'Smokey', 'main game was copied into the beta');
     log(!!q('[data-action="copyMain"]') && [...q('#beta-select').options].some(o => o.value === '../?beta=true'), 'copy control, and the drop-down leads back to the main game');
     await click('[data-action="continue"]');
@@ -81,13 +81,15 @@ frame.addEventListener('load', async () => {
     await click('[data-to="arena"]');
     await click('tr[data-id="kobold"]');
     await click('[data-action="fight"][data-id="kobold"]');
-    log(screen() === 'battle' && d.querySelectorAll('#board polygon').length === 91, 'arena fight opens the hex battlefield');
+    log(screen() === 'battle' && d.querySelectorAll('#board .cell').length === 91, 'arena fight opens the hex battlefield');
     log(!!q('.tester') && q('#combat-log').textContent.includes('Round 1'), 'tester controls and log are shown');
-    // Pillars are random and can block a throw; rebuild the arena without them so this check is repeatable.
+    // Pillars and terrain are random and can block a throw; rebuild the arena flat and without pillars so this check is repeatable.
+    log(q('#tester-terrain').value === 'random' && !!st().combat.grid.terrain, 'the beta also rolls a random layout by default');
     q('#tester-pillars').checked = false;
+    q('#tester-terrain').value = 'flat';
     await click('[data-action="rebuild"]');
     await wait(300);
-    log(st().combat.grid.pillars.length === 0, 'tester can rebuild the arena without pillars');
+    log(st().combat.grid.pillars.length === 0 && st().combat.grid.terrain === 'flat', 'tester can rebuild the arena flat and without pillars');
     // Walk to the blue hex nearest the kobold.
     const foe = st().combat.grid.pos.e1;
     const dist = k => { const [kq, kr] = k.split(',').map(Number); return (Math.abs(kq - foe.q) + Math.abs(kr - foe.r) + Math.abs(kq + kr - foe.q - foe.r)) / 2; };

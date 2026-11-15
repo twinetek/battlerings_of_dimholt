@@ -11,7 +11,7 @@ import {
   DEFAULT_FIELD, boardHexes, isPillar, livingUnits, occupant, reachableFor, threatZone, moveOf,
   moveYou, actYou, endTurn, autoYou, setThrowPick, testerAddEnemy, testerAddMerc, testerHeal, testerRebuild,
 } from '../../rules/battlefield.js';
-import { TERRAINS, levelOf, cliffEdges } from '../../rules/terrain.js';
+import { TERRAINS, TERRAIN_BY_ID, RANDOM, levelOf, cliffEdges } from '../../rules/terrain.js';
 import { rangeProfile, throwsLeft, throwGroups } from '../../rules/ranged.js';
 import * as H from '../../engine/hex.js';
 import { COMBAT_LOG_LIMIT, thac0 } from '../../rules/tables.js';
@@ -227,7 +227,8 @@ function testerPanel(s) {
         ${button('Add', 'addMerc', {}, { cls: 'small', disabled: over || busy })}</span></label>
       <div class="row tight">${button('Heal me to full', 'heal', {}, { cls: 'small', disabled: over || busy })}</div>
       <label class="field small">Arena layout
-        <select id="tester-terrain">${TERRAINS.map(t => `<option value="${t.id}"${t.id === (f.terrain ?? DEFAULT_FIELD.terrain) ? ' selected' : ''} title="${esc(t.description)}">${esc(t.name)}</option>`).join('')}</select></label>
+        <select id="tester-terrain">${[{ id: RANDOM, name: 'Random each battle', description: 'A new layout every fight, as in the main game.' }, ...TERRAINS]
+          .map(t => `<option value="${t.id}"${t.id === (f.terrain ?? DEFAULT_FIELD.terrain) ? ' selected' : ''} title="${esc(t.description)}">${esc(t.name)}</option>`).join('')}</select></label>
       <label class="field small">Arena radius <input id="tester-radius" type="number" min="3" max="9" value="${f.radius}"></label>
       <label class="small"><input id="tester-pillars" type="checkbox"${f.pillars ? ' checked' : ''}> Pillars</label>
       <div class="row tight">${button('Rebuild battlefield', 'rebuild', {}, { cls: 'small', disabled: over || busy })}</div>
@@ -298,7 +299,7 @@ export function render(ctx, params) {
   const venom = coatingTag(s, weaponEntry(c));
   return `
     <section class="battle">
-      <p class="${betaOn('hex-battlefield') ? 'beta-note ' : 'muted '}small">${betaOn('hex-battlefield') ? 'Beta: the hex battlefield. ' : ''}Round ${cb.round}.${venom ? ` Blade venom:${venom}` : ''}</p>
+      <p class="${betaOn('hex-battlefield') ? 'beta-note ' : 'muted '}small">${betaOn('hex-battlefield') ? 'Beta: the hex battlefield. ' : ''}Round ${cb.round}.${TERRAIN_BY_ID[cb.grid.terrain] ? ` Arena: ${esc(TERRAIN_BY_ID[cb.grid.terrain].name)}.` : ''}${venom ? ` Blade venom:${venom}` : ''}</p>
       <div class="battle-grid">
         <div>
           <div class="board-wrap">${boardSvg(s, params)}</div>

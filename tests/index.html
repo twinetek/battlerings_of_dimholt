@@ -924,10 +924,29 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   const classic = playRound(st, { type: 'fight' }).find(e => e.t === 'attack' && e.by === 'player');
   check('in a classic fight you strike in melee', classic && !classic.ranged && !st.combat.thrown?.length);
 
-  // Main-game fights are on the flat battlefield.
+  // Main-game fights roll their terrain at random.
+  setRng(seeded(7));
+  const tally = {};
+  for (let i = 0; i < 1000; i++) { const id = Terrain.pickTerrain(); tally[id] = (tally[id] ?? 0) + 1; }
+  check('random terrain: every layout comes up, close to its weight (flat and hills 30%, ziggurat and ledges 20%)',
+    Terrain.TERRAINS.every(t => Math.abs(tally[t.id] / 1000 - Terrain.terrainChance(t)) < 0.05));
+  const seen = new Set();
+  let fair = true;
+  for (let i = 0; i < 40; i++) {
+    st = newGameState(createCharacter('Main', { str: 12, int: 10, wis: 10, dex: 12, con: 12, cha: 10 }));
+    BF.startBattle(st, 'kobold', {}, BF.DEFAULT_FIELD);
+    const g = st.combat.grid;
+    seen.add(g.terrain);
+    const deployedLow = Object.values(g.pos).every(h => Terrain.levelOf(g, h) === 0);
+    if (!Terrain.TERRAIN_BY_ID[g.terrain] || !deployedLow || !g.pillars.length) fair = false;
+    if (g.terrain === 'flat' && Object.keys(g.height).length) fair = false;
+  }
+  check('main-game battles: a layout is rolled each fight and recorded, with pillars, everyone deploying on the floor',
+    fair && seen.size === Terrain.TERRAINS.length);
   st = newGameState(createCharacter('Main', { str: 12, int: 10, wis: 10, dex: 12, con: 12, cha: 10 }));
-  BF.startBattle(st, 'kobold', {}, BF.DEFAULT_FIELD);
-  check('the default battlefield is flat, with pillars', Object.keys(st.combat.grid.height).length === 0 && st.combat.grid.pillars.length > 0);
+  BF.startBattle(st, 'kobold', {}, { radius: 5, pillars: false });
+  check('a field that names no terrain is flat', st.combat.grid.terrain === 'flat' && !Object.keys(st.combat.grid.height).length);
+  setRng(() => 0.5);
 
   // The log.
   check('the log describes a throw', describe({ t: 'attack', by: 'player', ranged: true, hit: true, weapon: 'Throwing Axe', target: 'Orc', dmg: 3, distance: 5, dmgMult: 0.75 }).text
