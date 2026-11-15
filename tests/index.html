@@ -27,13 +27,13 @@ import * as BF from '../js/rules/battlefield.js';
 import * as Terrain from '../js/rules/terrain.js';
 import { heightMods, inReach, enemyTurn } from '../js/rules/combat.js';
 import * as Ranged from '../js/rules/ranged.js';
-import { dexMissile, strRange, CLIMB_COST, DROP_COST } from '../js/rules/tables.js';
+import { dexMissile, strRange, saveTarget, CLIMB_COST, DROP_COST } from '../js/rules/tables.js';
 import { WEAPONS, WEAPON_BY_ID, UNARMED } from '../js/data/equipment.js';
 import { describe } from '../js/ui/presenter.js';
 import { glandPotency, coatingStrength, applyVenom, sellLoot, rollLoot, endArenaVisit, advanceClock, liveCoatings } from '../js/rules/loot.js';
 import { readSlot, deleteSlot } from '../js/engine/save.js';
 import { MONSTERS } from '../js/data/monsters.js';
-import { createCharacter, maxHp, armorClass, gainXp, drainLevel, spendStatPoints, readTome } from '../js/rules/character.js';
+import { createCharacter, maxHp, armorClass, gainXp, drainLevel, spendStatPoints, readTome, moveStats } from '../js/rules/character.js';
 import { buyWeapon, buyArmor, buyItem, sellWeapon, stayAtInn, useItemInTown } from '../js/rules/town.js';
 import { startCombat, playRound } from '../js/rules/combat.js';
 import { newGameState, SAVE_VERSION } from '../js/engine/state.js';
@@ -747,10 +747,10 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   st = field();
   raise(st, { q: 0, r: 3 }, 2);
   const wall = BF.moveYou(st, { q: 0, r: 3 });
-  check('a cliff of 2 levels can\'t be climbed, and moving says why', !wall.ok && /cliff/.test(wall.msg) && !BF.reachableFor(st, 'you').has('0,3'));
+  check('a cliff of 2 levels can\'t be climbed, and moving says why', !wall.ok && /too high/.test(wall.msg) && !BF.reachableFor(st, 'you').has('0,3'));
   st = field();
   raise(st, ME, 2);
-  check('...or dropped off', !BF.reachableFor(st, 'you').has('0,3') && !BF.reachableFor(st, 'you').has('1,3'));
+  check('...and dropping 2 levels is a jump for you (Dex 12 drops 1 safely)', BF.reachableFor(st, 'you').get('0,3')?.jump === 1);
 
   st = field();
   raise(st, { q: 0, r: 3 }, 1);
@@ -783,6 +783,89 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   st = field();
   check('on a flat floor a step costs 1, so you move your full ' + BF.PLAYER_MOVE + ' hexes',
     Math.max(...[...BF.reachableFor(st, 'you').values()].map(v => v.cost)) === BF.PLAYER_MOVE);
+
+  // Your stats and armor (todo_terrain.md step 2). The design's three gladiators:
+  const glad = (str, dex, armor) => {
+    const c = createCharacter('Mover', { str, int: 10, wis: 10, dex, con: 12, cha: 10 });
+    c.gold = 100000;
+    if (armor) buyArmor(c, armor);
+    return moveStats(c);
+  };
+  const g1 = glad(10, 10, 'chain'), g2 = glad(16, 17, 'chain'), g3 = glad(18, 10, 'plate');
+  check('Str 10, Dex 10, chain: 3 movement (bulk 1, carries 0), climbing +2 a level',
+    g1.mp === 3 && g1.slowedBy === 1 && g1.climbCost === 2 && g1.climbMax === 1);
+  check('Str 16, Dex 17, chain: 5 movement (Dex +1, carries the chain), climbing +1, going down free, 2 levels safely',
+    g2.mp === 5 && g2.slowedBy === 0 && g2.climbCost === 1 && g2.dropCost === 0 && g2.safeDrop === 2);
+  check('Str 18, Dex 10, plate: 4 movement (carries the plate), climbing +1 and 2 levels a step',
+    g3.mp === 4 && g3.slowedBy === 0 && g3.climbCost === 1 && g3.climbMax === 2);
+  check('movement never drops below 2: Str 3, Dex 3 in plate', glad(3, 3, 'plate').mp === 2 && glad(3, 3, 'plate').climbCost === 3 && glad(3, 3).dropCost === 2);
+  check('Tomes keep paying: Str 23 climbs free and 3 levels a step; Dex 23 moves +3',
+    glad(23, 10).climbCost === 0 && glad(23, 10).climbMax === 3 && glad(10, 23).mp === BF.PLAYER_MOVE + 3);
+  check('magic armor is no lighter', glad(12, 12, 'full-plate-3').slowedBy === 2);
+
+  // On the board.
+  const mover = (stats, armor) => {
+    const st = field();
+    Object.assign(st.character.stats, stats);
+    if (armor) { st.character.gold = 100000; buyArmor(st.character, armor); }
+    return st;
+  };
+  st = mover({ str: 18 });
+  raise(st, { q: 0, r: 3 }, 2);
+  check('with Str 18 you climb a 2-level cliff in one step, for 1 + 1 × 2', BF.reachableFor(st, 'you').get('0,3')?.cost === 3);
+  st = mover({ dex: 17 });
+  st.combat.grid.pos.you = { q: 0, r: 3 };
+  raise(st, { q: 0, r: 3 }, 2);
+  check('with Dex 17 a 2-level drop is a safe step that costs 1', BF.reachableFor(st, 'you').get('0,4')?.cost === 1 && !BF.reachableFor(st, 'you').get('0,4').jump);
+  st = mover({ dex: 10 }, 'plate');
+  check('in plate without the Strength for it you have 2 fewer points', BF.moveOf(st, 'you') === BF.PLAYER_MOVE - 2
+    && Math.max(...[...BF.reachableFor(st, 'you').values()].map(v => v.cost)) === BF.PLAYER_MOVE - 2);
+  check('mercenaries and monsters keep the base numbers', BF.moveStatsOf(st, 'e1').climbCost === CLIMB_COST && BF.moveStatsOf(st, 'e1').safeDrop === 1);
+
+  // Jumping: a column 3 levels high, flat floor all round. Dex 12 drops 1 safely, so it's a 2-level jump.
+  const COLUMN = { q: 0, r: 2 };
+  const onColumn = (stats = {}) => {
+    const st = mover(stats);
+    st.combat.grid.pos.you = COLUMN;
+    raise(st, COLUMN, 3);
+    st.character.hp = 50;
+    return st;
+  };
+  st = onColumn();
+  reach = BF.reachableFor(st, 'you');
+  check('from a column you can jump down 2 levels past your safe drop (an orange hex)', reach.get('0,3')?.jump === 2 && reach.get('0,3').cost === 4);
+  check('...and a jump ends the move: nothing beyond the landing', !reach.has('0,4'));
+  check('the board shows the fall: 2-12, less Con', BF.fallRange(st.character, 2).join() === '2,12');
+  setRng(() => 0.5); // d6 rolls 4, d20 rolls 11
+  const fail11 = 11 < saveTarget('paralysis', 1);
+  let jumped = BF.moveYou(st, { q: 0, r: 3 });
+  let fall = jumped.events.find(e => e.t === 'fall');
+  check('jumping 2 levels past your safe drop: 2d6 (8), a failed save, and you take it',
+    fail11 && jumped.ok && fall && fall.dmg === 8 && !fall.saved && st.character.hp === 42 && fall.hp.hp === 42);
+  st = onColumn({ con: 16 });
+  fall = BF.moveYou(st, { q: 0, r: 3 }).events.find(e => e.t === 'fall');
+  check('Con 16 takes 2 off the fall', fall.dmg === 6);
+  st = onColumn();
+  st.character.hp = 3;
+  fall = BF.moveYou(st, { q: 0, r: 3 }).events.find(e => e.t === 'fall');
+  check('a fall never takes you below 1 hp', st.character.hp === 1 && fall.dmg === 2 && !st.combat.over);
+  setRng(() => 0.99); // d6 rolls 6, d20 rolls 20
+  st = onColumn();
+  fall = BF.moveYou(st, { q: 0, r: 3 }).events.find(e => e.t === 'fall');
+  check('a saving throw halves it: 12 becomes 6', fall.saved && fall.dmg === 6);
+  setRng(() => 0.5);
+  check('the log describes the fall', describe({ t: 'fall', levels: 2, dmg: 6, saved: true }).text
+    === 'You jump down and land hard: 6 damage, halved as you roll with the fall.');
+  st = onColumn({ dex: 17 });
+  check('with Dex 17 the same drop is only a 1-level jump', BF.reachableFor(st, 'you').get('0,3')?.jump === 1);
+  st = onColumn();
+  raise(st, COLUMN, 5); // higher than any layout, to test the limit
+  const tooDeep = BF.moveYou(st, { q: 0, r: 3 });
+  check('more than 2 levels past your safe drop is too far to jump', !tooDeep.ok && /too far down/.test(tooDeep.msg));
+  st = onColumn();
+  st.combat.enemies[0].hp = st.combat.enemies[0].maxHp = 999;
+  const autoJump = BF.autoYou(st).events;
+  check('auto-play never jumps for you', !autoJump.some(e => e.t === 'fall') && Hex.equal(st.combat.grid.pos.you, COLUMN));
 
   // No fight can lock up: pillars on the Ledges band once sealed the way between its two ramps.
   const band = {};

@@ -8,7 +8,8 @@ import {
   thac0, attacksLabel, saveTarget, STARTING_GOLD, INN_PRICE, GLAND_DECAY_TICKS, MAX_COATINGS,
   NATURAL_MAX, TOME_MAX, STAT_POINT_EVERY, ITEM_SPEED,
   MELEE_HEIGHT_REACH, TALL_HEIGHT_REACH, UPHILL_TO_HIT, DOWNHILL_DMG, HIGH_GROUND_SAVE,
-  FALLOFF_HEXES, HEIGHT_AIM_MAX, COVER_PENALTY, STEADY_DEX, CLIMB_COST, DROP_COST,
+  FALLOFF_HEXES, HEIGHT_AIM_MAX, COVER_PENALTY, STEADY_DEX, CLIMB_COST, CLIMB_MAX, DROP_COST,
+  BASE_MOVE, MIN_MOVE, JUMP_EXTRA, FALL_DIE, dexMove, dexDrop, strClimb, strCarry,
 } from '../../rules/tables.js';
 import { earnsStatPoint } from '../../rules/stats.js';
 import { rangeText, span } from '../../engine/dice.js';
@@ -16,7 +17,7 @@ import { button, esc, gp, signed, d20Chance } from '../format.js';
 import { specialText } from './arena.js';
 import { poisonTotal } from '../../rules/poison.js';
 import { betaOn } from '../../config.js';
-import { PLAYER_MOVE, MERC_MOVE, moveFor } from '../../rules/battlefield.js';
+import { MERC_MOVE, moveFor } from '../../rules/battlefield.js';
 import { TERRAINS, MAX_HEIGHT, terrainChance } from '../../rules/terrain.js';
 import { MERCS } from '../../data/mercs.js';
 import { LOOT_BY_ID } from '../../data/loot.js';
@@ -113,7 +114,7 @@ function battlefieldSection() {
         <li><strong>Reach.</strong> Weapons reach only the six hexes around you. Wands and the Potion of Fiery Breath reach your target
           anywhere on the field. Dragon breath still hits everyone on your side.</li>
         <li><strong>Targets.</strong> Click any enemy to make it your target (🎯). Your mercenaries move toward it and attack it when they can.</li>
-        <li><strong>Everyone else.</strong> After your turn, each mercenary moves up to ${MERC_MOVE} hexes and attacks; then each enemy moves
+        <li><strong>Everyone else.</strong> After your turn, each mercenary moves (${MERC_MOVE} points) and attacks; then each enemy moves
           toward the nearest fighter on your side and attacks whoever is next to it. Pillars (🪨) and other fighters block movement.</li>
         <li><strong>Monster movement points</strong> per round: ${moves}.</li>
         <li><strong>Reinforcements</strong> enter at the far edge of the arena.</li>
@@ -124,10 +125,17 @@ function battlefieldSection() {
         <li><strong>Terrain.</strong> Each fight's arena is chosen at random: ${TERRAINS.map(t => `${esc(t.name)} ${Math.round(terrainChance(t) * 100)}%${t.id === 'flat' ? '' : ` (${esc(t.description.charAt(0).toLowerCase() + t.description.slice(1, -1))})`}`).join('; ')}.
           The round line above the board names the arena. Raised ground goes up to ${MAX_HEIGHT} levels: shaded hexes show their level, and thick edges are
           cliffs. Every layout is the same on both sides, and you always start on the floor.</li>
-        <li><strong>Movement.</strong> Each round you have ${PLAYER_MOVE} movement points; your mercenaries have ${MERC_MOVE}, and monsters the amounts below.
-          A step on the level costs 1, a step up a level costs ${1 + CLIMB_COST}, and a step down a level costs ${1 + DROP_COST}. A cliff (2 or more levels)
-          can't be climbed or dropped, so go around or find a slope or ramp. Your first step is always allowed even if it costs more than you have,
-          but it ends your move. Everyone follows the same costs, for now: Strength, Dexterity, armor, climbing spiders and flying dragons will change them later.</li>
+        <li><strong>Movement.</strong> Each round you have movement points to spend: ${BASE_MOVE}, plus Dexterity's bonus, minus any armor bulk
+          your Strength can't carry (never below ${MIN_MOVE}). A step on the level costs 1; each level up or down costs extra, by your Strength and Dexterity.
+          You can climb only so many levels in one step, so a higher cliff is a wall: go around, or find a slope or ramp. Your first step is always allowed
+          even if it costs more than you have, but it ends your move. The Character screen shows your numbers.
+          <ul>
+            <li><strong>Jumping.</strong> You can jump down up to ${JUMP_EXTRA} levels farther than you can step safely (an orange hex). You take 1d${FALL_DIE} per extra
+              level, less your Constitution hit-point bonus, halved by a saving throw against paralysis. A fall never takes you below 1 hp. A jump ends your move.</li>
+            <li><strong>Mercenaries and monsters</strong> have ${MERC_MOVE} points and the amounts below, pay ${1 + CLIMB_COST} to step up and ${1 + DROP_COST} to step down,
+              climb or drop only ${CLIMB_MAX} level a step, and never jump, for now. Climbing spiders, flying dragons and armored knights will change that later.</li>
+          </ul>
+          ${movementTable()}</li>
         <li><strong>High ground in melee.</strong> A blow reaches a fighter beside you only if they're at most ${MELEE_HEIGHT_REACH} level up or down
           (tall monsters reach ${TALL_HEIGHT_REACH}: ${MONSTERS.filter(m => m.move.includes('tall')).map(m => esc(m.name)).join(', ')}). Attacking up costs ${UPHILL_TO_HIT} to hit per level;
           attacking down adds ${DOWNHILL_DMG} damage per level. Standing above your attacker adds ${HIGH_GROUND_SAVE} per level to your saving throws against
@@ -258,8 +266,28 @@ function weaponTable() {
 }
 
 function armorTable() {
-  return table(['Armor', num('AC adjust'), num('Your AC with it*'), num('Cost')],
-    ARMOR.map(a => tr([esc(a.name), n(signed(a.ac)), n(10 + a.ac), n(gp(a.cost))])));
+  return table(['Armor', num('AC adjust'), num('Your AC with it*'), num('Bulk'), num('Cost')],
+    ARMOR.map(a => tr([esc(a.name), n(signed(a.ac)), n(10 + a.ac), n(a.bulk || ''), n(gp(a.cost))])));
+}
+
+// How Strength and Dexterity change movement, one row per run of scores that
+// share the same numbers.
+function movementTable() {
+  const cells = v => {
+    const { climbCost, climbMax } = strClimb(v);
+    const { dropCost, safeDrop } = dexDrop(v);
+    return [signed(dexMove(v)), `+${dropCost}`, `${safeDrop}`, `+${climbCost}`, `${climbMax}`, `${strCarry(v)}`];
+  };
+  const rows = [];
+  for (let v = 3; v <= TOME_MAX; v++) {
+    const c = cells(v);
+    const last = rows.at(-1);
+    if (last && last.cells.join() === c.join()) last.to = v;
+    else rows.push({ from: v, to: v, cells: c });
+  }
+  return table(['Score', num('Dex: movement'), num('Dex: per level down'), num('Dex: safe drop'),
+    num('Str: per level up'), num('Str: climb a step'), num('Str: armor bulk carried')],
+  rows.map(r => tr([r.from === r.to ? `${r.from}` : `${r.from}-${r.to}`, ...r.cells.map(n)])), 'compact-rows');
 }
 
 function itemTable() {

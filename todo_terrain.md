@@ -1,6 +1,6 @@
 # Terrain and elevation on the hex battlefield: design
 
-Status: partly built. Terrain generation, a random layout for every fight (in the main game too), the board's level shading and cliff edges, the tester layout picker, the melee height rules (reach, uphill and downhill, high-ground saves, the `tall` reach), ranged range by height with line of sight in three dimensions (built with throwing weapons), and **movement costs** (build order step 1: movement points, climb and drop costs and limits with the base numbers for everyone, the first-step rule, cheapest-path search, and the check that every arena can be crossed) are already built and documented in `DESIGN.md` ("Terrain"); this file covers the rest. Build it in the beta (`hex_battlefield/`) first. It builds on the ranged-attack design in `Todo_ranged.md`. Move the settled parts into `DESIGN.md` once they're built.
+Status: partly built. Terrain generation, a random layout for every fight (in the main game too), the board's level shading and cliff edges, the tester layout picker, the melee height rules (reach, uphill and downhill, high-ground saves, the `tall` reach), ranged range by height with line of sight in three dimensions (built with throwing weapons), **movement costs** (build order step 1: movement points, climb and drop costs and limits, the first-step rule, cheapest-path search, and the check that every arena can be crossed), and **your stats and armor in movement** (step 2: Strength, Dexterity, armor bulk, jumping and falling damage, the Character screen) are already built and documented in `DESIGN.md` ("Terrain"); this file covers the rest. Build it in the beta (`hex_battlefield/`) first. It builds on the ranged-attack design in `Todo_ranged.md`. Move the settled parts into `DESIGN.md` once they're built.
 
 ## Goals
 
@@ -19,61 +19,7 @@ Status: partly built. Terrain generation, a random layout for every fight (in th
 
 ## Movement
 
-Movement points, step costs, `climbMax`/`safeDrop`, the first-step rule and the cheapest-path search are built with the base numbers for everyone (`DESIGN.md`, "Movement across levels"). Still to build:
-
-- **Jumping:** step down farther than `safeDrop`, up to `safeDrop + 2`, taking falling damage (see below). Today such a drop is refused like a climb. `crossable` in `rules/battlefield.js` should keep using the base rules without jumps, so arenas stay crossable for everyone.
-- **The numbers below** replacing the base ones per fighter, through `moveStatsOf(state, uid)`.
-
-### Base numbers and what stats change
-
-| | Base | Changed by |
-|---|---|---|
-| **MP on the flat** | 4 | Dexterity, armor bulk (offset by Strength) |
-| **`climbCost`** (extra MP per level up) | 2 | Strength |
-| **`climbMax`** (levels per step) | 1 | Strength |
-| **`dropCost`** (extra MP per level down) | 1 | Dexterity |
-| **`safeDrop`** (levels per step without harm) | 1 | Dexterity |
-| **Fall damage** | 1d6 per level beyond `safeDrop` | Constitution |
-
-**Dexterity: speed on the flat and agility going down.**
-
-| Dex | 3-5 | 6-15 | 16 | 17-18 | 19-22 | 23-25 |
-|---|---|---|---|---|---|---|
-| MP | −1 | +0 | +0 | +1 | +2 | +3 |
-| `dropCost` | 2 | 1 | 0 | 0 | 0 | 0 |
-| `safeDrop` | 1 | 1 | 2 | 2 | 3 | 3 |
-
-**Strength: climbing, and carrying armor.**
-
-| Str | 3-8 | 9-15 | 16-17 | 18 | 19-22 | 23-25 |
-|---|---|---|---|---|---|---|
-| `climbCost` | 3 | 2 | 1 | 1 | 1 | 0 |
-| `climbMax` | 1 | 1 | 1 | 2 | 2 | 3 |
-| Armor bulk carried free | 0 | 0 | 1 | 2 | 2 | 3 |
-
-**Armor bulk** is a new field on armor. It's how Strength affects flat movement: heavy armor slows you down unless you're strong enough to carry it.
-
-| Armor | Bulk |
-|---|---|
-| None, Padded, Leather, Studded | 0 |
-| Scale, Chain | 1 |
-| Splint, Plate, Field Plate, Full Plate (any +) | 2 |
-
-```
-MP = 4 + dexMove(dex) - max(0, bulk - strCarry(str))    // never below 2
-```
-
-Magic armor is no lighter. That's a deliberate trade-off against its better AC; see the open questions.
-
-**Constitution: surviving falls.** A jump beyond `safeDrop` deals 1d6 per extra level. Subtract the character's `conHp(con)` bonus (the hit-point table) once from the total; a negative bonus adds damage. A successful saving throw against paralysis halves the damage (it's the closest AD&D save to "land well"). A fall can't kill you; it stops at 1 hp, like poison sweating out at the end of a fight.
-
-**Example.** Climbing two slopes (each 1 level) and walking 1 hex on top:
-
-| Gladiator | MP | Climb cost | Path cost | Makes it? |
-|---|---|---|---|---|
-| Str 10, Dex 10, chain mail | 4 − 1 (bulk 1, carries 0) = **3** | 2 | 3 + 3 + 1 = 7 | No. Takes 3 turns: one per slope, then the last hex. |
-| Str 16, Dex 17, chain mail | 4 + 1 − 0 (carries 1) = **5** | 1 | 2 + 2 + 1 = 5 | Yes, exactly. |
-| Str 18, Dex 10, plate | 4 − 0 (carries 2) = **4** | 1 | 2 + 2 + 1 = 5 | No; but with `climbMax` 2 they can take a 2-level cliff directly instead (1 + 2 = 3 MP). |
+Built (`DESIGN.md`, "Movement across levels"): movement points, step costs, `climbMax`/`safeDrop`, the first-step rule, the cheapest-path search, your Strength, Dexterity and armor bulk (`moveStats`), and jumping with falling damage for you. Still to build here: mercenary and monster numbers (traits, below), and jumping for them (with the AI rule under "Monster AI").
 
 ### Monster and mercenary traits
 
@@ -92,7 +38,7 @@ Mercenaries use fixed numbers like everything else about them. Militia, Sellswor
 ## The board
 
 - **Climbable edges:** edges you can climb, given your own `climbMax`, are drawn thinner than cliffs (cliffs are already drawn).
-- **Move preview:** hovering a hex shows the path *and its MP cost* ("5 of 5 MP"). A jump hex shows its fall damage range ("jump: 1-6 damage").
+- **Move preview:** hovering a hex shows the path *and its MP cost* ("5 of 5 MP"). (Jump hexes are built: orange, with the fall damage range in their tooltip.)
 - **Threat zone:** the amber zone already covers "hexes an enemy can reach and strike from". It already respects melee height reach; it switches to each enemy's MP.
 - **Tester paint tool:** a "Paint height" toggle: click a hex to raise it 1, Shift-click to lower it. That's for setting up scenarios, like the other tester controls.
 
@@ -106,24 +52,15 @@ Mercenaries use fixed numbers like everything else about them. Militia, Sellswor
 
 ## Where it goes in the code
 
-- **`rules/tables.js`:**
-  - Tables: `dexMove`, `dexDrop`, `strClimb`, `strCarry`.
-- **`data/equipment.js`:** `bulk` on each armor.
 - **`data/monsters.js`:** add `'climber'`, `'flier'` and `'nimble'` to the `move` field (it exists, with `'tall'`).
 - **`data/mercs.js`:** per-tier MP and climb numbers.
-- **`rules/character.js`:** `moveStats(c)` returns `{ mp, climbCost, climbMax, dropCost, safeDrop }` from stats and armor. The Character screen shows it.
-- **`rules/battlefield.js`:** `moveStatsOf` (built, base numbers) reads stats, armor, traits and mercenary tiers; `stepCostFor` (built) allows jumps; `fallDamage`.
-- **`rules/combat.js`:** falls are new `fall` events with `dmg` and `hp`.
-- **`ui/presenter.js`:** lines for falls.
-- **`ui/screens/battle.js`:** climbable edges, MP previews and the paint tool.
+- **`rules/battlefield.js`:** `moveStatsOf` (built: your stats, base numbers for everyone else) reads traits and mercenary tiers; monsters and mercenaries get jumps (`stepCostFor` already takes a `jumps` flag) with the AI rule.
+- **`ui/screens/battle.js`:** climbable edges, MP previews and the paint tool. (Falls are built: `fall` events, their log line and orange jump hexes.)
 - **Save:** the new fight fields here (fall state) should default safely when missing; otherwise bump `SAVE_VERSION` to 6 (5 was used by throwing).
 
 ## Testing
 
 - **`tests/index.html`, unit checks:**
-  - **Step costs** (base costs, walls and the first step are tested): up and down with each Str and Dex row; jumps allowed to `safeDrop + 2` and refused beyond.
-  - **MP:** the three gladiators in the example get exactly those numbers; armor bulk is offset by Strength; MP never drops below 2.
-  - **Falls:** 1d6 per extra level, the Con adjustment, the save halving it, never below 1 hp.
   - **Traits:** climbers, tall, fliers and nimble each change the numbers as listed.
   - **Classic fight:** every movement modifier is 0.
 - **Balance simulation:** extend the battlefield simulation from `Todo_ranged.md` to run each build on Flat, Hills and Ziggurat. Watch whether terrain swings win rates by more than about 10 points; if it does, the symmetric layout isn't enough and the constants are too big. Also compare a strong plate-wearer with an agile leather-wearer, to check that both builds have their ground.
@@ -132,7 +69,7 @@ Mercenaries use fixed numbers like everything else about them. Militia, Sellswor
 ## Build order
 
 1. ~~Cheapest-path search, step costs and movement points~~ (built, base numbers for everyone).
-2. Stats: `moveStats`, armor bulk, falls. Character screen display.
+2. ~~Stats: `moveStats`, armor bulk, falls. Character screen display~~ (built; jumping is yours only until step 3).
 3. Monster and mercenary traits; AI using the cheapest path and preferring high ground.
 4. The paint tool and the balance simulation; tune the constants. (Random layouts per fight already replaced "make Hills the default".)
 

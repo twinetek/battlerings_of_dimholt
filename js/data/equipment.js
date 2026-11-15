@@ -41,20 +41,22 @@ export const WEAPONS = [
 // Fists can't be thrown.
 export const UNARMED = { id: 'fists', name: 'Fists', cost: 0, speed: 1, dmg: '1d2', plus: 0 };
 
-// ac: adjustment to armor class (an unarmored character is AC 10).
+// ac:   adjustment to armor class (an unarmored character is AC 10).
+// bulk: how much it slows you on the battlefield, unless you're strong enough
+//       to carry it (strCarry in rules/tables.js). Magic armor is no lighter.
 export const ARMOR = [
-  { id: 'padded',        name: 'Padded Armor',       cost: 4,     ac: -1 },
-  { id: 'leather',       name: 'Leather Armor',      cost: 5,     ac: -2 },
-  { id: 'studded',       name: 'Studded Leather',    cost: 20,    ac: -3 },
-  { id: 'scale',         name: 'Scale Mail',         cost: 50,    ac: -4 },
-  { id: 'chain',         name: 'Chain Mail',         cost: 75,    ac: -5 },
-  { id: 'splint',        name: 'Splint Mail',        cost: 150,   ac: -6 },
-  { id: 'plate',         name: 'Plate Mail',         cost: 600,   ac: -7 },
-  { id: 'field-plate',   name: 'Field Plate',        cost: 2000,  ac: -8 },
-  { id: 'full-plate',    name: 'Full Plate',         cost: 4000,  ac: -9 },
-  { id: 'full-plate-1',  name: 'Full Plate +1',      cost: 9000,  ac: -10 },
-  { id: 'full-plate-2',  name: 'Full Plate +2',      cost: 16000, ac: -11 },
-  { id: 'full-plate-3',  name: 'Full Plate +3',      cost: 30000, ac: -12 },
+  { id: 'padded',        name: 'Padded Armor',       cost: 4,     ac: -1,  bulk: 0 },
+  { id: 'leather',       name: 'Leather Armor',      cost: 5,     ac: -2,  bulk: 0 },
+  { id: 'studded',       name: 'Studded Leather',    cost: 20,    ac: -3,  bulk: 0 },
+  { id: 'scale',         name: 'Scale Mail',         cost: 50,    ac: -4,  bulk: 1 },
+  { id: 'chain',         name: 'Chain Mail',         cost: 75,    ac: -5,  bulk: 1 },
+  { id: 'splint',        name: 'Splint Mail',        cost: 150,   ac: -6,  bulk: 2 },
+  { id: 'plate',         name: 'Plate Mail',         cost: 600,   ac: -7,  bulk: 2 },
+  { id: 'field-plate',   name: 'Field Plate',        cost: 2000,  ac: -8,  bulk: 2 },
+  { id: 'full-plate',    name: 'Full Plate',         cost: 4000,  ac: -9,  bulk: 2 },
+  { id: 'full-plate-1',  name: 'Full Plate +1',      cost: 9000,  ac: -10, bulk: 2 },
+  { id: 'full-plate-2',  name: 'Full Plate +2',      cost: 16000, ac: -11, bulk: 2 },
+  { id: 'full-plate-3',  name: 'Full Plate +3',      cost: 30000, ac: -12, bulk: 2 },
 ];
 
 // kind: potion | ring | wand | tome

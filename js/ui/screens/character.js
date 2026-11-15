@@ -3,7 +3,7 @@
 import { WEAPON_BY_ID, ITEM_BY_ID } from '../../data/equipment.js';
 import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
 import { STATS, strBonus, dexAc, conHp, thac0, attacksLabel } from '../../rules/tables.js';
-import { weaponOf, armorOf, armorClass, ringBonus, maxHp, toHitBonus, damageBonus } from '../../rules/character.js';
+import { weaponOf, armorOf, armorClass, ringBonus, maxHp, toHitBonus, damageBonus, moveStats } from '../../rules/character.js';
 import { equipWeapon, useItemInTown } from '../../rules/town.js';
 import { rangeText } from '../../engine/dice.js';
 import { button, backToTown, esc, signed, gp } from '../format.js';
@@ -17,6 +17,16 @@ function statNote(key, v) {
   if (key === 'dex') return `${signed(dexAc(v))} AC`;
   if (key === 'con') return `${signed(conHp(v))} hp/level`;
   return '';
+}
+
+// Battlefield movement from Strength, Dexterity and armor.
+function movementFacts(c) {
+  const m = moveStats(c);
+  const levels = n => `${n} level${n === 1 ? '' : 's'}`;
+  return `
+    <div><dt>Movement</dt><dd>${m.mp} per round${m.slowedBy ? ` <span class="muted small">(${m.slowedBy} less for armor too heavy for your Strength)</span>` : ''}</dd></div>
+    <div><dt>Climbing</dt><dd>+${m.climbCost} per level, up to ${levels(m.climbMax)} a step</dd></div>
+    <div><dt>Going down</dt><dd>+${m.dropCost} per level, ${levels(m.safeDrop)} safely</dd></div>`;
 }
 
 // Venom in your pack, with the "Apply to..." weapon chooser.
@@ -115,6 +125,7 @@ export function render(ctx, params = {}) {
             <div><dt>Damage</dt><dd>${rangeText(w.dmg, damageBonus(c))}</dd></div>
             <div><dt>Attacks per round</dt><dd>${attacksLabel(c.level)}</dd></div>
             <div><dt>Armor</dt><dd>${a ? esc(a.name) : 'None'}</dd></div>
+            ${movementFacts(c)}
           </dl>
         </div>
       </div>

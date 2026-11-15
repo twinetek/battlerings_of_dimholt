@@ -229,9 +229,9 @@ Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and s
 
 **Terrain: rolled at random each fight, shown, and used in melee and throwing**
 
-The full design for multi-level terrain is in `todo_terrain.md`: movement points with costs for climbing and descending, stats that change them, melee height rules, and ranged range by height. So far the terrain is **generated**, **rolled at random for every fight**, **shown on the board**, testers can pick a layout, and **movement, melee and throwing use it** (see "Movement across levels" and "Melee and height" below). Still to come: Strength, Dexterity and armor changing movement, falling damage, and monster movement traits.
+The full design for multi-level terrain is in `todo_terrain.md`: movement points with costs for climbing and descending, stats that change them, melee height rules, and ranged range by height. So far the terrain is **generated**, **rolled at random for every fight**, **shown on the board**, testers can pick a layout, and **movement, melee and throwing use it** (see "Movement across levels" and "Melee and height" below). Your Strength, Dexterity and armor change how you move, and you can jump down at the cost of falling damage. Still to come: monster and mercenary movement traits, and jumping for them.
 
-- **Movement across levels** (`rules/battlefield.js`, base numbers in `rules/tables.js`): movement is a budget of points per round (`moveOf`: you 4, mercenaries 4, monsters `moveFor`), spent per step:
+- **Movement across levels** (`rules/battlefield.js`, numbers in `rules/tables.js`): movement is a budget of points per round (`moveOf(state, uid)`: yours from `moveStats`, mercenaries 4, monsters `moveFor`), spent per step:
 
   | Step into a hex that is… | Cost |
   |---|---|
@@ -239,9 +239,21 @@ The full design for multi-level terrain is in `todo_terrain.md`: movement points
   | Up *n* levels | 1 + `CLIMB_COST` (2) × *n* |
   | Down *n* levels | 1 + `DROP_COST` (1) × *n* |
 
-  - **Limits:** a step can climb at most `CLIMB_MAX` (1) level and drop at most `SAFE_DROP` (1). A cliff (2+ levels) is a wall both ways; there's no jumping yet, since falling damage isn't built.
+  - **Limits:** a step can climb at most `climbMax` levels and drop at most `safeDrop` without harm. The base numbers (`CLIMB_COST` 2, `CLIMB_MAX` 1, `DROP_COST` 1, `SAFE_DROP` 1) are what mercenaries and monsters use; yours come from your stats (below).
+  - **Your stats and armor** (`moveStats(c)` in `rules/character.js`, shown on the Character screen as Movement, Climbing and Going down):
+
+    | Score | 3-5 | 6-8 | 9-15 | 16 | 17 | 18 | 19-22 | 23-25 |
+    |---|---|---|---|---|---|---|---|---|
+    | Dex: movement (`dexMove`) | −1 | 0 | 0 | 0 | +1 | +1 | +2 | +3 |
+    | Dex: per level down, safe drop (`dexDrop`) | +2, 1 | +1, 1 | +1, 1 | 0, 2 | 0, 2 | 0, 2 | 0, 3 | 0, 3 |
+    | Str: per level up, levels a step (`strClimb`) | +3, 1 | +3, 1 | +2, 1 | +1, 1 | +1, 1 | +1, 2 | +1, 2 | 0, 3 |
+    | Str: armor bulk carried free (`strCarry`) | 0 | 0 | 0 | 1 | 1 | 2 | 2 | 3 |
+
+    - **Armor bulk** (`bulk` on each armor; the Armorer and the Guide show it): 0 up to Studded Leather, 1 for Scale and Chain, 2 from Splint Mail up. Magic armor is no lighter.
+    - `mp = BASE_MOVE (4) + dexMove − max(0, bulk − strCarry)`, never below `MIN_MOVE` (2). The design's examples hold: Str 10/Dex 10 in chain has 3; Str 16/Dex 17 in chain has 5 and climbs for +1; Str 18/Dex 10 in plate has 4 and climbs 2 levels a step.
+  - **Jumping (you only, for now):** you can drop up to `JUMP_EXTRA` (2) levels past your safe drop. `reachableFor` adds those landings as `jump` entries (orange hexes, with the fall damage range in the tooltip from `fallRange`), only as the **last step of a move**: they're added after the search, from hexes reached safely, so a path the game picks never includes a jump you didn't click. `moveYou` then calls `takeFall`: `levels`d6 (`FALL_DIE`) less your `conHp` bonus (a penalty adds), halved by a save against paralysis, never below 1 hp. It pushes a `fall` event ("You jump down and land hard: 6 damage, halved as you roll with the fall."). Mercenaries and monsters, and auto-play's `advance` for you, never jump: that waits for the AI rule in `todo_terrain.md`. Deeper drops are refused with "too far down to jump", higher climbs with "too high".
   - **The first step is always allowed,** even over budget, and it ends the move. Slow movers (giants with 2 points) are never stuck at the foot of a slope, and after a throw (`SHOT_MOVE`, 1 point) you can still take any one step.
-  - **Everyone pays the same:** you, mercenaries and monsters all use `moveStatsOf` (the base numbers for now) and `stepCostFor(state, uid)`, which also treats other fighters and pillars as impassable.
+  - **One cost function:** you, mercenaries and monsters all go through `moveStatsOf(state, uid)` and `stepCostFor(state, uid, ms, jumps)`, which also treats other fighters and pillars as impassable. `crossable` (below) checks arenas with the base numbers and no jumps, the weakest mover's rules, so stats can only make an arena easier.
   - **Search:** `engine/hex.js` has `cheapestReachable(start, budget, cost)` (a Map of key → `{ cost, prev }`), `pathIn(map, goal)` and `cheapestPath(start, done, cost)`, a small Dijkstra search. `reachableFor` (blue hexes, the threat zone) adds the over-budget first steps. `moveYou` follows the cheapest path and explains a refused cliff. `advance` picks the foe whose strike spot is cheapest to reach, then walks that path as far as its points go, so monsters go around a ridge (cost 4) rather than over it (6). `cb.turn.movedHexes` still counts hexes, for the throwing penalty.
   - **No arena can lock up:** pillars once landed on the Ledges band between its two ramps and sealed the sides apart, so no one could reach anyone (5 stalled fights in 2,000 simulated). `deploy` now checks `crossable(radius, height, pillars)`, a walk from your starting edge to the enemy's under the base rules, and rolls the arena again if it fails (up to 20 times; the last try has no pillars). After the fix: 0 stalls in 2,000.
   - **Balance check** (same simulation as below, 300 fights each): deaths against a Kobold 11% flat, 13-14% raised; against an Orc 40% flat, 35-41% raised. Fights on Ledges run about 2 rounds longer, since crossing goes by the ramps.

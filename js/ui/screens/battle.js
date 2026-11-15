@@ -9,12 +9,12 @@ import { maxHp, armorClass, weaponEntry, rollToHit } from '../../rules/character
 import { playRound, setTarget, openingEvents, inReach, heightMods, PLAYER } from '../../rules/combat.js';
 import {
   DEFAULT_FIELD, boardHexes, isPillar, livingUnits, occupant, reachableFor, threatZone, moveOf,
-  moveYou, actYou, endTurn, autoYou, setThrowPick, testerAddEnemy, testerAddMerc, testerHeal, testerRebuild,
+  moveYou, actYou, endTurn, autoYou, setThrowPick, fallRange, testerAddEnemy, testerAddMerc, testerHeal, testerRebuild,
 } from '../../rules/battlefield.js';
 import { TERRAINS, TERRAIN_BY_ID, RANDOM, levelOf, cliffEdges } from '../../rules/terrain.js';
 import { rangeProfile, throwsLeft, throwGroups } from '../../rules/ranged.js';
 import * as H from '../../engine/hex.js';
-import { COMBAT_LOG_LIMIT, thac0, CLIMB_COST, DROP_COST } from '../../rules/tables.js';
+import { COMBAT_LOG_LIMIT, thac0 } from '../../rules/tables.js';
 import { toLines, describeAll, SUMMARIZE_ABOVE } from '../presenter.js';
 import { button, esc, gp } from '../format.js';
 import { betaOn } from '../../config.js';
@@ -74,12 +74,15 @@ function boardSvg(s, params) {
     else if (who?.startsWith('e') && canAct && inReach(cb, PLAYER, who)) cls.push('attackable');
     else if (who?.startsWith('e') && canAct && rangeProfile(s, who).ok) cls.push('throwable');
     else if (pathKeys.has(k)) cls.push('path');
-    else if (!who && reach.has(k) && reach.get(k).prev) cls.push('reach');
+    else if (!who && reach.has(k) && reach.get(k).prev) cls.push(reach.get(k).jump ? 'jump' : 'reach');
     else if (threat.has(k)) cls.push('threat');
     if (who === cb.target && !cb.over) cls.push('targeted');
     const pts = hexPoints(h);
     const level = levelOf(cb.grid, h);
-    const tip = who ? unitTip(s, who) : level ? `Level ${level}` : '';
+    const jump = !who && reach.get(k)?.jump;
+    const tip = who ? unitTip(s, who)
+      : jump ? `Level ${level}. Jump down here: ${fallRange(s.character, jump).join('-')} falling damage (a saving throw halves it). It ends your move.`
+        : level ? `Level ${level}` : '';
     return `<polygon class="${cls.join(' ')}" points="${pts}" data-action="hex" data-key="${k}">${tip ? `<title>${esc(tip)}</title>` : ''}</polygon>`;
   }).join('');
 
@@ -130,7 +133,7 @@ function unitTip(s, uid) {
   const u = unitInfo(s, uid);
   const me = unitInfo(s, PLAYER);
   const level = levelOf(s.combat.grid, s.combat.grid.pos[uid]);
-  let tip = `${u.name}: ${u.hp}/${u.max} hp, AC ${u.ac}, moves ${moveOf(s.combat, uid)}${level ? `, on level ${level}` : ''}`;
+  let tip = `${u.name}: ${u.hp}/${u.max} hp, AC ${u.ac}, moves ${moveOf(s, uid)}${level ? `, on level ${level}` : ''}`;
   if (u.side === 'enemy') {
     const cb = s.combat;
     const m = MONSTER_BY_ID[cb.enemies.find(e => e.uid === uid).monsterId];
@@ -206,7 +209,7 @@ function roster(s) {
       <td><span class="dot ${u.side}"></span>${u.art} ${esc(u.name)}${u.uid === cb.target && !cb.over ? ' 🎯' : ''}</td>
       <td class="num">${Math.max(0, u.hp)}/${u.max}</td>
       <td class="num">AC ${u.ac}</td>
-      <td class="num">Move ${moveOf(cb, u.uid)}</td>
+      <td class="num">Move ${moveOf(s, u.uid)}</td>
       <td>${u.poison > 0 && u.hp > 0 ? `<span class="tag bad">☠ ${u.poison}</span>` : ''}${u.paralyzed > 0 && u.hp > 0 ? ' <span class="tag bad">Paralyzed</span>' : ''}</td>
     </tr>`).join('')}</tbody></table>`;
 }
@@ -313,7 +316,7 @@ export function render(ctx, params) {
           <div class="panel"><h3>Fighters</h3><div class="table-wrap">${roster(s)}</div>
             <p class="muted small">Legend: blue hexes, where you can move · red, an enemy you can attack · dashed red, one you can throw at ·
               amber, where an enemy could reach and strike this round · 🪨 pillar.
-              ${Object.keys(cb.grid.height ?? {}).length ? `<br>Shaded hexes are raised ground, numbered by level; thick edges are cliffs. Higher ground wins melee: blows reach only 1 level up or down, attacking up is harder, attacking down hits harder (hover an enemy for the numbers). Climbing a level costs ${1 + CLIMB_COST} movement and stepping down costs ${1 + DROP_COST}; cliffs can't be climbed or dropped.` : ''}</p></div>
+              ${Object.keys(cb.grid.height ?? {}).length ? `<br>Shaded hexes are raised ground, numbered by level; thick edges are cliffs. Higher ground wins melee: blows reach only 1 level up or down, attacking up is harder, attacking down hits harder (hover an enemy for the numbers). Each step up or down costs extra movement (your numbers are on the Character screen); a cliff too high to climb is a wall, and an orange hex is a jump down that will hurt.` : ''}</p></div>
           ${betaOn('hex-battlefield') ? testerPanel(s) : ''}
         </aside>
       </div>

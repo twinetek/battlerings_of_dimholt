@@ -104,7 +104,13 @@ frame.addEventListener('load', async () => {
     if (throwAt && !st().combat.over) {
       await click(`[data-key="${throwAt.dataset.key}"]`);
       await wait(500);
-      log(st().combat.thrown.length === 1 && /You throw your Throwing Axe|Your Throwing Axe flies past/.test(q('#combat-log').textContent), 'clicking a dashed enemy throws a throwing axe');
+      // If the axe kills the kobold, the fight is won and the axe is gathered up again.
+      const won = st().combat.over && /You gather up the Throwing Axe/.test(q('#combat-log').textContent);
+      log((st().combat.thrown.length === 1 || won) && /You throw your Throwing Axe|Your Throwing Axe flies past/.test(q('#combat-log').textContent), 'clicking a dashed enemy throws a throwing axe');
+      if (won) {
+        await click('[data-action="again"]');
+        await wait(300);
+      }
     } else {
       const s = st();
       const why = s.combat.over ? 'fight over' : s.combat.enemies.map(e => `${e.uid}: ${rangeProfile(s, e.uid).reason ?? 'ok'}`).join('; ');

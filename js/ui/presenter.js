@@ -126,6 +126,9 @@ export function describe(e) {
     case 'draw': return { text: e.weapon ? `You draw your ${e.weapon}.` : 'You fight on with your fists.', cls: 'sys' };
     case 'throwsRecovered': return recoverLine(e);
     case 'move': return null; // shown by the battlefield, not the log
+    case 'fall': return e.dmg
+      ? { text: `You jump down and land hard: ${e.dmg} damage${e.saved ? ', halved as you roll with the fall' : ''}.`, cls: 'bad' }
+      : { text: `You jump down and land on your feet${e.saved ? ', rolling with the fall' : ''}.`, cls: 'muted' };
     case 'loot': return { text: `The ${e.from} leaves behind a ${e.item} (potency ${e.potency})!`, cls: 'win' };
     case 'venom': return venomLine(e);
     case 'venomImmune': return { text: `The venom on your blade does nothing to the ${e.target}.`, cls: 'muted' };

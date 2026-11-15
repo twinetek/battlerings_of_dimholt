@@ -91,12 +91,46 @@ export const DOWNHILL_DMG = 2;       // damage bonus per level when attacking do
 export const HIGH_GROUND_SAVE = 2;   // save bonus per level for a defender above its attacker
 
 // Movement across terrain levels (rules/battlefield.js; todo_terrain.md).
-// Everyone uses these base numbers for now; Strength, Dexterity, armor and
-// monster traits will change them.
+// Mercenaries and monsters use these base numbers for now; your Strength,
+// Dexterity and armor change yours (moveStats in rules/character.js).
+export const BASE_MOVE = 4;          // movement points per round
+export const MIN_MOVE = 2;           // armor never slows you below this
 export const CLIMB_COST = 2;         // extra movement per level stepped up
 export const CLIMB_MAX = 1;          // the most levels one step can climb; higher is a wall
 export const DROP_COST = 1;          // extra movement per level stepped down
-export const SAFE_DROP = 1;          // the most levels one step can drop (jumping farther comes with falling damage)
+export const SAFE_DROP = 1;          // the most levels one step can drop without harm
+export const JUMP_EXTRA = 2;         // you may jump this many levels past your safe drop
+export const FALL_DIE = 6;           // falling damage: 1d6 per level past your safe drop
+
+// Dexterity: speed on the flat, and agility going down.
+export function dexMove(d) {
+  if (d <= 5) return -1;
+  if (d <= 16) return 0;
+  if (d <= 18) return 1;
+  if (d <= 22) return 2;
+  return 3;
+}
+export function dexDrop(d) {
+  if (d <= 5) return { dropCost: 2, safeDrop: 1 };
+  if (d <= 15) return { dropCost: 1, safeDrop: 1 };
+  if (d <= 18) return { dropCost: 0, safeDrop: 2 };
+  return { dropCost: 0, safeDrop: 3 };
+}
+
+// Strength: climbing, and carrying armor (how much armor bulk costs you nothing).
+export function strClimb(s) {
+  if (s <= 8) return { climbCost: 3, climbMax: 1 };
+  if (s <= 15) return { climbCost: 2, climbMax: 1 };
+  if (s <= 17) return { climbCost: 1, climbMax: 1 };
+  if (s <= 22) return { climbCost: 1, climbMax: 2 };
+  return { climbCost: 0, climbMax: 3 };
+}
+export function strCarry(s) {
+  if (s <= 15) return 0;
+  if (s <= 17) return 1;
+  if (s <= 22) return 2;
+  return 3;
+}
 
 // Ranged attacks on the hex battlefield (beta; see rules/ranged.js).
 export const FALLOFF_HEXES = 4;      // past its aim range a shot loses 1 to hit and 1/8 of its damage per hex, to half at aim + 4

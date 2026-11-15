@@ -7,6 +7,7 @@ import { WEAPON_BY_ID, ARMOR_BY_ID, ITEM_BY_ID, UNARMED } from '../data/equipmen
 import {
   STATS, strBonus, dexAc, conHp, thac0, XP_FOR_LEVEL, MAX_LEVEL,
   FIRST_LEVEL_HP, HIT_DIE, HP_AFTER_NINE, STARTING_GOLD,
+  BASE_MOVE, MIN_MOVE, dexMove, dexDrop, strClimb, strCarry,
 } from './tables.js';
 import { earnsStatPoint, spendPoints, addTome, revokeLevel } from './stats.js';
 
@@ -77,6 +78,20 @@ export function damageBonus(c, weapon = weaponOf(c)) {
 // The d20 roll the character needs to hit a given armor class.
 export function rollToHit(c, targetAc, weapon = weaponOf(c)) {
   return thac0(c.level) - targetAc - toHitBonus(c, weapon);
+}
+
+// How you move on the battlefield: { mp, climbCost, climbMax, dropCost,
+// safeDrop, slowedBy }. Dexterity adds speed and makes going down cheaper and
+// safer; Strength makes climbing cheaper and higher, and carries armor bulk
+// (slowedBy is the bulk you can't carry, in movement points).
+export function moveStats(c) {
+  const slowedBy = Math.max(0, (armorOf(c)?.bulk ?? 0) - strCarry(c.stats.str));
+  return {
+    mp: Math.max(MIN_MOVE, BASE_MOVE + dexMove(c.stats.dex) - slowedBy),
+    ...strClimb(c.stats.str),
+    ...dexDrop(c.stats.dex),
+    slowedBy,
+  };
 }
 
 export const nextLevelXp = c => (c.level >= MAX_LEVEL ? null : XP_FOR_LEVEL[c.level + 1]);

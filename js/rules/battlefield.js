@@ -21,20 +21,22 @@
 //      round begins and newcomers are placed at the far edge.
 
 import * as H from '../engine/hex.js';
-import { die } from '../engine/dice.js';
+import { die, roll } from '../engine/dice.js';
 import { MONSTER_BY_ID } from '../data/monsters.js';
 import { MERC_BY_ID } from '../data/mercs.js';
 import { WEAPON_BY_ID } from '../data/equipment.js';
-import { maxHp } from './character.js';
+import { maxHp, moveStats } from './character.js';
 import { rangeProfile, throwsLeft } from './ranged.js';
-import { SHOT_MOVE, CLIMB_COST, CLIMB_MAX, DROP_COST, SAFE_DROP } from './tables.js';
+import {
+  SHOT_MOVE, BASE_MOVE, CLIMB_COST, CLIMB_MAX, DROP_COST, SAFE_DROP, JUMP_EXTRA, FALL_DIE, conHp, saveTarget,
+} from './tables.js';
 import { generateTerrain, levelOf, pickTerrain, RANDOM } from './terrain.js';
 import {
   startCombat, setTarget, inReach, meleeReach, spawnEnemy, rangedTarget, PLAYER,
   beginRound, playerTurn, allyTurn, enemyTurn, endOfRound,
 } from './combat.js';
 
-export const PLAYER_MOVE = 4;
+export const PLAYER_MOVE = BASE_MOVE; // before your Dexterity and armor
 export const MERC_MOVE = 4;
 // The main game always fights here: pillars, and a layout rolled at random
 // each fight. Only the beta's tester controls change it. A field that names
@@ -50,14 +52,15 @@ const fail = msg => ({ ok: false, msg, events: [] });
 
 // ---- Queries ----
 
-export function moveOf(cb, uid) {
-  if (uid === PLAYER) return PLAYER_MOVE;
-  const e = cb.enemies.find(x => x.uid === uid);
+// Movement points per round: yours from your stats and armor.
+export function moveOf(state, uid) {
+  if (uid === PLAYER) return moveStats(state.character).mp;
+  const e = state.combat.enemies.find(x => x.uid === uid);
   return e ? moveFor(MONSTER_BY_ID[e.monsterId]) : MERC_MOVE;
 }
 
 // Movement points a fighter has right now: after a ranged attack you only step.
-const stepsLeft = (cb, uid) => (uid === PLAYER && cb.turn?.shot ? SHOT_MOVE : moveOf(cb, uid));
+const stepsLeft = (state, uid) => (uid === PLAYER && state.combat.turn?.shot ? SHOT_MOVE : moveOf(state, uid));
 
 export const isPillar = (cb, h) => cb.grid.pillars.includes(H.key(h));
 export const onBoard = (cb, h) => H.distance(h, ORIGIN) <= cb.grid.radius && !isPillar(cb, h);
@@ -89,30 +92,45 @@ export const passableFor = (state, uid) => h => {
 //   level with you     1
 //   up n levels        1 + climbCost × n    (no more than climbMax levels)
 //   down n levels      1 + dropCost × n     (no more than safeDrop levels)
-// A step beyond those limits can't be taken: a cliff is a wall both ways
-// until jumping and falling damage exist. The first step of a move is
+// Your numbers come from your Strength, Dexterity and armor (moveStats in
+// rules/character.js); mercenaries and monsters use the base numbers until
+// their traits are built (todo_terrain.md). The first step of a move is
 // always allowed, even if it costs more than the budget, and it ends the move,
 // so slow movers are never stuck at the foot of a slope.
-// See todo_terrain.md for the stats and monster traits still to come.
+//
+// Jumping (you only, for now): you may drop up to JUMP_EXTRA levels past your
+// safe drop, at the normal cost, taking falling damage (takeFall). A jump is
+// always the last step of a move, the hex you chose, never a step along the
+// way, so the game never hurts you on a path it picked.
 
 export function moveStatsOf(state, uid) {
-  return { mp: stepsLeft(state.combat, uid), climbCost: CLIMB_COST, climbMax: CLIMB_MAX, dropCost: DROP_COST, safeDrop: SAFE_DROP };
+  const mp = stepsLeft(state, uid);
+  if (uid === PLAYER) return { ...moveStats(state.character), mp };
+  return { mp, climbCost: CLIMB_COST, climbMax: CLIMB_MAX, dropCost: DROP_COST, safeDrop: SAFE_DROP };
 }
 
 // cost(from, to) for one step of `uid`, Infinity if it can't be taken.
-export function stepCostFor(state, uid, ms = moveStatsOf(state, uid)) {
+// With jumps, drops of up to JUMP_EXTRA past the safe drop are allowed too.
+export function stepCostFor(state, uid, ms = moveStatsOf(state, uid), jumps = false) {
   const grid = state.combat.grid;
   const passable = passableFor(state, uid);
+  const deepest = ms.safeDrop + (jumps ? JUMP_EXTRA : 0);
   return (from, to) => {
     if (!passable(to)) return Infinity;
     const rise = levelOf(grid, to) - levelOf(grid, from);
-    if (rise > ms.climbMax || -rise > ms.safeDrop) return Infinity;
+    if (rise > ms.climbMax || -rise > deepest) return Infinity;
     return 1 + (rise > 0 ? ms.climbCost * rise : -rise * ms.dropCost);
   };
 }
 
-// Where `uid` can move this turn: a Map of key -> { cost, prev } (see
-// H.pathIn). Includes the start at cost 0, and any first step over budget.
+// Levels a step from `from` to `to` drops past the mover's safe drop (0 if none).
+const fallLevels = (state, ms, from, to) =>
+  Math.max(0, levelOf(state.combat.grid, from) - levelOf(state.combat.grid, to) - ms.safeDrop);
+
+// Where `uid` can move this turn: a Map of key -> { cost, prev, jump? } (see
+// H.pathIn). Includes the start at cost 0, any first step over budget, and,
+// for you, hexes you can only reach by ending the move with a jump (jump: the
+// levels you'd fall past your safe drop).
 export function reachableFor(state, uid) {
   const from = state.combat.grid.pos[uid];
   const ms = moveStatsOf(state, uid);
@@ -122,6 +140,22 @@ export function reachableFor(state, uid) {
     const c = cost(from, n);
     if (c < Infinity && !map.has(H.key(n))) map.set(H.key(n), { cost: c, prev: from });
   }
+  if (uid !== PLAYER) return map;
+  const jump = stepCostFor(state, uid, ms, true);
+  const landings = new Map();
+  for (const [k, v] of map) {
+    const at = H.fromKey(k);
+    if (v.cost > ms.mp) continue; // an over-budget first step ends the move
+    for (const n of H.neighbors(at)) {
+      const nk = H.key(n);
+      const levels = fallLevels(state, ms, at, n);
+      if (map.has(nk) || !levels) continue;
+      const total = v.cost + jump(at, n);
+      if (total === Infinity || (total > ms.mp && v.prev)) continue; // the first step may still go over budget
+      if (!landings.has(nk) || landings.get(nk).cost > total) landings.set(nk, { cost: total, prev: at, jump: levels });
+    }
+  }
+  for (const [k, v] of landings) map.set(k, v);
   return map;
 }
 
@@ -237,18 +271,42 @@ export function moveYou(state, to) {
   if (cb.over) return fail('The fight is over.');
   if (cb.paralyzed > 0) return fail('You are paralyzed and cannot move.');
   if (cb.turn.moved) return fail('You have already moved this round.');
-  const path = pathFor(state, PLAYER, to);
+  const reach = reachableFor(state, PLAYER);
+  const path = H.pathIn(reach, to);
   if (!path || !path.length) {
     if (cb.turn.shot) return fail('After a throw you can take only one step.');
+    const ms = moveStatsOf(state, PLAYER);
     const rise = levelOf(cb.grid, to) - levelOf(cb.grid, cb.grid.pos[PLAYER]);
-    return fail(H.adjacent(to, cb.grid.pos[PLAYER]) && Math.abs(rise) > 1
-      ? `That's a cliff: you can climb or drop only ${CLIMB_MAX} level in a step. Find a slope.`
-      : "You can't get there this round.");
+    if (H.adjacent(to, cb.grid.pos[PLAYER]) && rise > ms.climbMax) {
+      return fail(`That's too high: you can climb ${ms.climbMax} level${ms.climbMax === 1 ? '' : 's'} in a step. Find a slope.`);
+    }
+    if (H.adjacent(to, cb.grid.pos[PLAYER]) && -rise > ms.safeDrop + JUMP_EXTRA) {
+      return fail(`That's too far down to jump: at most ${ms.safeDrop + JUMP_EXTRA} levels.`);
+    }
+    return fail("You can't get there this round.");
   }
   cb.grid.pos[PLAYER] = path.at(-1);
   cb.turn.moved = true;
   cb.turn.movedHexes = path.length;
-  return ok([{ t: 'move', uid: PLAYER, path }]);
+  const ev = [{ t: 'move', uid: PLAYER, path }];
+  const levels = reach.get(H.key(to)).jump;
+  if (levels) takeFall(state, levels, ev);
+  return ok(ev);
+}
+
+// Falling damage for a jump `levels` past your safe drop: FALL_DIE per level,
+// less your Constitution hit-point bonus (a penalty adds to it), halved by a
+// saving throw against paralysis. A fall never takes you below 1 hp.
+export const fallRange = (c, levels) => [Math.max(0, levels - conHp(c.stats.con)), Math.max(0, levels * FALL_DIE - conHp(c.stats.con))];
+
+function takeFall(state, levels, ev) {
+  const c = state.character;
+  let dmg = Math.max(0, roll(`${levels}d${FALL_DIE}`) - conHp(c.stats.con));
+  const saved = die(20) >= saveTarget('paralysis', c.level);
+  if (saved) dmg = Math.floor(dmg / 2);
+  const before = c.hp;
+  c.hp = Math.max(Math.min(c.hp, 1), c.hp - dmg);
+  ev.push({ t: 'fall', levels, dmg: before - c.hp, saved, hp: { uid: PLAYER, hp: c.hp } });
 }
 
 // action: { type: 'fight', target, ranged? } | { type: 'use', index, target? }

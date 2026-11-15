@@ -5,7 +5,7 @@ import { FALLOFF_HEXES } from '../../rules/tables.js';
 import { throwStats } from '../../rules/ranged.js';
 import { LOOT_BY_ID } from '../../data/loot.js';
 import { coatingLabel, glandPotency, glandValue, freshness, sellLoot } from '../../rules/loot.js';
-import { armorOf } from '../../rules/character.js';
+import { armorOf, moveStats } from '../../rules/character.js';
 import * as town from '../../rules/town.js';
 import { rangeText } from '../../engine/dice.js';
 import { button, backToTown, esc, gp, signed } from '../format.js';
@@ -128,6 +128,7 @@ export const armor = {
         <tr class="${wearing ? 'equipped' : ''}">
           <td>${a.name.includes('+') ? `<span class="magic">${esc(a.name)}</span>` : esc(a.name)}${wearing ? ' <span class="tag">wearing</span>' : ''}</td>
           <td class="num">${signed(a.ac)}</td>
+          <td class="num">${a.bulk || ''}</td>
           <td class="num">${gp(a.cost)}</td>
           <td class="num">${wearing ? '' : gp(price)}</td>
           <td class="act">${wearing ? '' : button('Buy', 'buy', { id: a.id }, { disabled: c.gold < price })}</td>
@@ -137,13 +138,15 @@ export const armor = {
       <section>
         <h2>🛡️ Armorer</h2>
         <p class="muted">You can wear one suit at a time. Your current armor is taken as a trade-in at half its price.
-          Lower armor class is better; an unarmored fighter is AC 10.</p>
+          Lower armor class is better; an unarmored fighter is AC 10. Bulky armor slows you on the battlefield by its bulk,
+          minus what your Strength carries for free (1 at Str 16-17, 2 at 18-22, 3 at 23+).
+          ${current?.bulk ? `Your ${esc(current.name)} costs you ${moveStats(c).slowedBy} movement.` : ''}</p>
         ${goldLine(c)}
         <p>Wearing: <strong>${current ? esc(current.name) : 'nothing'}</strong>
           ${current ? button(`Sell for ${gp(town.sellPrice(current))}`, 'sell', {}, { cls: 'ghost small' }) : ''}</p>
         <div class="panel">
           <div class="table-wrap"><table>
-            <thead><tr><th>Armor</th><th class="num">AC adjust</th><th class="num">List price</th><th class="num">With trade-in</th><th></th></tr></thead>
+            <thead><tr><th>Armor</th><th class="num">AC adjust</th><th class="num">Bulk</th><th class="num">List price</th><th class="num">With trade-in</th><th></th></tr></thead>
             <tbody>${rows}</tbody>
           </table></div>
         </div>
