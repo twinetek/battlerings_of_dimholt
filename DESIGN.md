@@ -160,7 +160,7 @@ Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and s
 
 **Save format version 5** (any weapon can be thrown; see "Ranged attacks"): the beta's Throwing Daggers and Throwing Axes sets become that many single weapons, and a fight's `throwsUsed` becomes `thrown`, `throwPick` and `handBefore`.
 
-### Beta features (hex battlefield)
+### The battlefield and beta features
 
 **Beta features** are listed in `BETA_FEATURES` in `js/config.js`. Each one is the full game (town, shops, Training Yard, saves and guide) running from the same code as the main game, with one experimental feature switched on, and published in its own folder.
 
@@ -169,27 +169,36 @@ Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and s
 - **Promoting a feature:** when it's ready to graduate, the main game switches it on too; nothing is duplicated.
 - **Adding a feature:** add an entry to `BETA_FEATURES`, create its folder with an `index.html` like `hex_battlefield/index.html`, and check `betaOn('<id>')` where the game should differ.
 
-The first beta feature is the **hex battlefield** (`hex_battlefield/`), where arena fights take place on a hex grid.
+**The hex battlefield** started as the first beta feature and has graduated: **every arena fight in the main game is on it**, on a flat arena with pillars. The beta (`hex_battlefield/`, id `hex-battlefield`, now named **Battlefield terrain**) keeps what isn't ready: raised terrain and the tester controls.
+
+- **Main game vs. beta:**
+
+  | | Main game | Battlefield terrain beta |
+  |---|---|---|
+  | Arena | `DEFAULT_FIELD`: radius 5, random pillars, flat | Whatever the tester controls last built (`settings.battle`) |
+  | Tester controls | None: no adding enemies or mercenaries, healing, rebuilding or auto-play | All of them |
+  | Mercenaries | Only the crew hired on the Battlerings screen before the fight | The same, plus free ones from the tester controls |
+  | Throwing | Yes, including the Throwing Axe for sale | Yes |
+  | Guide | "The battlefield" section, without terrain or high ground | Adds tester controls, terrain and high ground |
 
 - **Saves:** each beta feature keeps its own saves (prefix `dimholt-<id>.save.`, for example `dimholt-hex-battlefield.save.`), so it never touches the main game.
   - On first launch it copies the main game's autosave.
   - "Copy my main game into this beta" on its title screen copies again, after asking before it replaces a beta game.
-- **Starting fights:** they all go through `ui/fight.js` (`beginFight`).
-  - The main game calls `startCombat` and the classic combat screen.
-  - With the hex battlefield on, it calls `startBattle` (`rules/battlefield.js`) and the battle screen (`ui/screens/battle.js`).
+- **Starting fights:** they all go through `ui/fight.js` (`beginFight`), which calls `startBattle` (`rules/battlefield.js`) and opens the battle screen (`ui/screens/battle.js`).
+  - **The classic combat screen** (`ui/screens/combat.js`) stays only to finish fights saved before the battlefield reached the main game. `fightScreen` routes a fight with no `combat.grid` there, and its "Fight another" button starts the next fight on the battlefield. No save migration was needed.
 - **Same rules:** the battlefield doesn't re-implement combat. `rules/combat.js` still resolves every attack, poison, venom, loot, summon, item and the Captain rule. The battlefield adds positions:
   - `combat.grid = { radius, pillars, height, pos }` holds the arena and everyone's position. `height` is the terrain (see "Terrain" below).
   - With a grid, weapon attacks only reach adjacent fighters (`inReach`), and monsters only strike fighters next to them. On raised terrain, reach and the height modifiers below also apply.
   - Wands, the fiery potion and dragon breath are unchanged.
   - `battlefield.js` moves fighters and runs the turn pieces that `combat.js` exports (`beginRound`, `playerTurn`, `allyTurn`, `enemyTurn`, `endOfRound`).
-- **Tester controls** on the battle screen, for setting up scenarios:
+- **Tester controls** on the battle screen (beta only), for setting up scenarios:
   - Add an enemy (counts as a summoned helper: XP, no gold) or a free mercenary.
   - Heal to full.
   - Rebuild the arena with a new layout (terrain), radius or pillars.
   - Show or hide the enemy threat zone.
   - Auto-play your turn or the whole fight.
 - **`js/engine/hex.js`** is the grid math: axial coordinates, distance, boards, reachable hexes and pathfinding. It's unit-tested.
-- **Tests:** `tests/index.html` covers the battlefield rules. `tests/beta-smoke.html` opens the drop-down with `?beta=true`, picks the hex battlefield, and plays it through its real screens. `tests/smoke.html` checks the drop-down is hidden without `?beta=true`.
+- **Tests:** `tests/index.html` covers the battlefield rules and checks the default arena is flat. `tests/smoke.html` plays the main game's fights on the board the way a player would (attack a red hex, or walk to the blue hex nearest an enemy, then end the turn); checks the floor is flat with no tester or auto-play controls and that a hired mercenary is deployed; and loads a fight saved without a grid onto the classic screen. `tests/beta-smoke.html` opens the drop-down with `?beta=true`, picks the beta, and plays it through its real screens.
 - **The old standalone lab** (`lab/`) has been retired. Its board and AI now live in the battle screen and `battlefield.js`.
 
 **Battlefield rules so far (to workshop):**
@@ -220,7 +229,7 @@ The first beta feature is the **hex battlefield** (`hex_battlefield/`), where ar
 
 **Terrain (beta): generated, shown, and used in melee**
 
-The full design for multi-level terrain is in `todo_terrain.md`: movement points with costs for climbing and descending, stats that change them, melee height rules, and ranged range by height. So far the terrain is **generated**, **shown on the board**, testers can pick a layout, and **melee uses it** (see "Melee and height" below). Movement still ignores levels: anyone can walk up any cliff for the normal cost, and the board legend says so. Battles default to a flat arena (`DEFAULT_FIELD.terrain = 'flat'` in `rules/battlefield.js`) until movement uses levels too.
+The full design for multi-level terrain is in `todo_terrain.md`: movement points with costs for climbing and descending, stats that change them, melee height rules, and ranged range by height. So far the terrain is **generated**, **shown on the board**, testers can pick a layout, and **melee uses it** (see "Melee and height" below). Movement still ignores levels: anyone can walk up any cliff for the normal cost, and the board legend says so. Battles default to a flat arena (`DEFAULT_FIELD.terrain = 'flat'` in `rules/battlefield.js`), and the main game always uses it, until movement uses levels too.
 
 - **Where it lives:** `js/rules/terrain.js`. It's pure and uses only `engine/hex.js` and `engine/dice.js`, so it's unit-testable and seedable.
 - **The model:**
@@ -285,7 +294,7 @@ The full design for multi-level terrain is in `todo_terrain.md`: movement points
 
   Ranged range by height and line of sight in three dimensions are built (see "Ranged attacks").
 
-**Ranged attacks (beta): throwing any weapon**
+**Ranged attacks: throwing any weapon**
 
 The full ranged design (bows, crossbows, giants throwing boulders, archer mercenaries) is in `Todo_ranged.md`. So far **throwing** is built, by you only, along with the rules every later ranged attack will share. Every weapon in `data/equipment.js` is a melee weapon; true ranged weapons (bows) will get their own `ranged` field later.
 
@@ -301,7 +310,7 @@ The full ranged design (bows, crossbows, giants throwing boulders, archer mercen
     | Clumsy | Bastard Sword, Halberd, Two-Handed Sword (and magic versions) | 1 | −4 |
 
     Fists (`UNARMED`) have no profile and can't be thrown.
-  - **The Throwing Axe** (1d6, speed 4, 8 gold) is `betaOnly`: it exists to be thrown, so `forSaleHere` in `ui/screens/shops.js` hides it from the main game's Weaponsmith and the Guide's weapon table.
+  - **The Throwing Axe** (1d6, speed 4, 8 gold) exists to be thrown. It's sold in the main game too, now that main-game fights are on the battlefield.
   - **Which weapon you throw:** the **Throw** picker under the battle buttons sets `combat.throwPick` (`setThrowPick` in `rules/battlefield.js`), a weapon id or null. `pickThrow` in `rules/ranged.js` turns it into one weapon:
     - With a kind chosen, a spare of that kind before the one in your hand. When that kind runs out, it falls back to no choice.
     - With no choice ("Best spare"), the best spare weapon that can hurt the target (its plus meets the monster's `magicReq`): best `aim + hit` first, then the lower plus, then the cheaper one, so plain daggers go before the Dagger +1 unless the target needs magic.
@@ -312,7 +321,7 @@ The full ranged design (bows, crossbows, giants throwing boulders, archer mercen
   - **Throws are never lost:** when a fight you survive ends (victory or surrender), you recover every weapon you threw, hits and misses alike, and the weapon you started with goes back in your hand.
     - `recoverThrows` in `rules/combat.js` runs at the start of `afterFight`. It logs "You gather up 3 Daggers and the Throwing Axe you threw, and take your Long Sword back in hand." and clears `combat.thrown`.
   - **Melee:** beside an enemy (in melee reach) you fight with the weapon in your hand, with all the melee rules, including height.
-  - **Classic fights** have no grid, so there's no throwing there.
+  - **Classic fights** (only fights saved before the battlefield) have no grid, so there's no throwing there.
 - **State:** `combat.thrown` (indices into `character.weapons`), `combat.throwPick`, `combat.handBefore`. Save version 5 turns the old beta sets into single weapons: Throwing Daggers into 3 Daggers (the first keeps any venom), Throwing Axes into 2 Throwing Axes.
 - **Where it lives:** `js/rules/ranged.js`, which is pure: no DOM, no dice.
   - `throwStats(c, weapon)`: the character's numbers with that weapon, anywhere.
@@ -356,10 +365,10 @@ The full ranged design (bows, crossbows, giants throwing boulders, archer mercen
   - The hint mentions throwing.
   - Hovering an enemy shows "Throw your Dagger: 5 hexes, 30% to hit, 88% damage (Dex +2, range −1, cover −2)", or why you can't throw: out of range, line of sight, nothing left, only the weapon in hand.
   - Log lines: "You throw your Dagger at the Orc (5 hexes) and hit for 3 damage, weakened by the distance.", the draw lines, and "You've thrown every weapon you carry…".
-  - In the beta, the Weaponsmith and Equipment screen show each weapon's throw for you ("Thrown: full power to 4 hexes, reaches 8, −2 to hit"), and the Guide explains the rules.
+  - The Weaponsmith and Equipment screen show each weapon's throw for you ("Thrown: full power to 4 hexes, reaches 8, −2 to hit"), and the Guide explains the rules.
 - **Tests:**
   - **Unit checks:** hex lines; the Dex and Str tables; `throwStats` per weapon profile and with magic; counting, grouping and picking throws (including magic for a gargoyle); falloff at aim, aim + 1 and max; height; pillars, hills and cover from above; moving first; and a fixed-roll throw.
-  - **Throwing in play:** throwing every spare; choosing the weapon in hand and drawing (another of its kind, the long sword, fists); recovery and putting your weapon back; melee beside an enemy; throwing up a cliff; the gargoyle; venom on a thrown dagger; auto-play; classic fights; the beta-only shop; the log; the version 4 save migration.
+  - **Throwing in play:** throwing every spare; choosing the weapon in hand and drawing (another of its kind, the long sword, fists); recovery and putting your weapon back; melee beside an enemy; throwing up a cliff; the gargoyle; venom on a thrown dagger; auto-play; classic fights; the log; the version 4 save migration.
   - **The beta playthrough** buys two Throwing Axes, rebuilds without pillars, walks up, picks axes in the Throw picker and throws one through the real board.
 
 ### Player guide
@@ -472,9 +481,9 @@ battlerings_of_dimholt/   (repository root)
 │   │   ├── character.js  Creation, derived stats, leveling, level drain
 │   │   ├── town.js       Shops, inn, using items in town
 │   │   ├── combat.js     Round-by-round combat that returns events
-│   │   ├── battlefield.js Hex battlefield (beta): deployment, movement, turn order
-│   │   ├── terrain.js    Hex battlefield (beta): terrain level generation
-│   │   └── ranged.js     Hex battlefield (beta): range, line of sight, throwing
+│   │   ├── battlefield.js The battlefield: deployment, movement, turn order
+│   │   ├── terrain.js    Battlefield terrain (beta): level generation
+│   │   └── ranged.js     The battlefield: range, line of sight, throwing
 │   └── ui/               Everything that touches the DOM
 │       ├── app.js        Router, autosave, click/key dispatch
 │       ├── presenter.js  Turns combat events into log lines (and later animations)
@@ -484,7 +493,7 @@ battlerings_of_dimholt/   (repository root)
 └── tests/
     ├── index.html        Rule unit tests and the balance simulator
     ├── smoke.html        Scripted playthrough of the real UI
-    └── beta-smoke.html   Scripted playthrough of the hex battlefield beta
+    └── beta-smoke.html   Scripted playthrough of the battlefield terrain beta
 ```
 
 Design docs for work not built yet sit next to this file: `TODO.md` (decided ideas and open review findings), `Todo_ranged.md` (ranged attacks on the battlefield; throwing any weapon is built) and `todo_terrain.md` (multi-level terrain; generation, the board display, melee height and ranged height are built). When part of one is built, document it here and mark it built there.
@@ -523,7 +532,7 @@ python -m http.server
 Run it from the repository root, then open these pages:
 
 - http://localhost:8000/ for the game.
-- http://localhost:8000/?beta=true for the game with the beta features drop-down, and http://localhost:8000/hex_battlefield/ for the hex battlefield beta.
+- http://localhost:8000/?beta=true for the game with the beta features drop-down, and http://localhost:8000/hex_battlefield/ for the battlefield terrain beta.
 - `/tests/` for rule tests and the balance simulations.
 - `/tests/smoke.html` for the main-game UI playthrough.
 - `/tests/beta-smoke.html` for the beta playthrough.

@@ -1,4 +1,4 @@
-// The hex battlefield (beta). Fights keep every rule from rules/combat.js;
+// The hex battlefield, where every arena fight takes place. Fights keep every rule from rules/combat.js;
 // this module adds positions, movement, and the turn order on the grid.
 //
 // combat.grid = { radius, pillars: [hex keys], height: { key: level }, pos: { uid: { q, r } } }
@@ -35,8 +35,9 @@ import {
 
 export const PLAYER_MOVE = 4;
 export const MERC_MOVE = 4;
-// Terrain stays flat by default until movement and the board use levels
-// (see todo_terrain.md).
+// The main game always fights here: flat, with pillars. Only the beta's
+// tester controls change it, until movement uses terrain levels (see
+// todo_terrain.md).
 export const DEFAULT_FIELD = { radius: 5, pillars: true, terrain: 'flat' };
 
 // First guess, tuned in playtests: lower initiative speed moves farther.

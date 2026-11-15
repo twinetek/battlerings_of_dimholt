@@ -1,6 +1,6 @@
 # Terrain and elevation on the hex battlefield: design
 
-Status: designed, not built. Terrain generation, the board's level shading and cliff edges, the tester layout picker, and the melee height rules (reach, uphill and downhill, high-ground saves, the `tall` reach), and ranged range by height with line of sight in three dimensions (built with throwing weapons) are already built and documented in `DESIGN.md` ("Terrain"); this file covers the rest. This is for the hex battlefield beta (`hex_battlefield/`). It builds on the ranged-attack design in `Todo_ranged.md`. Move the settled parts into `DESIGN.md` once they're built.
+Status: designed, not built. Terrain generation, the board's level shading and cliff edges, the tester layout picker, and the melee height rules (reach, uphill and downhill, high-ground saves, the `tall` reach), and ranged range by height with line of sight in three dimensions (built with throwing weapons) are already built and documented in `DESIGN.md` ("Terrain"); this file covers the rest. The battlefield is in the main game with a flat floor; terrain stays in the beta (`hex_battlefield/`) until it's done. It builds on the ranged-attack design in `Todo_ranged.md`. Move the settled parts into `DESIGN.md` once they're built.
 
 ## Goals
 

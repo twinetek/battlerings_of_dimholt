@@ -28,8 +28,6 @@ import * as Terrain from '../js/rules/terrain.js';
 import { heightMods, inReach, enemyTurn } from '../js/rules/combat.js';
 import * as Ranged from '../js/rules/ranged.js';
 import { dexMissile, strRange } from '../js/rules/tables.js';
-import { forSaleHere } from '../js/ui/screens/shops.js';
-import { config } from '../js/config.js';
 import { WEAPONS, WEAPON_BY_ID, UNARMED } from '../js/data/equipment.js';
 import { describe } from '../js/ui/presenter.js';
 import { glandPotency, coatingStrength, applyVenom, sellLoot, rollLoot, endArenaVisit, advanceClock, liveCoatings } from '../js/rules/loot.js';
@@ -926,13 +924,10 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   const classic = playRound(st, { type: 'fight' }).find(e => e.t === 'attack' && e.by === 'player');
   check('in a classic fight you strike in melee', classic && !classic.ranged && !st.combat.thrown?.length);
 
-  // Only the beta sells weapons made for throwing.
-  const axe = WEAPON_BY_ID['throwing-axe'];
-  const inMain = forSaleHere(axe);
-  config.betaFeature = 'hex-battlefield';
-  const inBeta = forSaleHere(axe);
-  config.betaFeature = null;
-  check('throwing axes are sold only in the hex battlefield beta', !inMain && inBeta && forSaleHere(WEAPON_BY_ID.dagger));
+  // Main-game fights are on the flat battlefield.
+  st = newGameState(createCharacter('Main', { str: 12, int: 10, wis: 10, dex: 12, con: 12, cha: 10 }));
+  BF.startBattle(st, 'kobold', {}, BF.DEFAULT_FIELD);
+  check('the default battlefield is flat, with pillars', Object.keys(st.combat.grid.height).length === 0 && st.combat.grid.pillars.length > 0);
 
   // The log.
   check('the log describes a throw', describe({ t: 'attack', by: 'player', ranged: true, hit: true, weapon: 'Throwing Axe', target: 'Orc', dmg: 3, distance: 5, dmgMult: 0.75 }).text

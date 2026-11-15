@@ -29,10 +29,42 @@ frame.addEventListener('load', async () => {
   const click = async (sel, label) => {
     const btns = [...d.querySelectorAll(sel)].filter(b => !label || b.textContent.includes(label));
     if (!btns.length) throw new Error(`No button ${sel} ${label ?? ''}`);
-    btns[0].click();
+    btns[0].dispatchEvent(new MouseEvent('click', { bubbles: true })); // board hexes are SVG, with no .click()
     await wait(50);
   };
   const screen = () => q('#screen').dataset.screen;
+  const autosave = () => JSON.parse(w.localStorage.getItem('dimholt.save.auto')).state;
+  const hexDist = (a, b) => (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs(a.q + a.r - b.q - b.r)) / 2;
+  // Attack an enemy in reach (a red hex), if there is one.
+  const strike = async () => {
+    const t = q('.cell.attackable');
+    if (!t) return false;
+    await click(`[data-key="${t.dataset.key}"]`);
+    await wait(80);
+    return true;
+  };
+  // Play the battlefield the way a player would: each round attack an enemy in
+  // reach, or walk to the blue hex nearest an enemy and attack from there,
+  // then end the turn.
+  const playFight = async (rounds = 60) => {
+    for (let i = 0; i < rounds && !q('[data-action="leave"]'); i++) {
+      if (!await strike()) {
+        const s = autosave();
+        const foes = s.combat.enemies.filter(e => e.hp > 0).map(e => s.combat.grid.pos[e.uid]).filter(Boolean);
+        const gap = k => { const [kq, kr] = k.split(',').map(Number); return Math.min(...foes.map(f => hexDist({ q: kq, r: kr }, f))); };
+        const best = [...d.querySelectorAll('.cell.reach')].map(c => c.dataset.key).sort((a, b) => gap(a) - gap(b))[0];
+        if (best) {
+          await click(`[data-key="${best}"]`);
+          await wait(80);
+          await strike();
+        }
+      }
+      if (!q('[data-action="leave"]')) {
+        await click('[data-action="endTurn"]');
+        await wait(80);
+      }
+    }
+  };
   try {
     const navLink = () => !!q('#nav [data-to="town"]');
     log(screen() === 'title', 'title screen shows');
@@ -70,14 +102,14 @@ frame.addEventListener('load', async () => {
     await click('tr[data-id="kobold"]');
     log(q('.foe-card h3').textContent === 'Kobold', 'selected the kobold');
     await click('[data-action="fight"][data-id="kobold"]');
-    log(screen() === 'combat', 'combat screen shows');
+    const opening = autosave().combat;
+    log(screen() === 'battle' && d.querySelectorAll('#board polygon').length === 91, 'the fight opens on the hex battlefield');
+    log(Object.keys(opening.grid.height).length === 0 && !q('.tester') && !q('[data-action="autoTurn"]') && !q('.beta-note'),
+      'a flat floor, with no tester or auto-play controls');
     log(!navLink(), 'no town link mid-fight');
     await click('[data-action="speed"][data-speed="instant"]');
     const stopInCombat = new URLSearchParams(location.search).get('stop') === 'combat';
-    for (let i = 0; i < (stopInCombat ? 2 : 60) && q('[data-action="fight"]'); i++) {
-      await click('[data-action="fight"]');
-      await wait(30);
-    }
+    await playFight(stopInCombat ? 1 : 60);
     if (stopInCombat) {
       log(true, 'stopped mid-fight for inspection (?stop=combat)');
       document.body.dataset.done = 'yes';
@@ -138,12 +170,11 @@ frame.addEventListener('load', async () => {
       const goldBefore = JSON.parse(w.localStorage.getItem('dimholt.save.auto')).state.character.gold;
       await click('[data-action="fight"]');
       const hiredState = JSON.parse(w.localStorage.getItem('dimholt.save.auto')).state;
-      log(screen() === 'combat' && d.querySelectorAll('.fighter.ally').length === 1 && hiredState.character.gold === goldBefore - 10, 'mercenary joins and wages are paid');
+      log(screen() === 'battle' && d.querySelectorAll('.roster .dot.ally').length === 1 && hiredState.combat.grid.pos.a1
+        && hiredState.character.gold === goldBefore - 10, 'mercenary joins on the battlefield and wages are paid');
       log(q('#combat-log').textContent.includes('Fighting at your side'), 'log names the crew');
-      for (let i = 0; i < 60 && q('[data-action="fight"]'); i++) {
-        await click('[data-action="fight"]');
-        await wait(30);
-      }
+      log(!q('[data-action="addMerc"]'), 'no way to add mercenaries mid-fight');
+      await playFight();
       log(!!q('[data-action="leave"]'), 'fight with a mercenary finishes');
       await click('[data-action="leave"]');
 
@@ -183,7 +214,23 @@ frame.addEventListener('load', async () => {
       log(asked.includes('still poisoned') && screen() === 'arena', 'declining the poison warning stays out of the fight');
       w.confirm = () => true;
       await click('[data-action="fight"]');
-      log(screen() === 'combat' && q('#combat-log').textContent.includes('still burns'), 'fight opens with the lingering poison line');
+      log(screen() === 'battle' && q('#combat-log').textContent.includes('still burns'), 'fight opens with the lingering poison line');
+
+      // A fight saved before the battlefield (no grid) still finishes on the classic screen.
+      const old = autosave();
+      delete old.combat.grid;
+      delete old.combat.turn;
+      w.localStorage.setItem('dimholt.save.3', JSON.stringify({ format: 'dimholt-save', version: old.version, state: old }));
+      await click('[data-action="surrender"]');
+      await wait(300);
+      await click('[data-action="leave"]');
+      await click('[data-to="saves"]');
+      await click('[data-action="load"][data-slot="3"]');
+      log(screen() === 'combat', 'a fight saved before the battlefield loads on the classic screen');
+      const before = q('#combat-log').children.length;
+      await click('[data-action="fight"]');
+      await wait(100);
+      log(q('#combat-log').children.length > before, '...and plays on there');
     } else {
       await click('[data-action="leave"]');
       log(screen() === 'dead', 'death screen shows');

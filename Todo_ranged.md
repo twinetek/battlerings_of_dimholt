@@ -8,7 +8,7 @@ Status: partly built. **Throwing** is built: you can throw any (melee) weapon yo
 - the moved-first penalty and the shoot-then-move limit;
 - the board, tooltip, shop and log support.
 
-`DESIGN.md` ("Ranged attacks") documents all of that; this file covers the rest. This is for the hex battlefield beta (`hex_battlefield/`). Move the settled parts into `DESIGN.md` once they're built.
+`DESIGN.md` ("Ranged attacks") documents all of that; this file covers the rest. The battlefield, and throwing, are in the main game; build new ranged work in the beta (`hex_battlefield/`) first. Move the settled parts into `DESIGN.md` once they're built.
 
 ## Goals
 

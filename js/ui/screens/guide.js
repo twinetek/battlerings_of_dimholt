@@ -14,7 +14,6 @@ import { earnsStatPoint } from '../../rules/stats.js';
 import { rangeText, span } from '../../engine/dice.js';
 import { button, esc, gp, signed, d20Chance } from '../format.js';
 import { specialText } from './arena.js';
-import { forSaleHere } from './shops.js';
 import { poisonTotal } from '../../rules/poison.js';
 import { betaOn } from '../../config.js';
 import { PLAYER_MOVE, MERC_MOVE, moveFor } from '../../rules/battlefield.js';
@@ -30,7 +29,7 @@ const SECTIONS = () => [
   ['g-progress', 'Leveling up'],
   ['g-training', 'Stat points and Tomes'],
   ['g-combat', 'How combat works'],
-  ...(betaOn('hex-battlefield') ? [['g-battlefield', 'The hex battlefield (beta)']] : []),
+  ['g-battlefield', 'The battlefield'],
   ['g-monsters', 'Monsters'],
   ['g-specials', 'Special abilities'],
   ['g-poison', 'Poison'],
@@ -101,11 +100,14 @@ function monsterTable() {
     'Weapon needed', 'Special', num('XP'), num('Award'), num('Fine')], rows, 'monster-table');
 }
 
+// The battlefield, plus, in the hex-battlefield beta, its tester controls,
+// terrain and high ground.
 function battlefieldSection() {
   const moves = MONSTERS.map(m => `${esc(m.name)} ${moveFor(m)}`).join(', ');
+  const beta = betaOn('hex-battlefield');
   return `
-      <h3 id="g-battlefield">The hex battlefield (beta)</h3>
-      <p>In the beta, every arena fight takes place on a hex-shaped arena. All the rules above still apply; the battlefield adds positions.</p>
+      <h3 id="g-battlefield">The battlefield</h3>
+      <p>Every arena fight takes place on a flat, hex-shaped arena scattered with stone pillars. All the rules above still apply; the battlefield adds positions.</p>
       <ul>
         <li><strong>Your turn.</strong> Move up to ${PLAYER_MOVE} hexes (the blue ones; hover to see the path) and attack one adjacent enemy
           (red), in either order. Using an item replaces your attack. Then press <strong>End turn</strong>.</li>
@@ -117,7 +119,7 @@ function battlefieldSection() {
         <li><strong>Monster movement</strong> per round: ${moves}.</li>
         <li><strong>Reinforcements</strong> enter at the far edge of the arena.</li>
         <li><strong>The amber zone</strong> marks every hex an enemy could reach and strike this round.</li>
-        <li><strong>Tester controls</strong> on the battle screen let you add enemies or free mercenaries, heal, rebuild the arena,
+        ${beta ? `<li><strong>Tester controls</strong> on the battle screen let you add enemies or free mercenaries, heal, rebuild the arena,
           and auto-play turns. They're for trying out scenarios and bend the rules.</li>
         <li><strong>Terrain (being built).</strong> Arenas are flat unless you pick another <strong>Arena layout</strong> in the tester controls
           and press <strong>Rebuild battlefield</strong>. Raised ground goes up to ${MAX_HEIGHT} levels: shaded hexes show their level, and thick edges are
@@ -127,7 +129,7 @@ function battlefieldSection() {
           (tall monsters reach ${TALL_HEIGHT_REACH}: ${MONSTERS.filter(m => m.move.includes('tall')).map(m => esc(m.name)).join(', ')}). Attacking up costs ${UPHILL_TO_HIT} to hit per level;
           attacking down adds ${DOWNHILL_DMG} damage per level. Standing above your attacker adds ${HIGH_GROUND_SAVE} per level to your saving throws against
           its poison, paralysis and breath; a monster above you gets the same against your venom. Hover an enemy beside you to see the numbers.
-          It all works the same for monsters and mercenaries.</li>
+          It all works the same for monsters and mercenaries.</li>` : ''}
         <li><strong>Throwing weapons.</strong> You can throw any weapon you carry, and each one you carry is one throw per fight: five daggers
           are five throws. Click an enemy that isn't beside you (a dashed red hex) to throw at it. The <strong>Throw</strong> choices under the
           battle buttons pick what you throw: <strong>Best spare</strong> throws the best weapon you aren't holding that can hurt the target,
@@ -139,9 +141,9 @@ function battlefieldSection() {
             <li><strong>Range.</strong> Up to your full-power range a throw is at full accuracy and damage. Each hex beyond costs 1 to hit and an eighth
               of the damage, down to half at the most you can throw: ${FALLOFF_HEXES} hexes past full power. Strength adds range
               (+1 at 16-17, +2 at 18) and its damage bonus; Dexterity adds to hit (+1 at 16, +2 at 17, +3 at 18). The Weaponsmith shows your numbers.</li>
-            <li><strong>Height.</strong> Throwing down adds 1 hex of full-power range per level (up to ${HEIGHT_AIM_MAX}); throwing up takes 1 away.</li>
-            <li><strong>Line of sight.</strong> Pillars, and ground higher than the line of the throw, block it. Each fighter in the way costs ${COVER_PENALTY} to hit,
-              unless you're throwing over their heads from above.</li>
+            ${beta ? `<li><strong>Height.</strong> Throwing down adds 1 hex of full-power range per level (up to ${HEIGHT_AIM_MAX}); throwing up takes 1 away.</li>` : ''}
+            <li><strong>Line of sight.</strong> Pillars${beta ? ', and ground higher than the line of the throw,' : ''} block it. Each fighter in the way costs ${COVER_PENALTY} to hit${beta ? `,
+              unless you're throwing over their heads from above` : ''}.</li>
             <li><strong>Moving.</strong> Each hex you move before throwing costs 1 to hit (half that from Dex ${STEADY_DEX}). After a throw you can still
               move ${SHOT_MOVE} hex.</li>
             <li>Hover an enemy to see your chance, damage and what changes them.</li>
@@ -237,7 +239,7 @@ function thac0Examples() {
 // hexes); ..." from the weapons' throw profiles.
 function throwKinds() {
   const kinds = new Map();
-  for (const w of WEAPONS.filter(forSaleHere)) {
+  for (const w of WEAPONS) {
     const key = `${w.throw.aim},${w.throw.hit}`;
     kinds.set(key, [...(kinds.get(key) ?? []), w]);
   }
@@ -249,7 +251,7 @@ function throwKinds() {
 
 function weaponTable() {
   return table(['Weapon', num('Damage'), num('Speed'), num('Magic'), num('Cost'), num('Sells for')],
-    WEAPONS.filter(forSaleHere).map(w => tr([esc(w.name), n(rangeText(w.dmg, w.plus)), n(w.speed), n(w.plus ? `+${w.plus}` : ''), n(gp(w.cost)), n(gp(Math.floor(w.cost / 2)))])));
+    WEAPONS.map(w => tr([esc(w.name), n(rangeText(w.dmg, w.plus)), n(w.speed), n(w.plus ? `+${w.plus}` : ''), n(gp(w.cost)), n(gp(Math.floor(w.cost / 2)))])));
 }
 
 function armorTable() {
@@ -320,7 +322,8 @@ export function render(ctx) {
       </ul>
 
       <h3 id="g-combat">How combat works</h3>
-      <p>Fights are played one round at a time. Each round you choose <strong>Fight</strong>, <strong>Use</strong> an item, or <strong>Surrender</strong>.</p>
+      <p>Fights are played one round at a time on the battlefield (see The battlefield, below). Each round you move and attack (or throw),
+        <strong>Use</strong> an item, or <strong>Surrender</strong>.</p>
       <ol>
         <li><strong>Initiative.</strong> You roll 1d10 plus your weapon's speed (or ${ITEM_SPEED} when using an item).
           The monster rolls 1d10 plus its speed. The lower total acts first, and ties go to you.</li>
@@ -337,15 +340,14 @@ export function render(ctx) {
       <ul>
         <li><strong>Armor class</strong> = 10 + armor adjustment + Dexterity adjustment − your best Ring of Protection.</li>
         <li><strong>Use</strong> takes your whole action for the round, and the monster still attacks.</li>
-        <li><strong>More than one enemy?</strong> Click an enemy's card to make it your target. Your attacks, wands, and potions
-          of fiery breath go to your target, and your mercenaries attack it too. When it falls, you move on to the next enemy automatically.
-          Each enemy attack picks a random living fighter on your side.</li>
+        <li><strong>More than one enemy?</strong> Click an enemy to make it your target. Your wands and potions of fiery breath
+          go to your target, and your mercenaries go after it too. Each enemy attacks whoever on your side is beside it.</li>
         <li><strong>Surrender</strong> ends the fight immediately. The arena fines you 10% of the opponent's award, or all your gold if you have less.</li>
         <li><strong>Death</strong> is permanent for that character. The game autosaves after every round, so reloading can't undo a fight,
           but you can load one of your manual save slots.</li>
       </ul>
 
-      ${betaOn('hex-battlefield') ? battlefieldSection() : ''}
+      ${battlefieldSection()}
 
       <h3 id="g-monsters">Monsters</h3>
       <p>Opponents are listed in order of toughness. Hit points are rolled fresh for each fight from the dice shown.

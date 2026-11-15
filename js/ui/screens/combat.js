@@ -1,6 +1,8 @@
 // The combat dialog: your side on the left (you, then any mercenaries), the
 // enemies on the right, a log below, and the original's three buttons: Fight,
 // Use, Surrender. With more than one enemy, click one to make it your target.
+// New fights are all on the battlefield (screens/battle.js); this screen only
+// finishes fights saved before it, which have no grid (see ui/fight.js).
 
 import { MONSTER_BY_ID } from '../../data/monsters.js';
 import { ITEM_BY_ID } from '../../data/equipment.js';

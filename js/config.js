@@ -10,9 +10,9 @@
 export const BETA_FEATURES = [
   {
     id: 'hex-battlefield',
-    name: 'Hex battlefield',
+    name: 'Battlefield terrain',
     folder: 'hex_battlefield/',
-    description: 'Arena fights on a hex grid, with tester controls for setting up scenarios.',
+    description: 'Raised terrain on the battlefield, with tester controls for setting up scenarios.',
   },
 ];
 

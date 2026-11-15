@@ -4,7 +4,7 @@ A browser gladiator game in plain HTML, CSS and ES modules: no build step, no se
 
 ## Where to look
 
-- `DESIGN.md`: the reference for everything built, including the hex battlefield beta and its terrain.
+- `DESIGN.md`: the reference for everything built, including the hex battlefield (where every fight is played) and the terrain beta.
 - `TODO.md`: decided-but-unbuilt ideas, plus open code-review findings (bugs, save safety, cleanup).
 - `Todo_ranged.md`: the design for ranged attacks on the battlefield. Throwing any carried weapon and the shared range rules are built (`js/rules/ranged.js`); its "Build order" lists what's next.
 - `todo_terrain.md`: the design for multi-level terrain. Built so far: **generation** (`js/rules/terrain.js`), the board's level display, the tester layout picker, and the **melee height rules** (`heightMods`, `inReach` in `js/rules/combat.js`). Its "Build order" lists what's next.
@@ -24,7 +24,7 @@ The tests are browser pages that print PASS/FAIL lines and set `document.body.da
 
 - `tests/index.html`: rule unit tests and balance simulations.
 - `tests/smoke.html`: the main game, played through its real screens.
-- `tests/beta-smoke.html`: the hex battlefield beta, played through its real screens.
+- `tests/beta-smoke.html`: the battlefield terrain beta (`hex_battlefield/`), played through its real screens.
 
 To run them headless:
 

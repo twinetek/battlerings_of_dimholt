@@ -3,7 +3,6 @@
 import { WEAPONS, WEAPON_BY_ID, ARMOR, ITEMS, ITEM_BY_ID } from '../../data/equipment.js';
 import { FALLOFF_HEXES } from '../../rules/tables.js';
 import { throwStats } from '../../rules/ranged.js';
-import { betaOn } from '../../config.js';
 import { LOOT_BY_ID } from '../../data/loot.js';
 import { coatingLabel, glandPotency, glandValue, freshness, sellLoot } from '../../rules/loot.js';
 import { armorOf } from '../../rules/character.js';
@@ -18,13 +17,9 @@ const confirmSale = (name, price) => price < 100 || window.confirm(`Sell the ${n
 
 const weaponName = w => (w.plus ? `<span class="magic">${esc(w.name)}</span>` : esc(w.name));
 
-// Throwing happens only on the hex battlefield (beta), so only it sells
-// weapons made for throwing, and only it shows throwing numbers.
-export const forSaleHere = w => !w.betaOnly || betaOn('hex-battlefield');
-
 // "Thrown: full power to 4 hexes, reaches 8, -2 to hit" for this character.
 export function throwText(c, w) {
-  const r = betaOn('hex-battlefield') && throwStats(c, w);
+  const r = throwStats(c, w);
   if (!r) return '';
   const hit = w.throw.hit ? `, ${w.throw.hit} to hit` : '';
   return `<span class="muted small block">Thrown: full power to ${r.aim} hex${r.aim === 1 ? '' : 'es'}, reaches ${r.aim + FALLOFF_HEXES}${hit}</span>`;
@@ -55,7 +50,7 @@ export function coatingTag(state, entry) {
 export const weapons = {
   render(ctx) {
     const c = ctx.state.character;
-    const forSale = WEAPONS.filter(forSaleHere).map(w => `
+    const forSale = WEAPONS.map(w => `
       <tr>
         <td>${weaponName(w)}${throwText(c, w)}</td>
         <td class="num">${rangeText(w.dmg, w.plus)}</td>
@@ -85,7 +80,7 @@ export const weapons = {
         <h2>🗡️ Weaponsmith</h2>
         <p class="muted">Damage includes any magic bonus. Speed is added to your initiative roll, so lower strikes first.
           Gargoyles and wights need a +1 weapon to harm; earth elementals need +2.
-          ${betaOn('hex-battlefield') ? 'On the battlefield you can throw any weapon you carry, each one once per fight, so a spare dagger or two pays for itself.' : ''}</p>
+          On the battlefield you can throw any weapon you carry, each one once per fight, so a spare dagger or two pays for itself.</p>
         ${goldLine(c)}
         <div class="cols">
           <div class="panel">

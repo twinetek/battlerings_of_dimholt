@@ -6,12 +6,11 @@
 // come later with their own `ranged` field (see Todo_ranged.md).
 // speed:   added to the initiative roll, lower is faster.
 // plus:    magic bonus to hit and damage, and what magicReq checks against.
-// throw:   (hex battlefield beta) how well it flies when thrown: { aim, hit }
+// throw:   how well it flies when thrown on the battlefield: { aim, hit }
 //          aim  hexes at full accuracy and damage, before Str (rules/ranged.js)
 //          hit  to-hit adjustment for throwing it
 //          Any weapon you carry can be thrown, one throw per weapon per fight;
 //          you gather them up afterward.
-// betaOnly: made for throwing, so sold only on the hex battlefield (beta).
 const MADE_TO_THROW = { aim: 3, hit: 0 };  // daggers, throwing axes
 const HANDY = { aim: 2, hit: -1 };         // small and balanced enough
 const AWKWARD = { aim: 1, hit: -2 };       // one-handed weapons
@@ -19,7 +18,7 @@ const CLUMSY = { aim: 1, hit: -4 };        // big two-handed weapons
 
 export const WEAPONS = [
   { id: 'dagger',          name: 'Dagger',             cost: 2,     speed: 2,  dmg: '1d4',   plus: 0, throw: MADE_TO_THROW },
-  { id: 'throwing-axe',    name: 'Throwing Axe',       cost: 8,     speed: 4,  dmg: '1d6',   plus: 0, throw: MADE_TO_THROW, betaOnly: true },
+  { id: 'throwing-axe',    name: 'Throwing Axe',       cost: 8,     speed: 4,  dmg: '1d6',   plus: 0, throw: MADE_TO_THROW },
   { id: 'hand-axe',        name: 'Hand Axe',           cost: 4,     speed: 4,  dmg: '1d6',   plus: 0, throw: HANDY },
   { id: 'short-sword',     name: 'Short Sword',        cost: 10,    speed: 3,  dmg: '1d6',   plus: 0, throw: AWKWARD },
   { id: 'mace',            name: 'Mace',               cost: 8,     speed: 7,  dmg: '1d6+1', plus: 0, throw: AWKWARD },

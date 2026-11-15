@@ -2,7 +2,7 @@
 
 A browser gladiator game that builds on *Darkwood* (1992), the Macintosh shareware arena game by Robert Chancellor. It's a new fan-created game with its own ideas.
 
-Roll a gladiator and fight your way up the Battlerings, from giant rats to the Red Dragon. Buy weapons, armor, and magic. Level up and spend stat points. Hire mercenaries, and coat your blade with venom from poisonous monsters. Beat the Red Dragon to become Captain of the Guard.
+Roll a gladiator and fight your way up the Battlerings, from giant rats to the Red Dragon. Every fight is on a hex battlefield: move, strike, or throw your spare weapons. Buy weapons, armor, and magic. Level up and spend stat points. Hire mercenaries, and coat your blade with venom from poisonous monsters. Beat the Red Dragon to become Captain of the Guard.
 
 It's plain HTML, CSS, and JavaScript modules, with no build step and no server. Games save in your browser, and you can export a save file for backup.
 
@@ -14,9 +14,10 @@ Once GitHub Pages is on, the game is at https://twinetek.github.io/battlerings_o
 
 - Each beta feature is the full game with one experimental feature switched on, in its own folder with its own saves.
 - It starts from a copy of your main game and never changes it.
-- Today there's one beta feature: **Hex battlefield** (`hex_battlefield/`). It puts arena fights on a hex grid, with tester controls for setting up scenarios.
-- **Terrain, being built:** in the hex battlefield's tester controls, pick an **Arena layout** (hills, a stepped ziggurat, or raised ledges with ramps) and rebuild the arena to see it. The board shades raised ground by level and marks cliffs. High ground already matters in melee: you can only strike 1 level up or down, attacking up is harder, and attacking down hits harder. Moving still ignores levels; climbing comes next.
-- **Throwing:** on the hex battlefield you can throw any weapon you carry at an enemy in range, each one once per fight, so five daggers are five throws. Daggers and the beta's Throwing Axes fly best; a two-handed sword barely flies at all. Distance, height, cover and moving first change your chances, and you gather everything up after each fight. You can now carry any number of weapons. Bows and crossbows come later.
+- Today there's one beta feature: **Battlefield terrain** (`hex_battlefield/`). It adds raised terrain to the battlefield, with tester controls for setting up scenarios.
+- **Terrain, being built:** in the tester controls, pick an **Arena layout** (hills, a stepped ziggurat, or raised ledges with ramps) and rebuild the arena to see it. The board shades raised ground by level and marks cliffs. High ground already matters in melee: you can only strike 1 level up or down, attacking up is harder, and attacking down hits harder. Moving still ignores levels; climbing comes next.
+
+**The battlefield** (main game): every fight is on a flat hex arena with pillars. Move up to 4 hexes and attack an adjacent enemy, or throw any weapon you carry at one in range; each weapon is one throw per fight, so five daggers are five throws. Daggers and Throwing Axes fly best; a two-handed sword barely flies at all. You gather everything up after each fight, and you can carry any number of weapons. Bows and crossbows come later.
 
 ## Run locally
 
@@ -32,10 +33,10 @@ Then open these pages:
 |---|---|
 | http://localhost:8000/ | The game |
 | http://localhost:8000/?beta=true | The game, with the beta features drop-down |
-| http://localhost:8000/hex_battlefield/ | The hex battlefield beta |
+| http://localhost:8000/hex_battlefield/ | The battlefield terrain beta |
 | http://localhost:8000/tests/ | Rule tests and balance simulations |
 | http://localhost:8000/tests/smoke.html | Main-game playthrough |
-| http://localhost:8000/tests/beta-smoke.html | Beta playthrough: the drop-down, then the hex battlefield |
+| http://localhost:8000/tests/beta-smoke.html | Beta playthrough: the drop-down, then the terrain beta |
 
 The test pages report PASS or FAIL lines. The playthroughs drive the real screens and overwrite autosaves in that browser.
 
@@ -47,7 +48,7 @@ The test pages report PASS or FAIL lines. The playthroughs drive the real screen
 - `js/ui/`: screens.
 - `DESIGN.md`: design notes and decisions.
 - `TODO.md`: ideas that are decided but not built yet, and open findings from code reviews.
-- `Todo_ranged.md`: the design for ranged attacks on the hex battlefield. Throwing (any weapon you carry) is built; bows, crossbows and monsters that throw are not.
+- `Todo_ranged.md`: the design for ranged attacks on the battlefield. Throwing (any weapon you carry) is built; bows, crossbows and monsters that throw are not.
 - `todo_terrain.md`: the design for multi-level terrain on the hex battlefield. Terrain generation, its display on the board, and the melee high-ground rules are built; movement doesn't use levels yet.
 
 ## Credits

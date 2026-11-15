@@ -1,6 +1,6 @@
-// The hex battlefield screen (beta). Same fights as the classic combat screen
-// (rules/combat.js), on a grid (rules/battlefield.js), plus tester controls
-// for setting up scenarios.
+// The battlefield screen, where every arena fight is played. Same rules as the
+// classic combat screen (rules/combat.js), on a grid (rules/battlefield.js).
+// The hex-battlefield beta adds tester controls for setting up scenarios.
 
 import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
 import { MERCS, MERC_BY_ID } from '../../data/mercs.js';
@@ -17,6 +17,7 @@ import * as H from '../../engine/hex.js';
 import { COMBAT_LOG_LIMIT, thac0 } from '../../rules/tables.js';
 import { toLines, describeAll, SUMMARIZE_ABOVE } from '../presenter.js';
 import { button, esc, gp } from '../format.js';
+import { betaOn } from '../../config.js';
 import { itemLabel, coatingTag } from './shops.js';
 import { actions as combatActions } from './combat.js';
 
@@ -297,7 +298,7 @@ export function render(ctx, params) {
   const venom = coatingTag(s, weaponEntry(c));
   return `
     <section class="battle">
-      <p class="beta-note small">Beta: the hex battlefield. Round ${cb.round}.${venom ? ` Blade venom:${venom}` : ''}</p>
+      <p class="${betaOn('hex-battlefield') ? 'beta-note ' : 'muted '}small">${betaOn('hex-battlefield') ? 'Beta: the hex battlefield. ' : ''}Round ${cb.round}.${venom ? ` Blade venom:${venom}` : ''}</p>
       <div class="battle-grid">
         <div>
           <div class="board-wrap">${boardSvg(s, params)}</div>
@@ -312,7 +313,7 @@ export function render(ctx, params) {
             <p class="muted small">Legend: blue hexes, where you can move · red, an enemy you can attack · dashed red, one you can throw at ·
               amber, where an enemy could reach and strike this round · 🪨 pillar.
               ${Object.keys(cb.grid.height ?? {}).length ? '<br>Shaded hexes are raised ground, numbered by level; thick edges are cliffs. Higher ground wins melee: blows reach only 1 level up or down, attacking up is harder, attacking down hits harder (hover an enemy for the numbers). Moving ignores levels for now.' : ''}</p></div>
-          ${testerPanel(s)}
+          ${betaOn('hex-battlefield') ? testerPanel(s) : ''}
         </aside>
       </div>
     </section>`;

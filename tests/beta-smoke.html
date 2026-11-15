@@ -61,7 +61,7 @@ frame.addEventListener('load', async () => {
   const screen = () => q('#screen').dataset.screen;
   const st = () => JSON.parse(localStorage.getItem('dimholt-hex-battlefield.save.auto')).state;
   try {
-    log(w.location.pathname.endsWith('/hex_battlefield/') && !!q('.beta-badge') && q('.kicker').textContent.includes('Hex battlefield'), 'opening it lands on the hex battlefield beta');
+    log(w.location.pathname.endsWith('/hex_battlefield/') && !!q('.beta-badge') && q('.kicker').textContent.includes('Battlefield terrain'), 'opening it lands on the hex battlefield beta');
     log(!!q('[data-action="continue"]') && st().character.name === 'Smokey', 'main game was copied into the beta');
     log(!!q('[data-action="copyMain"]') && [...q('#beta-select').options].some(o => o.value === '../?beta=true'), 'copy control, and the drop-down leads back to the main game');
     await click('[data-action="continue"]');
