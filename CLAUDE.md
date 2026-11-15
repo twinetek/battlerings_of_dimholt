@@ -7,7 +7,7 @@ A browser gladiator game in plain HTML, CSS and ES modules: no build step, no se
 - `DESIGN.md`: the reference for everything built, including the hex battlefield (where every fight is played, on a random terrain layout) and the tester beta.
 - `TODO.md`: decided-but-unbuilt ideas, plus open code-review findings (bugs, save safety, cleanup).
 - `Todo_ranged.md`: the design for ranged attacks on the battlefield. Throwing any carried weapon and the shared range rules are built (`js/rules/ranged.js`); its "Build order" lists what's next.
-- `todo_terrain.md`: the design for multi-level terrain. Built so far: **generation** and the **random layout per fight** (`js/rules/terrain.js`), the board's level display, the tester layout picker, and the **melee height rules** (`heightMods`, `inReach` in `js/rules/combat.js`). Its "Build order" lists what's next.
+- `todo_terrain.md`: the design for multi-level terrain. Built so far: **generation** and the **random layout per fight** (`js/rules/terrain.js`), the board's level display, the tester layout picker, the **melee height rules** (`heightMods`, `inReach` in `js/rules/combat.js`), and **movement costs** across levels (`stepCostFor`, `reachableFor`, `crossable` in `js/rules/battlefield.js`). Its "Build order" lists what's next.
 
 When you build part of a design doc, document it in `DESIGN.md` and mark it built in the design doc. When a rule's behavior changes, update the player Guide prose in `js/ui/screens/guide.js` as well. The Guide's tables come from `data/` and `rules/` automatically.
 

@@ -169,7 +169,7 @@ Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and s
 - **Promoting a feature:** when it's ready to graduate, the main game switches it on too; nothing is duplicated.
 - **Adding a feature:** add an entry to `BETA_FEATURES`, create its folder with an `index.html` like `hex_battlefield/index.html`, and check `betaOn('<id>')` where the game should differ.
 
-**The hex battlefield** started as the first beta feature and has graduated: **every arena fight in the main game is on it**, with pillars and a terrain layout rolled at random each fight. The beta (`hex_battlefield/`, id `hex-battlefield`, now named **Battlefield tester**) keeps the tester controls, and new battlefield rules (climbing next) land there first.
+**The hex battlefield** started as the first beta feature and has graduated: **every arena fight in the main game is on it**, with pillars and a terrain layout rolled at random each fight. The beta (`hex_battlefield/`, id `hex-battlefield`, now named **Battlefield tester**) keeps the tester controls, and new battlefield rules (movement stats and monster traits next) land there first.
 
 - **Main game vs. beta:**
 
@@ -229,8 +229,22 @@ Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and s
 
 **Terrain: rolled at random each fight, shown, and used in melee and throwing**
 
-The full design for multi-level terrain is in `todo_terrain.md`: movement points with costs for climbing and descending, stats that change them, melee height rules, and ranged range by height. So far the terrain is **generated**, **rolled at random for every fight**, **shown on the board**, testers can pick a layout, and **melee and throwing use it** (see "Melee and height" below). Movement still ignores levels: anyone can walk up any cliff for the normal cost, and the board legend and the Guide say so.
+The full design for multi-level terrain is in `todo_terrain.md`: movement points with costs for climbing and descending, stats that change them, melee height rules, and ranged range by height. So far the terrain is **generated**, **rolled at random for every fight**, **shown on the board**, testers can pick a layout, and **movement, melee and throwing use it** (see "Movement across levels" and "Melee and height" below). Still to come: Strength, Dexterity and armor changing movement, falling damage, and monster movement traits.
 
+- **Movement across levels** (`rules/battlefield.js`, base numbers in `rules/tables.js`): movement is a budget of points per round (`moveOf`: you 4, mercenaries 4, monsters `moveFor`), spent per step:
+
+  | Step into a hex that is… | Cost |
+  |---|---|
+  | Level with you | 1 |
+  | Up *n* levels | 1 + `CLIMB_COST` (2) × *n* |
+  | Down *n* levels | 1 + `DROP_COST` (1) × *n* |
+
+  - **Limits:** a step can climb at most `CLIMB_MAX` (1) level and drop at most `SAFE_DROP` (1). A cliff (2+ levels) is a wall both ways; there's no jumping yet, since falling damage isn't built.
+  - **The first step is always allowed,** even over budget, and it ends the move. Slow movers (giants with 2 points) are never stuck at the foot of a slope, and after a throw (`SHOT_MOVE`, 1 point) you can still take any one step.
+  - **Everyone pays the same:** you, mercenaries and monsters all use `moveStatsOf` (the base numbers for now) and `stepCostFor(state, uid)`, which also treats other fighters and pillars as impassable.
+  - **Search:** `engine/hex.js` has `cheapestReachable(start, budget, cost)` (a Map of key → `{ cost, prev }`), `pathIn(map, goal)` and `cheapestPath(start, done, cost)`, a small Dijkstra search. `reachableFor` (blue hexes, the threat zone) adds the over-budget first steps. `moveYou` follows the cheapest path and explains a refused cliff. `advance` picks the foe whose strike spot is cheapest to reach, then walks that path as far as its points go, so monsters go around a ridge (cost 4) rather than over it (6). `cb.turn.movedHexes` still counts hexes, for the throwing penalty.
+  - **No arena can lock up:** pillars once landed on the Ledges band between its two ramps and sealed the sides apart, so no one could reach anyone (5 stalled fights in 2,000 simulated). `deploy` now checks `crossable(radius, height, pillars)`, a walk from your starting edge to the enemy's under the base rules, and rolls the arena again if it fails (up to 20 times; the last try has no pillars). After the fix: 0 stalls in 2,000.
+  - **Balance check** (same simulation as below, 300 fights each): deaths against a Kobold 11% flat, 13-14% raised; against an Orc 40% flat, 35-41% raised. Fights on Ledges run about 2 rounds longer, since crossing goes by the ramps.
 - **Random layouts:** `DEFAULT_FIELD.terrain` is `RANDOM`, so `deploy` calls `pickTerrain()` (`rules/terrain.js`), which rolls through `dice.js` by each layout's `weight`: Flat 3, Hills 3, Ziggurat 2, Ledges 2 (30/30/20/20%). The chosen id is stored as `combat.grid.terrain`, so reloading shows the same arena; the battle screen's round line names it ("Arena: Hills."). A field with no `terrain` (as tests pass) is flat, and saves from before have no `grid.terrain` and simply show no name.
 - **Balance check:** a simulation of a level-1 gladiator (all 12s, long sword, leather) playing by auto-play, 300 fights per layout: deaths against a Kobold 11% flat, 6-13% raised; against an Orc 44% flat, 22-33% raised. Raised ground doesn't make fights deadlier; if anything it gives you somewhere to stand.
 

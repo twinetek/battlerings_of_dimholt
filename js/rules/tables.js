@@ -90,12 +90,20 @@ export const UPHILL_TO_HIT = 2;      // to-hit penalty per level when attacking 
 export const DOWNHILL_DMG = 2;       // damage bonus per level when attacking down
 export const HIGH_GROUND_SAVE = 2;   // save bonus per level for a defender above its attacker
 
+// Movement across terrain levels (rules/battlefield.js; todo_terrain.md).
+// Everyone uses these base numbers for now; Strength, Dexterity, armor and
+// monster traits will change them.
+export const CLIMB_COST = 2;         // extra movement per level stepped up
+export const CLIMB_MAX = 1;          // the most levels one step can climb; higher is a wall
+export const DROP_COST = 1;          // extra movement per level stepped down
+export const SAFE_DROP = 1;          // the most levels one step can drop (jumping farther comes with falling damage)
+
 // Ranged attacks on the hex battlefield (beta; see rules/ranged.js).
 export const FALLOFF_HEXES = 4;      // past its aim range a shot loses 1 to hit and 1/8 of its damage per hex, to half at aim + 4
 export const AIM_CAP = 8;            // the most a weapon and your stats can push aim range
 export const HEIGHT_AIM_MAX = 2;     // aim range gained shooting down (1 per level), on top of AIM_CAP
 export const COVER_PENALTY = 2;      // to hit, per fighter on the line of fire
-export const SHOT_MOVE = 1;          // hexes you may still move after a ranged attack
+export const SHOT_MOVE = 1;          // movement left after a ranged attack: one step
 export const STEADY_DEX = 17;        // from this Dex, moving before a shot costs half
 
 // Missile to-hit bonus from Dexterity, following AD&D. 19-25 only with Tomes.

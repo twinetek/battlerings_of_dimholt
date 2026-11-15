@@ -1,6 +1,6 @@
 # Terrain and elevation on the hex battlefield: design
 
-Status: partly built. Terrain generation, a random layout for every fight (in the main game too), the board's level shading and cliff edges, the tester layout picker, and the melee height rules (reach, uphill and downhill, high-ground saves, the `tall` reach), and ranged range by height with line of sight in three dimensions (built with throwing weapons) are already built and documented in `DESIGN.md` ("Terrain"); this file covers the rest. Main-game fights already use random terrain, though movement ignores levels; build the rest (climbing first) in the beta (`hex_battlefield/`). It builds on the ranged-attack design in `Todo_ranged.md`. Move the settled parts into `DESIGN.md` once they're built.
+Status: partly built. Terrain generation, a random layout for every fight (in the main game too), the board's level shading and cliff edges, the tester layout picker, the melee height rules (reach, uphill and downhill, high-ground saves, the `tall` reach), ranged range by height with line of sight in three dimensions (built with throwing weapons), and **movement costs** (build order step 1: movement points, climb and drop costs and limits with the base numbers for everyone, the first-step rule, cheapest-path search, and the check that every arena can be crossed) are already built and documented in `DESIGN.md` ("Terrain"); this file covers the rest. Build it in the beta (`hex_battlefield/`) first. It builds on the ranged-attack design in `Todo_ranged.md`. Move the settled parts into `DESIGN.md` once they're built.
 
 ## Goals
 
@@ -19,22 +19,10 @@ Status: partly built. Terrain generation, a random layout for every fight (in th
 
 ## Movement
 
-Movement becomes a budget of **movement points (MP)** per turn instead of a count of hexes:
+Movement points, step costs, `climbMax`/`safeDrop`, the first-step rule and the cheapest-path search are built with the base numbers for everyone (`DESIGN.md`, "Movement across levels"). Still to build:
 
-| Step into a hex that is… | MP cost |
-|---|---|
-| Level with you | 1 |
-| Up by *n* levels | 1 + `climbCost` × *n* |
-| Down by *n* levels | 1 + `dropCost` × *n* |
-
-Two limits apply to a single step:
-
-- **`climbMax`:** the most levels you can climb in one step. A higher step is a wall; go around or find a slope.
-- **`safeDrop`:** the most levels you can step down safely. You may still **jump** down farther, up to `safeDrop + 2`, and take falling damage (see below).
-
-**The first step is always allowed** if it's within `climbMax` and your jump limit, even if it costs more MP than you have. That way slow fighters (giants with 2 MP) are never stuck at the foot of a slope. After that first step, your turn's movement is over.
-
-Pathfinding changes from "fewest hexes" to "cheapest MP". It uses a small Dijkstra search over the board (at most 91 hexes on a radius-5 board, so cost is no concern).
+- **Jumping:** step down farther than `safeDrop`, up to `safeDrop + 2`, taking falling damage (see below). Today such a drop is refused like a climb. `crossable` in `rules/battlefield.js` should keep using the base rules without jumps, so arenas stay crossable for everyone.
+- **The numbers below** replacing the base ones per fighter, through `moveStatsOf(state, uid)`.
 
 ### Base numbers and what stats change
 
@@ -118,30 +106,22 @@ Mercenaries use fixed numbers like everything else about them. Militia, Sellswor
 
 ## Where it goes in the code
 
-- **`engine/hex.js`:**
-  - `cheapestReachable(start, budget, cost)` and `cheapestPath(start, done, cost)`, where `cost(from, to)` returns a number or `Infinity`.
-  - The existing BFS helpers stay for flat uses.
 - **`rules/tables.js`:**
   - Tables: `dexMove`, `dexDrop`, `strClimb`, `strCarry`.
 - **`data/equipment.js`:** `bulk` on each armor.
 - **`data/monsters.js`:** add `'climber'`, `'flier'` and `'nimble'` to the `move` field (it exists, with `'tall'`).
 - **`data/mercs.js`:** per-tier MP and climb numbers.
 - **`rules/character.js`:** `moveStats(c)` returns `{ mp, climbCost, climbMax, dropCost, safeDrop }` from stats and armor. The Character screen shows it.
-- **`rules/battlefield.js`:**
-  - `stepCost(state, uid, from, to)`, `moveStatsOf(state, uid)` (for you, a mercenary or a monster) and `fallDamage`.
-  - `moveYou`, `advance`, `reachableFor` and `threatZone` switch to MP.
-  - `cb.turn.movedHexes` (it exists, for throwing) keeps counting hexes, not MP.
+- **`rules/battlefield.js`:** `moveStatsOf` (built, base numbers) reads stats, armor, traits and mercenary tiers; `stepCostFor` (built) allows jumps; `fallDamage`.
 - **`rules/combat.js`:** falls are new `fall` events with `dmg` and `hp`.
 - **`ui/presenter.js`:** lines for falls.
 - **`ui/screens/battle.js`:** climbable edges, MP previews and the paint tool.
-- **Save:** the new fight fields here (fall state) default safely when missing. If this ships with `Todo_ranged.md`, that design's version 5 migration covers both.
+- **Save:** the new fight fields here (fall state) should default safely when missing; otherwise bump `SAVE_VERSION` to 6 (5 was used by throwing).
 
 ## Testing
 
 - **`tests/index.html`, unit checks:**
-  - **Pathfinding:** Dijkstra finds the cheapest path, not the shortest; `cheapestReachable` respects the budget.
-  - **Step costs:** flat 1; up and down with each Str and Dex row; `climbMax` walls; jumps allowed to `safeDrop + 2` and refused beyond.
-  - **First step:** always allowed for a slow mover, and it ends the move.
+  - **Step costs** (base costs, walls and the first step are tested): up and down with each Str and Dex row; jumps allowed to `safeDrop + 2` and refused beyond.
   - **MP:** the three gladiators in the example get exactly those numbers; armor bulk is offset by Strength; MP never drops below 2.
   - **Falls:** 1d6 per extra level, the Con adjustment, the save halving it, never below 1 hp.
   - **Traits:** climbers, tall, fliers and nimble each change the numbers as listed.
@@ -151,10 +131,10 @@ Mercenaries use fixed numbers like everything else about them. Militia, Sellswor
 
 ## Build order
 
-1. Cheapest-path search, step costs and MP for you.
+1. ~~Cheapest-path search, step costs and movement points~~ (built, base numbers for everyone).
 2. Stats: `moveStats`, armor bulk, falls. Character screen display.
 3. Monster and mercenary traits; AI using the cheapest path and preferring high ground.
-4. The paint tool, making Hills the default layout, and the balance simulation; tune the constants.
+4. The paint tool and the balance simulation; tune the constants. (Random layouts per fight already replaced "make Hills the default".)
 
 ## Open questions
 

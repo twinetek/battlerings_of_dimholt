@@ -8,7 +8,7 @@ import {
   thac0, attacksLabel, saveTarget, STARTING_GOLD, INN_PRICE, GLAND_DECAY_TICKS, MAX_COATINGS,
   NATURAL_MAX, TOME_MAX, STAT_POINT_EVERY, ITEM_SPEED,
   MELEE_HEIGHT_REACH, TALL_HEIGHT_REACH, UPHILL_TO_HIT, DOWNHILL_DMG, HIGH_GROUND_SAVE,
-  FALLOFF_HEXES, HEIGHT_AIM_MAX, COVER_PENALTY, SHOT_MOVE, STEADY_DEX,
+  FALLOFF_HEXES, HEIGHT_AIM_MAX, COVER_PENALTY, STEADY_DEX, CLIMB_COST, DROP_COST,
 } from '../../rules/tables.js';
 import { earnsStatPoint } from '../../rules/stats.js';
 import { rangeText, span } from '../../engine/dice.js';
@@ -108,14 +108,14 @@ function battlefieldSection() {
       <h3 id="g-battlefield">The battlefield</h3>
       <p>Every arena fight takes place on a hex-shaped arena scattered with stone pillars, and often with raised ground. All the rules above still apply; the battlefield adds positions and height.</p>
       <ul>
-        <li><strong>Your turn.</strong> Move up to ${PLAYER_MOVE} hexes (the blue ones; hover to see the path) and attack one adjacent enemy
+        <li><strong>Your turn.</strong> Move (the blue hexes; hover to see the path) and attack one adjacent enemy
           (red), in either order. Using an item replaces your attack. Then press <strong>End turn</strong>.</li>
         <li><strong>Reach.</strong> Weapons reach only the six hexes around you. Wands and the Potion of Fiery Breath reach your target
           anywhere on the field. Dragon breath still hits everyone on your side.</li>
         <li><strong>Targets.</strong> Click any enemy to make it your target (🎯). Your mercenaries move toward it and attack it when they can.</li>
         <li><strong>Everyone else.</strong> After your turn, each mercenary moves up to ${MERC_MOVE} hexes and attacks; then each enemy moves
           toward the nearest fighter on your side and attacks whoever is next to it. Pillars (🪨) and other fighters block movement.</li>
-        <li><strong>Monster movement</strong> per round: ${moves}.</li>
+        <li><strong>Monster movement points</strong> per round: ${moves}.</li>
         <li><strong>Reinforcements</strong> enter at the far edge of the arena.</li>
         <li><strong>The amber zone</strong> marks every hex an enemy could reach and strike this round.</li>
         ${beta ? `<li><strong>Tester controls</strong> on the battle screen let you add enemies or free mercenaries, heal, rebuild the arena,
@@ -123,7 +123,11 @@ function battlefieldSection() {
           <strong>Rebuild battlefield</strong> to fight on a particular one.</li>` : ''}
         <li><strong>Terrain.</strong> Each fight's arena is chosen at random: ${TERRAINS.map(t => `${esc(t.name)} ${Math.round(terrainChance(t) * 100)}%${t.id === 'flat' ? '' : ` (${esc(t.description.charAt(0).toLowerCase() + t.description.slice(1, -1))})`}`).join('; ')}.
           The round line above the board names the arena. Raised ground goes up to ${MAX_HEIGHT} levels: shaded hexes show their level, and thick edges are
-          cliffs. Every layout is the same on both sides, and you always start on the floor. Moving ignores levels for now: you can walk up any slope or cliff.</li>
+          cliffs. Every layout is the same on both sides, and you always start on the floor.</li>
+        <li><strong>Movement.</strong> Each round you have ${PLAYER_MOVE} movement points; your mercenaries have ${MERC_MOVE}, and monsters the amounts below.
+          A step on the level costs 1, a step up a level costs ${1 + CLIMB_COST}, and a step down a level costs ${1 + DROP_COST}. A cliff (2 or more levels)
+          can't be climbed or dropped, so go around or find a slope or ramp. Your first step is always allowed even if it costs more than you have,
+          but it ends your move. Everyone follows the same costs, for now: Strength, Dexterity, armor, climbing spiders and flying dragons will change them later.</li>
         <li><strong>High ground in melee.</strong> A blow reaches a fighter beside you only if they're at most ${MELEE_HEIGHT_REACH} level up or down
           (tall monsters reach ${TALL_HEIGHT_REACH}: ${MONSTERS.filter(m => m.move.includes('tall')).map(m => esc(m.name)).join(', ')}). Attacking up costs ${UPHILL_TO_HIT} to hit per level;
           attacking down adds ${DOWNHILL_DMG} damage per level. Standing above your attacker adds ${HIGH_GROUND_SAVE} per level to your saving throws against
@@ -144,7 +148,7 @@ function battlefieldSection() {
             <li><strong>Line of sight.</strong> Pillars, and ground higher than the line of the throw, block it. Each fighter in the way costs ${COVER_PENALTY} to hit,
               unless you're throwing over their heads from above.</li>
             <li><strong>Moving.</strong> Each hex you move before throwing costs 1 to hit (half that from Dex ${STEADY_DEX}). After a throw you can still
-              move ${SHOT_MOVE} hex.</li>
+              take one step.</li>
             <li>Hover an enemy to see your chance, damage and what changes them.</li>
           </ul></li>
       </ul>`;

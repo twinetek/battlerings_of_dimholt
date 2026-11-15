@@ -3,15 +3,16 @@
 //
 // combat.grid = { radius, pillars: [hex keys], height: { key: level }, terrain: layout id, pos: { uid: { q, r } } }
 // (height comes from rules/terrain.js; melee reach and the height modifiers in
-// rules/combat.js read it, movement doesn't yet)
+// rules/combat.js read it, and so does movement, below)
 // combat.turn = { moved, acted, movedHexes, shot } for your turn this round
 // combat.thrown, throwPick, handBefore: the weapons you've thrown this fight
 // and which kind you'll throw next (rules/ranged.js)
 //
 // A round on the battlefield:
-//   1. You: move up to PLAYER_MOVE hexes and act once (attack an adjacent enemy,
-//      throw one of your weapons at one in range, or use an item), in either order,
-//      then end your turn. After a throw you can move only SHOT_MOVE hexes.
+//   1. You: move (PLAYER_MOVE movement points; see "Movement" below) and act
+//      once (attack an adjacent enemy, throw one of your weapons at one in range,
+//      or use an item), in either order, then end your turn. After a throw you
+//      can only take one step (SHOT_MOVE).
 //   2. Each mercenary moves toward your target (or the nearest enemy) and
 //      attacks if it ends next to one.
 //   3. Each enemy moves toward the nearest fighter on your side and attacks
@@ -26,7 +27,7 @@ import { MERC_BY_ID } from '../data/mercs.js';
 import { WEAPON_BY_ID } from '../data/equipment.js';
 import { maxHp } from './character.js';
 import { rangeProfile, throwsLeft } from './ranged.js';
-import { SHOT_MOVE } from './tables.js';
+import { SHOT_MOVE, CLIMB_COST, CLIMB_MAX, DROP_COST, SAFE_DROP } from './tables.js';
 import { generateTerrain, levelOf, pickTerrain, RANDOM } from './terrain.js';
 import {
   startCombat, setTarget, inReach, meleeReach, spawnEnemy, rangedTarget, PLAYER,
@@ -55,7 +56,7 @@ export function moveOf(cb, uid) {
   return e ? moveFor(MONSTER_BY_ID[e.monsterId]) : MERC_MOVE;
 }
 
-// How far a fighter can move right now: after a ranged attack you only step.
+// Movement points a fighter has right now: after a ranged attack you only step.
 const stepsLeft = (cb, uid) => (uid === PLAYER && cb.turn?.shot ? SHOT_MOVE : moveOf(cb, uid));
 
 export const isPillar = (cb, h) => cb.grid.pillars.includes(H.key(h));
@@ -83,8 +84,49 @@ export const passableFor = (state, uid) => h => {
   return !who || who === uid;
 };
 
-export const reachableFor = (state, uid) =>
-  H.reachable(state.combat.grid.pos[uid], stepsLeft(state.combat, uid), passableFor(state, uid));
+// ---- Movement ----
+// Movement is a budget of points (moveOf) spent per step:
+//   level with you     1
+//   up n levels        1 + climbCost × n    (no more than climbMax levels)
+//   down n levels      1 + dropCost × n     (no more than safeDrop levels)
+// A step beyond those limits can't be taken: a cliff is a wall both ways
+// until jumping and falling damage exist. The first step of a move is
+// always allowed, even if it costs more than the budget, and it ends the move,
+// so slow movers are never stuck at the foot of a slope.
+// See todo_terrain.md for the stats and monster traits still to come.
+
+export function moveStatsOf(state, uid) {
+  return { mp: stepsLeft(state.combat, uid), climbCost: CLIMB_COST, climbMax: CLIMB_MAX, dropCost: DROP_COST, safeDrop: SAFE_DROP };
+}
+
+// cost(from, to) for one step of `uid`, Infinity if it can't be taken.
+export function stepCostFor(state, uid, ms = moveStatsOf(state, uid)) {
+  const grid = state.combat.grid;
+  const passable = passableFor(state, uid);
+  return (from, to) => {
+    if (!passable(to)) return Infinity;
+    const rise = levelOf(grid, to) - levelOf(grid, from);
+    if (rise > ms.climbMax || -rise > ms.safeDrop) return Infinity;
+    return 1 + (rise > 0 ? ms.climbCost * rise : -rise * ms.dropCost);
+  };
+}
+
+// Where `uid` can move this turn: a Map of key -> { cost, prev } (see
+// H.pathIn). Includes the start at cost 0, and any first step over budget.
+export function reachableFor(state, uid) {
+  const from = state.combat.grid.pos[uid];
+  const ms = moveStatsOf(state, uid);
+  const cost = stepCostFor(state, uid, ms);
+  const map = H.cheapestReachable(from, ms.mp, cost);
+  for (const n of H.neighbors(from)) {
+    const c = cost(from, n);
+    if (c < Infinity && !map.has(H.key(n))) map.set(H.key(n), { cost: c, prev: from });
+  }
+  return map;
+}
+
+// The path `uid` would take to `to` this turn (hexes after its own), or null.
+export const pathFor = (state, uid, to) => H.pathIn(reachableFor(state, uid), to);
 
 // Can a fighter of `uid` on hex `from` strike someone on hex `to`? Adjacent and
 // within its height reach (the same test as inReach, for hexes not yet occupied).
@@ -127,18 +169,50 @@ export function placeNewcomers(state) {
   }
 }
 
+// Can a fighter walk from your starting edge to the enemy's under the base
+// movement rules (no cliffs up or down, no pillars)? Pillars on the Ledges
+// band can otherwise seal it off, and a fight where nobody can reach anybody
+// never ends. Stats and traits will only make climbing easier, never harder.
+export function crossable(radius, height, pillars) {
+  const grid = { height };
+  const blocked = new Set(pillars);
+  const open = h => H.distance(h, ORIGIN) <= radius && !blocked.has(H.key(h));
+  const starts = H.hexagon(radius).filter(h => h.r === radius && open(h));
+  const seen = new Set(starts.map(H.key));
+  const queue = [...starts];
+  while (queue.length) {
+    const h = queue.shift();
+    if (h.r === -radius) return true;
+    for (const n of H.neighbors(h)) {
+      const rise = levelOf(grid, n) - levelOf(grid, h);
+      if (!open(n) || seen.has(H.key(n)) || rise > CLIMB_MAX || -rise > SAFE_DROP) continue;
+      seen.add(H.key(n));
+      queue.push(n);
+    }
+  }
+  return false;
+}
+
+const DEPLOY_TRIES = 20;
+
 export function deploy(state, field = DEFAULT_FIELD) {
   const cb = state.combat;
   const radius = field.radius ?? DEFAULT_FIELD.radius;
-  // Terrain first, so pillars can keep clear of the ramps onto raised ground.
   const terrain = field.terrain === RANDOM ? pickTerrain() : field.terrain ?? 'flat';
-  const { height, ramps } = generateTerrain(radius, terrain);
-  const keepOpen = new Set(ramps.flatMap(k => [k, ...H.neighbors(H.fromKey(k)).map(H.key)]));
-  const pillars = [];
-  if (field.pillars ?? true) {
-    const candidates = H.hexagon(radius)
-      .filter(h => H.distance(h, ORIGIN) >= 1 && Math.abs(h.r) <= radius - 2 && !keepOpen.has(H.key(h)));
-    for (let i = 0; i < radius && candidates.length; i++) pillars.push(H.key(candidates.splice(die(candidates.length) - 1, 1)[0]));
+  // Terrain first, so pillars can keep clear of the ramps onto raised ground.
+  // If the result can't be crossed, roll it again; the last try has no pillars.
+  let height, pillars;
+  for (let tries = 1; ; tries++) {
+    let ramps;
+    ({ height, ramps } = generateTerrain(radius, terrain));
+    const keepOpen = new Set(ramps.flatMap(k => [k, ...H.neighbors(H.fromKey(k)).map(H.key)]));
+    pillars = [];
+    if ((field.pillars ?? true) && tries < DEPLOY_TRIES) {
+      const candidates = H.hexagon(radius)
+        .filter(h => H.distance(h, ORIGIN) >= 1 && Math.abs(h.r) <= radius - 2 && !keepOpen.has(H.key(h)));
+      for (let i = 0; i < radius && candidates.length; i++) pillars.push(H.key(candidates.splice(die(candidates.length) - 1, 1)[0]));
+    }
+    if (tries >= DEPLOY_TRIES || crossable(radius, height, pillars)) break;
   }
   cb.grid = { radius, pillars, height, terrain, pos: {} };
   cb.turn = newTurn();
@@ -163,9 +237,13 @@ export function moveYou(state, to) {
   if (cb.over) return fail('The fight is over.');
   if (cb.paralyzed > 0) return fail('You are paralyzed and cannot move.');
   if (cb.turn.moved) return fail('You have already moved this round.');
-  const path = H.pathToHex(cb.grid.pos[PLAYER], to, passableFor(state, PLAYER));
-  if (!path || !path.length || path.length > stepsLeft(cb, PLAYER)) {
-    return fail(cb.turn.shot ? `After a throw you can move only ${SHOT_MOVE} hex.` : "You can't get there this round.");
+  const path = pathFor(state, PLAYER, to);
+  if (!path || !path.length) {
+    if (cb.turn.shot) return fail('After a throw you can take only one step.');
+    const rise = levelOf(cb.grid, to) - levelOf(cb.grid, cb.grid.pos[PLAYER]);
+    return fail(H.adjacent(to, cb.grid.pos[PLAYER]) && Math.abs(rise) > 1
+      ? `That's a cliff: you can climb or drop only ${CLIMB_MAX} level in a step. Find a slope.`
+      : "You can't get there this round.");
   }
   cb.grid.pos[PLAYER] = path.at(-1);
   cb.turn.moved = true;
@@ -219,9 +297,10 @@ export function setThrowPick(state, id) {
   return ok([]);
 }
 
-// Step toward the nearest foe (preferring `preferUid`), up to the mover's
-// movement, unless already able to strike one. "Toward" means to a hex it can
-// strike from: next to the foe and within its height reach.
+// Step toward the nearest foe (preferring `preferUid`), along the cheapest
+// path and as far as its movement points go, unless already able to strike
+// one. "Toward" means to a hex it can strike from: next to the foe and within
+// its height reach.
 function advance(state, uid, ev, preferUid = null) {
   const cb = state.combat;
   const from = cb.grid.pos[uid];
@@ -232,12 +311,24 @@ function advance(state, uid, ev, preferUid = null) {
     if (!preferred || inReach(cb, uid, preferred.uid)) return;
   }
   const strikeSpot = target => h => canStrike(cb, uid, h, target);
+  const ms = moveStatsOf(state, uid);
+  const cost = stepCostFor(state, uid, ms);
   const options = foes
-    .map(f => ({ f, path: H.pathTo(from, strikeSpot(cb.grid.pos[f.uid]), passableFor(state, uid)) }))
-    .filter(x => x.path)
-    .sort((a, b) => (b.f === preferred) - (a.f === preferred) || a.path.length - b.path.length);
-  if (!options.length || !options[0].path.length) return;
-  const steps = options[0].path.slice(0, stepsLeft(cb, uid));
+    .map(f => ({ f, route: H.cheapestPath(from, strikeSpot(cb.grid.pos[f.uid]), cost) }))
+    .filter(x => x.route)
+    .sort((a, b) => (b.f === preferred) - (a.f === preferred) || a.route.cost - b.route.cost);
+  if (!options.length || !options[0].route.path.length) return;
+  // Walk as far as the points go; the first step is always allowed.
+  const steps = [];
+  let spent = 0;
+  let at = from;
+  for (const h of options[0].route.path) {
+    const c = cost(at, h);
+    if (steps.length && spent + c > ms.mp) break;
+    steps.push(h);
+    spent += c;
+    at = h;
+  }
   cb.grid.pos[uid] = steps.at(-1);
   if (uid === PLAYER) cb.turn.movedHexes = steps.length;
   ev.push({ t: 'move', uid, path: steps });

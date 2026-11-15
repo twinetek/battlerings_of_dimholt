@@ -14,7 +14,7 @@ import {
 import { TERRAINS, TERRAIN_BY_ID, RANDOM, levelOf, cliffEdges } from '../../rules/terrain.js';
 import { rangeProfile, throwsLeft, throwGroups } from '../../rules/ranged.js';
 import * as H from '../../engine/hex.js';
-import { COMBAT_LOG_LIMIT, thac0 } from '../../rules/tables.js';
+import { COMBAT_LOG_LIMIT, thac0, CLIMB_COST, DROP_COST } from '../../rules/tables.js';
 import { toLines, describeAll, SUMMARIZE_ABOVE } from '../presenter.js';
 import { button, esc, gp } from '../format.js';
 import { betaOn } from '../../config.js';
@@ -61,7 +61,7 @@ function boardSvg(s, params) {
   const reach = canMove ? reachableFor(s, PLAYER) : new Map();
   const hover = params.hover ? H.fromKey(params.hover) : null;
   const pathKeys = hover && reach.has(params.hover) && !occupant(s, hover)
-    ? new Set((H.pathToHex(me, hover, h => reach.has(H.key(h))) ?? []).map(H.key))
+    ? new Set((H.pathIn(reach, hover) ?? []).map(H.key))
     : new Set();
   const threat = showThreat(s) && !cb.over ? threatZone(s) : new Set();
   const hexes = boardHexes(cb);
@@ -74,7 +74,7 @@ function boardSvg(s, params) {
     else if (who?.startsWith('e') && canAct && inReach(cb, PLAYER, who)) cls.push('attackable');
     else if (who?.startsWith('e') && canAct && rangeProfile(s, who).ok) cls.push('throwable');
     else if (pathKeys.has(k)) cls.push('path');
-    else if (!who && reach.has(k) && reach.get(k) > 0) cls.push('reach');
+    else if (!who && reach.has(k) && reach.get(k).prev) cls.push('reach');
     else if (threat.has(k)) cls.push('threat');
     if (who === cb.target && !cb.over) cls.push('targeted');
     const pts = hexPoints(h);
@@ -313,7 +313,7 @@ export function render(ctx, params) {
           <div class="panel"><h3>Fighters</h3><div class="table-wrap">${roster(s)}</div>
             <p class="muted small">Legend: blue hexes, where you can move · red, an enemy you can attack · dashed red, one you can throw at ·
               amber, where an enemy could reach and strike this round · 🪨 pillar.
-              ${Object.keys(cb.grid.height ?? {}).length ? '<br>Shaded hexes are raised ground, numbered by level; thick edges are cliffs. Higher ground wins melee: blows reach only 1 level up or down, attacking up is harder, attacking down hits harder (hover an enemy for the numbers). Moving ignores levels for now.' : ''}</p></div>
+              ${Object.keys(cb.grid.height ?? {}).length ? `<br>Shaded hexes are raised ground, numbered by level; thick edges are cliffs. Higher ground wins melee: blows reach only 1 level up or down, attacking up is harder, attacking down hits harder (hover an enemy for the numbers). Climbing a level costs ${1 + CLIMB_COST} movement and stepping down costs ${1 + DROP_COST}; cliffs can't be climbed or dropped.` : ''}</p></div>
           ${betaOn('hex-battlefield') ? testerPanel(s) : ''}
         </aside>
       </div>

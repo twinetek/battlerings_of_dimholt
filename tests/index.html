@@ -27,7 +27,7 @@ import * as BF from '../js/rules/battlefield.js';
 import * as Terrain from '../js/rules/terrain.js';
 import { heightMods, inReach, enemyTurn } from '../js/rules/combat.js';
 import * as Ranged from '../js/rules/ranged.js';
-import { dexMissile, strRange } from '../js/rules/tables.js';
+import { dexMissile, strRange, CLIMB_COST, DROP_COST } from '../js/rules/tables.js';
 import { WEAPONS, WEAPON_BY_ID, UNARMED } from '../js/data/equipment.js';
 import { describe } from '../js/ui/presenter.js';
 import { glandPotency, coatingStrength, applyVenom, sellLoot, rollLoot, endArenaVisit, advanceClock, liveCoatings } from '../js/rules/loot.js';
@@ -428,7 +428,7 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   check('nobody starts on a pillar or off the board', Object.values(cb.grid.pos).every(h => BF.onBoard(cb, h)));
   check('a battle starts in round 1 with your move', cb.round === 1 && !cb.turn.moved && !cb.turn.acted);
   check('you cannot attack from across the arena', !BF.actYou(st, { type: 'fight', target: 'e1' }).ok);
-  const far = [...BF.reachableFor(st, 'you').entries()].find(([, d]) => d === BF.PLAYER_MOVE)?.[0];
+  const far = [...BF.reachableFor(st, 'you').entries()].find(([, d]) => d.cost === BF.PLAYER_MOVE)?.[0];
   check('move up to your movement', far && BF.moveYou(st, Hex.fromKey(far)).ok && Hex.key(cb.grid.pos.you) === far);
   check('only one move per turn', !BF.moveYou(st, Hex.neighbors(cb.grid.pos.you).find(h => BF.onBoard(cb, h))).ok);
   const before = Hex.distance(cb.grid.pos.e1, cb.grid.pos.you);
@@ -687,9 +687,17 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   setRng(seeded(5));
   st = fresh('orc');
   raise(st, BESIDE, 2);
+  const stuck = BF.endTurn(st).events;
+  check('an orc on a 2-level column with no slope can\'t climb down, so it can\'t reach you',
+    !stuck.some(e => e.t === 'move' && e.uid === 'e1') && !stuck.some(e => e.t === 'attack' && e.by === 'enemy'));
+  setRng(seeded(5));
+  st = fresh('orc');
+  raise(st, BESIDE, 2);
+  const slope = Hex.neighbors(BESIDE).find(h => Hex.adjacent(h, YOU) && BF.onBoard(st.combat, h) && !BF.occupant(st, h));
+  raise(st, slope, 1);
   const turn = BF.endTurn(st).events;
-  check('an enemy beside you but 2 levels up moves to a hex it can strike from, then attacks',
-    turn.some(e => e.t === 'move' && e.uid === 'e1') && turn.some(e => e.t === 'attack' && e.by === 'enemy'));
+  check('with a slope beside it, the orc steps down to a hex it can strike from, then attacks',
+    turn.some(e => e.t === 'move' && e.uid === 'e1' && Hex.equal(e.path.at(-1), slope)) && turn.some(e => e.t === 'attack' && e.by === 'enemy'));
   st = fresh('hill-giant');
   raise(st, BESIDE, 2);
   const giantTurn = BF.endTurn(st).events;
@@ -700,6 +708,96 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   st.combat.grid.pos.e1 = { q: 3, r: -3 };
   const zone = BF.threatZone(st);
   check('the threat zone leaves out hexes an enemy could stand beside but not reach', !zone.has(Hex.key(BESIDE)) && zone.has(Hex.key(YOU)));
+  setRng(seeded(42));
+}
+
+// Movement across terrain levels
+{
+  // The weighted search.
+  const o = { q: 0, r: 0 };
+  const dear = { q: 1, r: 0 };
+  const route = Hex.cheapestPath(o, h => Hex.equal(h, { q: 2, r: 0 }), (a, b) => (Hex.equal(b, dear) ? 5 : 1));
+  check('cheapest path goes around an expensive hex rather than through it',
+    route && route.cost === 3 && !route.path.some(h => Hex.equal(h, dear)) && Hex.equal(route.path.at(-1), { q: 2, r: 0 }));
+  const cheap = Hex.cheapestReachable(o, 2, (a, b) => (Hex.equal(b, dear) ? 3 : 1));
+  check('cheapest reachable respects the budget, and pathIn rebuilds a path',
+    cheap.size === 17 && !cheap.has(Hex.key(dear)) && !cheap.has('2,0') && cheap.get('0,0').cost === 0
+    && Hex.pathIn(cheap, { q: 2, r: -1 }).length === 2 && Hex.pathIn(cheap, { q: 5, r: 0 }) === null);
+  check('a wall (Infinity) is never crossed', Hex.cheapestPath(o, h => Hex.equal(h, { q: 3, r: 0 }), (a, b) => (Hex.distance(o, b) === 1 ? Infinity : 1)) === null);
+
+  // On the battlefield: you on the floor at (0,4), a kobold far away.
+  const ME = { q: 0, r: 4 };
+  const field = () => {
+    const st = newGameState(createCharacter('Climber', { str: 12, int: 10, wis: 10, dex: 12, con: 12, cha: 10 }));
+    BF.startBattle(st, 'kobold', {}, { radius: 5, pillars: false });
+    st.combat.grid.pos.you = ME;
+    st.combat.grid.pos.e1 = { q: 0, r: -5 };
+    return st;
+  };
+  const raise = (st, h, n) => { st.combat.grid.height[Hex.key(h)] = n; };
+  let st = field();
+  raise(st, { q: 0, r: 3 }, 1);
+  raise(st, { q: 0, r: 2 }, 1);
+  let reach = BF.reachableFor(st, 'you');
+  check(`a step up a level costs ${1 + CLIMB_COST}, then 1 along the top`, reach.get('0,3').cost === 1 + CLIMB_COST && reach.get('0,2').cost === 2 + CLIMB_COST);
+  st.combat.grid.pos.you = { q: 0, r: 3 };
+  reach = BF.reachableFor(st, 'you');
+  check(`a step down a level costs ${1 + DROP_COST}`, reach.get('0,4').cost === 1 + DROP_COST && reach.get('0,2').cost === 1);
+
+  st = field();
+  raise(st, { q: 0, r: 3 }, 2);
+  const wall = BF.moveYou(st, { q: 0, r: 3 });
+  check('a cliff of 2 levels can\'t be climbed, and moving says why', !wall.ok && /cliff/.test(wall.msg) && !BF.reachableFor(st, 'you').has('0,3'));
+  st = field();
+  raise(st, ME, 2);
+  check('...or dropped off', !BF.reachableFor(st, 'you').has('0,3') && !BF.reachableFor(st, 'you').has('1,3'));
+
+  st = field();
+  raise(st, { q: 0, r: 3 }, 1);
+  raise(st, { q: 0, r: 2 }, 1);
+  st.combat.turn.shot = true; // after a throw: 1 point, one step
+  check('the first step is always allowed, even over budget: up a slope with 1 point left',
+    BF.reachableFor(st, 'you').get('0,3')?.cost === 3 && !BF.reachableFor(st, 'you').has('0,2'));
+  const up = BF.moveYou(st, { q: 0, r: 3 });
+  check('...and it ends the move', up.ok && !BF.moveYou(st, { q: 0, r: 2 }).ok);
+
+  // Monsters pay the same costs. A Hill Giant (2 points) at the foot of a slope.
+  st = field();
+  st.combat.enemies[0].monsterId = 'hill-giant';
+  st.combat.grid.pos.e1 = { q: 0, r: 0 };
+  raise(st, { q: 0, r: 1 }, 1);
+  raise(st, { q: 0, r: 2 }, 1);
+  const giant = BF.reachableFor(st, 'e1');
+  check('a slow giant can still take one step up a slope, and no farther that turn', giant.has('0,1') && !giant.has('0,2'));
+  // A ridge between an orc and you: it walks around rather than over.
+  st = field();
+  st.combat.enemies[0].monsterId = 'orc';
+  st.combat.grid.pos.e1 = { q: 0, r: 0 };
+  raise(st, { q: 0, r: 1 }, 1);
+  raise(st, { q: 0, r: 2 }, 1);
+  const around = Hex.cheapestPath({ q: 0, r: 0 }, h => Hex.equal(h, { q: 0, r: 3 }), BF.stepCostFor(st, 'e1'));
+  check('the cheapest way past a ridge goes around it (4) rather than over it (6)',
+    around.cost === 4 && around.path.every(h => Terrain.levelOf(st.combat.grid, h) === 0));
+  const orcMove = BF.endTurn(st).events.find(e => e.t === 'move' && e.uid === 'e1');
+  check('...and a monster advancing toward you takes that way', orcMove && orcMove.path.every(h => Terrain.levelOf(st.combat.grid, h) === 0));
+  st = field();
+  check('on a flat floor a step costs 1, so you move your full ' + BF.PLAYER_MOVE + ' hexes',
+    Math.max(...[...BF.reachableFor(st, 'you').values()].map(v => v.cost)) === BF.PLAYER_MOVE);
+
+  // No fight can lock up: pillars on the Ledges band once sealed the way between its two ramps.
+  const band = {};
+  for (const h of Hex.hexagon(5)) if (Math.abs(h.r) <= 1 && Math.abs(h.q + h.r / 2) < 5.5) band[Hex.key(h)] = 2;
+  band['2,2'] = 1; band['-2,-2'] = 1; // the ramps
+  check('a ledge band sealed by pillars between its ramps can\'t be crossed; without them it can',
+    !BF.crossable(5, band, ['-2,0', '-1,-1', '-3,1']) && BF.crossable(5, band, []));
+  setRng(seeded(11));
+  let allCrossable = true;
+  for (let i = 0; i < 300; i++) {
+    st = field();
+    BF.deploy(st, { radius: 5, pillars: true, terrain: Terrain.RANDOM });
+    if (!BF.crossable(5, st.combat.grid.height, st.combat.grid.pillars)) allCrossable = false;
+  }
+  check('300 random arenas can all be crossed from one starting edge to the other', allCrossable);
   setRng(seeded(42));
 }
 
@@ -824,7 +922,7 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   check('clicking an enemy 4 hexes away throws a dagger: an 11 hits for 4 (3 + Str 1)',
     first.ok && shot.ranged && shot.hit && shot.dmg === 4 && shot.distance === 4 && shot.weapon === 'Dagger'
     && st.combat.thrown.join() === '1' && st.combat.turn.shot && st.character.equipped === 0);
-  check('after a throw you can move only 1 hex', !BF.moveYou(st, { q: 0, r: 2 }).ok && BF.moveYou(st, { q: 1, r: 3 }).ok);
+  check('after a throw you can take only one step', !BF.moveYou(st, { q: 0, r: 2 }).ok && BF.moveYou(st, { q: 1, r: 3 }).ok);
   st.combat.grid.pos.you = ME;
   newTurn(st);
   BF.actYou(st, { type: 'fight', target: 'e1' });
