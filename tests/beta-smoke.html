@@ -196,6 +196,57 @@ frame.addEventListener('load', async () => {
     await click('[data-action="leave"]');
     log(['town', 'dead', 'captain'].includes(screen()), 'leaving the battle returns to the game');
     log(localStorage.getItem('dimholt.save.auto') === mainBefore, 'the main game save was not touched');
+
+    // Javelins and the sling: buy both, take the sling in hand, and shoot a kobold through the real screen.
+    if (screen() === 'town') {
+      await click('[data-to="weapons"]');
+      const shop = q('#screen').textContent.replace(/\s+/g, ' ');
+      log(shop.includes('Javelin') && /Sling.*Shoots stones \(never runs out\): full power to \d hexes/.test(shop),
+        'the weaponsmith sells javelins and slings, and says a sling shoots stones');
+      await click('[data-action="buy"][data-id="javelin"]');
+      await click('[data-action="buy"][data-id="sling"]');
+      const slingAt = st().character.weapons.findIndex(x => x.id === 'sling');
+      await click(`[data-action="equip"][data-index="${slingAt}"]`);
+      log(st().character.weapons.some(x => x.id === 'javelin') && st().character.equipped === slingAt, 'bought a javelin and a sling, and took the sling in hand');
+      await click('[data-action="go"][data-to="town"]');
+      await click('[data-to="guide"]');
+      log(/Slings\. A Sling shoots stones from your hand/.test(q('#screen').textContent.replace(/\s+/g, ' ')), 'the guide explains slings');
+      await click('[data-action="go"][data-to="town"]');
+      await click('[data-to="arena"]');
+      await click('tr[data-id="kobold"]');
+      await click('[data-action="fight"][data-id="kobold"]');
+      q('#tester-pillars').checked = false;
+      q('#tester-terrain').value = 'flat';
+      await click('[data-action="rebuild"]');
+      await wait(300);
+      log(/shoot your Sling at an enemy in range/.test(q('#hint').textContent) && !!q('[data-action="throwPick"][data-id=""]')?.textContent.includes('Shoot your Sling'),
+        'with a sling in hand, the hint and the picker offer to shoot it');
+      // Close in until the kobold is in range (it comes to you too), then shoot.
+      for (let turn = 0; turn < 4 && !q('.cell.throwable') && !st().combat.over; turn++) {
+        const foe2 = st().combat.grid.pos.e1;
+        const dist2 = k => { const [kq, kr] = k.split(',').map(Number); return (Math.abs(kq - foe2.q) + Math.abs(kr - foe2.r) + Math.abs(kq + kr - foe2.q - foe2.r)) / 2; };
+        const step = [...d.querySelectorAll('.cell.reach')].map(c => c.dataset.key).sort((a, b) => dist2(a) - dist2(b))[0];
+        if (step) { await click(`[data-key="${step}"]`); await wait(300); }
+        if (!q('.cell.throwable')) { await click('[data-action="endTurn"]'); await wait(500); }
+      }
+      const target = q('.cell.throwable');
+      if (target && !st().combat.over) {
+        await click(`[data-key="${target.dataset.key}"]`);
+        await wait(500);
+        const logText = q('#combat-log').textContent;
+        log(/Your Sling sends a stone into the Kobold|Your Sling's stone whistles past the Kobold/.test(logText)
+          && st().character.equipped === slingAt && !(st().combat.thrown ?? []).length,
+        'clicking a dashed enemy shoots a stone, and the sling stays in hand');
+      } else {
+        log(st().combat.over, 'a kobold comes into sling range');
+      }
+      if (!st().combat.over) {
+        await click('[data-action="surrender"]');
+        await wait(300);
+      }
+      await click('[data-action="leave"]');
+      log(screen() === 'town' && st().character.equipped === slingAt, 'leaving the fight keeps the sling in hand');
+    }
   } catch (err) {
     log(false, err.message);
   }

@@ -352,9 +352,9 @@ Multi-level terrain is complete: every fight's arena is **generated** from a ran
   - **Balance:** the terrain balance bounds above.
 - **Playthroughs:** `tests/smoke.html` plays main-game fights on whatever layout is rolled, avoiding hexes where a cliff stops its blows. `tests/beta-smoke.html` rebuilds the arena as a Ziggurat and as Ledges, then on a flat floor paints a hill beside you with **Paint height**, checks the hover preview's cost against your stats, climbs it, and paints a 2-level edge to check it's drawn as a cliff or as climbable for your Strength.
 
-**Ranged attacks: throwing any weapon**
+**Ranged attacks: throwing any weapon, javelins and the sling**
 
-The full ranged design (bows, crossbows, giants throwing boulders, archer mercenaries) is in `Todo_ranged.md`. So far **throwing** is built, by you only, along with the rules every later ranged attack will share. Every weapon in `data/equipment.js` is a melee weapon; true ranged weapons (bows) will get their own `ranged` field later.
+The full ranged design (bows, crossbows, giants throwing boulders, archer mercenaries) is in `Todo_ranged.md`. So far **throwing** and the **sling** are built, by you only, along with the rules every later ranged attack will share. Weapons in `data/equipment.js` are melee weapons (with `throw`) or true ranged weapons (with `ranged`); the Sling is the only ranged weapon so far.
 
 - **Any weapon you carry can be thrown, once per fight each.** Five daggers, two Daggers +1 and two Throwing Axes are nine throws. A thrown weapon stays on the field until the fight ends.
   - **No weapon limit:** the original's 6-weapon cap (`MAX_WEAPONS`) is gone, in the main game too, so you can carry as many spares as you can pay for. The Weaponsmith and the Equipment screen stack identical weapons ("Dagger ×5"; "Sell one"). The weapon in your hand, and any with venom on it, get a row of their own.
@@ -362,6 +362,7 @@ The full ranged design (bows, crossbows, giants throwing boulders, archer mercen
 
     | Profile | Weapons | Base aim | To hit |
     |---|---|---|---|
+    | Javelin | Javelin | 4 | 0 |
     | Made to throw | Dagger, Dagger +1, Throwing Axe | 3 | 0 |
     | Handy | Hand Axe | 2 | −1 |
     | Awkward | Short Sword, Mace, Morning Star, Battle Axe, Long Sword (and their magic versions) | 1 | −2 |
@@ -369,6 +370,7 @@ The full ranged design (bows, crossbows, giants throwing boulders, archer mercen
 
     Fists (`UNARMED`) have no profile and can't be thrown.
   - **The Throwing Axe** (1d6, speed 4, 8 gold) exists to be thrown. It's sold in the main game too, now that main-game fights are on the battlefield.
+  - **The Javelin** (1d6, speed 4, 2 gold) is the longest throw: base aim 4, so a Str 16 gladiator throws it at full power to 5 hexes. Like a dagger it's one throw each, and a melee weapon (a short spear) too. It's sold everywhere. With no choice made, the game throws javelins first.
   - **Which weapon you throw:** the **Throw** picker under the battle buttons sets `combat.throwPick` (`setThrowPick` in `rules/battlefield.js`), a weapon id or null. `pickThrow` in `rules/ranged.js` turns it into one weapon:
     - With a kind chosen, a spare of that kind before the one in your hand. When that kind runs out, it falls back to no choice.
     - With no choice ("Best spare"), the best spare weapon that can hurt the target (its plus meets the monster's `magicReq`): best `aim + hit` first, then the lower plus, then the cheaper one, so plain daggers go before the Dagger +1 unless the target needs magic.
@@ -380,13 +382,22 @@ The full ranged design (bows, crossbows, giants throwing boulders, archer mercen
     - `recoverThrows` in `rules/combat.js` runs at the start of `afterFight`. It logs "You gather up 3 Daggers and the Throwing Axe you threw, and take your Long Sword back in hand." and clears `combat.thrown`.
   - **Melee:** beside an enemy (in melee reach) you fight with the weapon in your hand, with all the melee rules, including height.
   - **Classic fights** (only fights saved before the battlefield) have no grid, so there's no throwing there.
+- **The Sling** (`{ id: 'sling', cost: 1, speed: 6, dmg: '1d4', ranged: { family: 'sling', aim: 3, thing: 'stone' } }`): a true ranged weapon, shot from your hand.
+  - **Unlimited stones.** Shooting never uses the sling up or adds to `combat.thrown`, so it shoots every round.
+  - **Numbers** (`shootStats(c, w)` in `rules/ranged.js`, the twin of `throwStats`): aim = min(`AIM_CAP`, 3 + magic + `strRange(Str)`); to hit `dexMissile(Dex)` + magic + `ranged.hit`; damage adds Strength's full damage bonus and magic. Everything else is the same range profile as a throw: falloff, height, line of sight, cover, moving first, and `SHOT_MOVE` after the shot.
+  - **It can't strike.** With a sling in hand every attack is a shot, even at an enemy beside you (`actYou` never melees with it), and auto-play shoots whenever it has a shot, else closes in. Until weapon switching is built, a slinger who wants to fight in melee equips another weapon in town.
+  - **Throwing as well:** pick a kind in the picker (it reads "Shoot or throw: Shoot your Sling · Dagger ×2 …") and you throw that instead, keeping the sling in hand; when that kind runs out you shoot again. `pickShot` in `rules/ranged.js` decides: a chosen kind with spares left, else the sling in hand, else `pickThrow`. A sling can't be thrown (it has no `throw`).
+  - **No venom:** stones carry none, and `applyVenom` refuses a sling ("A Sling has no blade to coat.").
+  - **Initiative** rolls with the sling's speed. **Magic-only monsters** ignore plain stones.
+  - **Classic fights** (no grid): `toHitBonus` aims a ranged weapon with Dex instead of Str, so a sling in an old classic fight still uses the right stat.
+  - **Shown:** the Weaponsmith and Equipment screen ("Shoots stones (never runs out): full power to 4 hexes, reaches 8. Can't strike in melee"), dashed red hexes for every enemy in range (beside you too), the hover note ("Shoot your Sling: …"), the hint, and the log ("Your Sling sends a stone into the Kobold (4 hexes) for 4 damage." / "Your Sling's stone whistles past the Kobold (6 hexes).").
 - **State:** `combat.thrown` (indices into `character.weapons`), `combat.throwPick`, `combat.handBefore`. Save version 5 turns the old beta sets into single weapons: Throwing Daggers into 3 Daggers (the first keeps any venom), Throwing Axes into 2 Throwing Axes.
 - **Where it lives:** `js/rules/ranged.js`, which is pure: no DOM, no dice.
-  - `throwStats(c, weapon)`: the character's numbers with that weapon, anywhere.
+  - `throwStats(c, weapon)` and `shootStats(c, weapon)`: the character's numbers with that weapon, anywhere; `rangedStats` is whichever applies. `shooterInHand` and `canShoot` say whether you have a sling in hand, or anything to shoot or throw.
   - `throwable`, `throwsLeft`, `throwGroups` (for the picker) and `pickThrow`: what you have left to throw.
-  - `rangeProfile(state, targetUid, index = pickThrow(...))`: those plus the board; the result's `index` is the weapon.
+  - `rangeProfile(state, targetUid, index = pickShot(...))`: those plus the board; the result's `index` is the weapon, and `shoot` says it's the sling in your hand.
   - `lineOfSight` and `rangedDamage`.
-  - `rangedTurn` in `rules/combat.js` makes the throws.
+  - `rangedTurn` in `rules/combat.js` makes the throws and shots.
 - **The range profile:**
   - Up to the **full-power range** (the effective aim) a throw is at full accuracy and damage.
   - Each hex beyond costs 1 to hit and 1/8 of the damage, down to half at the maximum range: aim + `FALLOFF_HEXES` (4).
@@ -427,7 +438,8 @@ The full ranged design (bows, crossbows, giants throwing boulders, archer mercen
 - **Tests:**
   - **Unit checks:** hex lines; the Dex and Str tables; `throwStats` per weapon profile and with magic; counting, grouping and picking throws (including magic for a gargoyle); falloff at aim, aim + 1 and max; height; pillars, hills and cover from above; moving first; and a fixed-roll throw.
   - **Throwing in play:** throwing every spare; choosing the weapon in hand and drawing (another of its kind, the long sword, fists); recovery and putting your weapon back; melee beside an enemy; throwing up a cliff; the gargoyle; venom on a thrown dagger; auto-play; classic fights; the log; the version 4 save migration.
-  - **The beta playthrough** buys two Throwing Axes, rebuilds without pillars, walks up, picks axes in the Throw picker and throws one through the real board.
+  - **Javelins and the sling:** the javelin's numbers, the picker throwing it first, a 5-hex javelin hit; sling numbers by Str and Dex; a shot at 4 hexes and out of range at 9; six shots in a row with nothing used up; the step after a shot; shooting an enemy beside you; picking a dagger to throw with the sling in hand, then shooting again; a sling with nothing else; no venom and no coating; the gargoyle; auto-play beside and far away; Dex to-hit for classic fights; the log line.
+  - **The beta playthrough** buys two Throwing Axes, rebuilds without pillars, walks up, picks axes in the Throw picker and throws one through the real board. Later it buys a Javelin and a Sling, takes the sling in hand, checks the shop, Guide, hint and picker, and shoots a kobold through the real board.
 
 ### Player guide
 

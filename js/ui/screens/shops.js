@@ -2,7 +2,7 @@
 
 import { WEAPONS, WEAPON_BY_ID, ARMOR, ITEMS, ITEM_BY_ID } from '../../data/equipment.js';
 import { FALLOFF_HEXES } from '../../rules/tables.js';
-import { throwStats } from '../../rules/ranged.js';
+import { rangedStats } from '../../rules/ranged.js';
 import { LOOT_BY_ID } from '../../data/loot.js';
 import { coatingLabel, glandPotency, glandValue, freshness, sellLoot } from '../../rules/loot.js';
 import { armorOf, moveStats } from '../../rules/character.js';
@@ -17,12 +17,15 @@ const confirmSale = (name, price) => price < 100 || window.confirm(`Sell the ${n
 
 const weaponName = w => (w.plus ? `<span class="magic">${esc(w.name)}</span>` : esc(w.name));
 
-// "Thrown: full power to 4 hexes, reaches 8, -2 to hit" for this character.
+// "Thrown: full power to 4 hexes, reaches 8, -2 to hit" for this character,
+// or "Shoots stones: ..., can't strike in melee" for a sling.
 export function throwText(c, w) {
-  const r = throwStats(c, w);
+  const r = rangedStats(c, w);
   if (!r) return '';
-  const hit = w.throw.hit ? `, ${w.throw.hit} to hit` : '';
-  return `<span class="muted small block">Thrown: full power to ${r.aim} hex${r.aim === 1 ? '' : 'es'}, reaches ${r.aim + FALLOFF_HEXES}${hit}</span>`;
+  const own = w.ranged ? (w.ranged.hit ?? 0) : w.throw.hit;
+  const hit = own ? `, ${signed(own)} to hit` : '';
+  const how = w.ranged ? `Shoots ${w.ranged.thing}s (never runs out)` : 'Thrown';
+  return `<span class="muted small block">${how}: full power to ${r.aim} hex${r.aim === 1 ? '' : 'es'}, reaches ${r.aim + FALLOFF_HEXES}${hit}${w.ranged ? ". Can't strike in melee" : ''}</span>`;
 }
 
 // Your weapons with identical ones stacked: [{ id, indices, inHand, entry }].
@@ -80,7 +83,8 @@ export const weapons = {
         <h2>🗡️ Weaponsmith</h2>
         <p class="muted">Damage includes any magic bonus. Speed is added to your initiative roll, so lower strikes first.
           Gargoyles and wights need a +1 weapon to harm; earth elementals need +2.
-          On the battlefield you can throw any weapon you carry, each one once per fight, so a spare dagger or two pays for itself.</p>
+          On the battlefield you can throw any weapon you carry, each one once per fight, so a spare dagger or two pays for itself.
+          A sling in your hand shoots stones every round instead, but can't strike in melee.</p>
         ${goldLine(c)}
         <div class="cols">
           <div class="panel">

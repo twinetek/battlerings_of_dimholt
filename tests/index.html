@@ -34,7 +34,7 @@ import { glandPotency, coatingStrength, applyVenom, sellLoot, rollLoot, endArena
 import { readSlot, deleteSlot } from '../js/engine/save.js';
 import { MONSTERS } from '../js/data/monsters.js';
 import { MERC_BY_ID } from '../js/data/mercs.js';
-import { createCharacter, maxHp, armorClass, gainXp, drainLevel, spendStatPoints, readTome, moveStats } from '../js/rules/character.js';
+import { createCharacter, maxHp, armorClass, gainXp, drainLevel, spendStatPoints, readTome, moveStats, toHitBonus } from '../js/rules/character.js';
 import { buyWeapon, buyArmor, buyItem, sellWeapon, stayAtInn, useItemInTown } from '../js/rules/town.js';
 import { startCombat, playRound } from '../js/rules/combat.js';
 import { newGameState, SAVE_VERSION } from '../js/engine/state.js';
@@ -1037,8 +1037,10 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
     && statsOf('two-handed-sword').aim === 2 && statsOf('two-handed-sword').toHit === -4);
   check('magic adds range, to hit and damage: a Dagger +1 reaches 5 at full power, +1 to hit',
     statsOf('dagger-1').aim === 5 && statsOf('dagger-1').toHit === 1 && statsOf('dagger-1').dmgBonus === 2);
-  check('every weapon can be thrown; fists can\'t', WEAPONS.every(w => Ranged.throwStats(thrower({}, []).character, w))
-    && Ranged.throwStats(thrower({}, []).character, UNARMED) === null);
+  check('every melee weapon can be thrown; fists and the sling can\'t', WEAPONS.filter(w => !w.ranged).every(w => Ranged.throwStats(thrower({}, []).character, w))
+    && Ranged.throwStats(thrower({}, []).character, UNARMED) === null && Ranged.throwStats(thrower({}, []).character, WEAPON_BY_ID.sling) === null);
+  check('a javelin flies farthest: full power to 5 hexes with Str 16 (4 + 1), no to-hit change, 1d6',
+    statsOf('javelin').aim === 5 && statsOf('javelin').toHit === 0 && statsOf('javelin').dmgBonus === 1 && WEAPON_BY_ID.javelin.dmg === '1d6');
 
   // What you have to throw: one throw per weapon you carry.
   let st = thrower({}, ['long-sword', 'dagger', 'dagger', 'dagger', 'dagger', 'dagger', 'dagger-1', 'dagger-1', 'throwing-axe', 'throwing-axe']);
@@ -1203,6 +1205,81 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   const autoMove = auto.find(e => e.t === 'move' && e.uid === 'you');
   check('auto-play throws first, then steps at most 1 hex',
     auto.findIndex(e => e.ranged) === 0 && (!autoMove || autoMove.path.length <= 1));
+
+  // Javelins: thrown like any weapon, the best of them.
+  st = thrower({}, ['long-sword', 'dagger', 'javelin', 'throwing-axe']);
+  check('javelins come first in the throw picker, and the game throws one first',
+    Ranged.throwGroups(st)[0].id === 'javelin' && st.character.weapons[Ranged.pickThrow(st, 'e1')].id === 'javelin');
+  st.combat.grid.pos.e1 = ahead(5);
+  const jav = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
+  check('a javelin hits at 5 hexes at full power, and is spent like any throw',
+    jav?.ranged && !jav.shot && jav.weapon === 'Javelin' && jav.hit && jav.dmgMult === 1
+    && st.combat.thrown.length === 1 && st.character.weapons[st.combat.thrown[0]].id === 'javelin');
+
+  // Slings: shot from the hand, unlimited stones, Str for range and damage, Dex to hit.
+  const slingStats = stats => Ranged.shootStats(thrower(stats, []).character, WEAPON_BY_ID.sling);
+  check('a sling with Str 16: full power to 4 hexes (3 + 1), +1 damage, no to-hit change',
+    slingStats({}).aim === 4 && slingStats({}).dmgBonus === 1 && slingStats({}).toHit === 0);
+  check('Str 18 slings 1 hex farther and +3 damage; Dex 17 adds +2 to hit',
+    slingStats({ str: 18 }).aim === 5 && slingStats({ str: 18 }).dmgBonus === 3 && slingStats({ dex: 17 }).toHit === 2);
+  check('a dagger doesn\'t shoot, and the sling is the only weapon that does',
+    Ranged.shootStats(thrower({}, []).character, WEAPON_BY_ID.dagger) === null && WEAPONS.filter(w => w.ranged).map(w => w.id).join() === 'sling');
+  st = thrower({}, ['sling', 'dagger']);
+  check('a sling in hand: the next attack shoots it', st.character.equipped === 0 && Ranged.shooterInHand(st)?.id === 'sling'
+    && Ranged.pickShot(st, 'e1') === 0 && Ranged.canShoot(st));
+  let sp = profileAt(st, 4);
+  check('at 4 hexes: full power, no penalty, and it\'s a shot', sp.ok && sp.shoot && sp.toHit === 0 && sp.dmgMult === 1 && sp.max === 8);
+  sp = profileAt(st, 9);
+  check('beyond 8 hexes you can\'t shoot', !sp.ok && /shoot your Sling 8/.test(sp.reason));
+  st.combat.grid.pos.e1 = ahead(4);
+  let shots = 0, stones = true;
+  for (let i = 0; i < 6; i++) {
+    newTurn(st);
+    const r = BF.actYou(st, { type: 'fight', target: 'e1' });
+    const a = r.events.find(e => e.t === 'attack');
+    if (r.ok && a?.ranged && a.shot === 'stone' && a.weapon === 'Sling') shots++;
+    if (!a?.hit || a.dmg !== 4) stones = false;
+  }
+  check('it never runs out: 6 rounds, 6 stones, and the sling stays in hand with nothing used up',
+    shots === 6 && st.character.equipped === 0 && !st.combat.thrown?.length && Ranged.throwsLeft(st) === 1);
+  check('an 11 hits for 4 (3 + Str 1)', stones);
+  check('after a shot you can take only one step', /shot or throw/.test(BF.moveYou(st, { q: 0, r: 2 }).msg) && BF.moveYou(st, { q: 1, r: 3 }).ok);
+  check('the log names the stone', /Sling sends a stone into the Giant Centipede \(4 hexes\) for 4 damage/.test(
+    describe({ t: 'attack', by: 'player', ranged: true, shot: 'stone', weapon: 'Sling', target: 'Giant Centipede', distance: 4, dmgMult: 1, hit: true, dmg: 4 }).text));
+  st = thrower({}, ['sling', 'dagger']);
+  st.combat.grid.pos.e1 = ahead(1);
+  const besideShot = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
+  check('a sling can\'t strike: beside an enemy you shoot it', besideShot?.ranged && besideShot.shot === 'stone' && besideShot.distance === 1);
+  newTurn(st);
+  st.combat.grid.pos.e1 = ahead(4);
+  BF.setThrowPick(st, 'dagger');
+  const picked = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
+  check('pick a weapon to throw and you throw it instead, keeping the sling in hand',
+    picked?.ranged && !picked.shot && picked.weapon === 'Dagger' && st.combat.thrown.join() === '1' && st.character.equipped === 0);
+  check('with that thrown, attacks shoot the sling again', Ranged.pickShot(st, 'e1') === 0 && Ranged.rangeProfile(st, 'e1').shoot === true);
+  st = thrower({}, ['sling']);
+  check('a sling with nothing to throw still shoots', Ranged.throwsLeft(st) === 0 && BF.actYou(st, { type: 'fight', target: 'e1' }).events.some(e => e.shot));
+  st.character.weapons[0].coatings = [{ source: 'giant-spider', item: 'spider-venom', strength: 4, appliedAt: st.clock }];
+  newTurn(st);
+  const coatedStone = BF.actYou(st, { type: 'fight', target: 'e1' }).events;
+  check('stones carry no venom', coatedStone.some(e => e.shot && e.hit) && !coatedStone.some(e => e.t === 'venom'));
+  st.character.weapons[0].coatings = [];
+  st.character.loot.push({ id: 'spider-venom', potency: 4, gotAt: st.clock });
+  check('and a sling can\'t be coated', !applyVenom(st, 0, 0).ok && st.character.loot.length === 1 && !st.character.weapons[0].coatings.length);
+  st.combat.enemies[0].monsterId = 'gargoyle';
+  newTurn(st);
+  check('plain stones can\'t harm a gargoyle', BF.actYou(st, { type: 'fight', target: 'e1' }).events.some(e => e.t === 'immune'));
+  st = thrower({}, ['sling']);
+  st.combat.grid.pos.e1 = ahead(1);
+  check('auto-play with a sling shoots an enemy beside you', BF.autoYou(st).events.findIndex(e => e.shot) === 0);
+  st = thrower({}, ['sling']);
+  st.combat.grid.pos.e1 = ahead(9);
+  const autoFar = BF.autoYou(st).events;
+  check('auto-play closes in on an enemy out of range, then shoots',
+    autoFar.findIndex(e => e.t === 'move' && e.uid === 'you') === 0 && autoFar.some(e => e.shot));
+  const slinger = createCharacter('Slinger', { str: 16, int: 10, wis: 10, dex: 17, con: 15, cha: 10 });
+  check('a sling aims with Dex (+2 at 17), a sword with Str (+1 at 16)',
+    toHitBonus(slinger, WEAPON_BY_ID.sling) === 2 && toHitBonus(slinger, WEAPON_BY_ID['long-sword']) === strBonus(16).hit);
 
   // Classic fights: no throwing.
   st = newGameState(createCharacter('Classic', { str: 16, int: 10, wis: 10, dex: 15, con: 15, cha: 10 }));

@@ -12,7 +12,7 @@ import {
   moveYou, actYou, endTurn, autoYou, setThrowPick, fallRange, moveStatsOf, testerPaint, testerAddEnemy, testerAddMerc, testerHeal, testerRebuild,
 } from '../../rules/battlefield.js';
 import { TERRAINS, TERRAIN_BY_ID, RANDOM, MAX_HEIGHT, levelOf, cliffEdges } from '../../rules/terrain.js';
-import { rangeProfile, throwsLeft, throwGroups } from '../../rules/ranged.js';
+import { rangeProfile, throwGroups, canShoot, shooterInHand, pickShot } from '../../rules/ranged.js';
 import * as H from '../../engine/hex.js';
 import { COMBAT_LOG_LIMIT, thac0 } from '../../rules/tables.js';
 import { toLines, describeAll, SUMMARIZE_ABOVE } from '../presenter.js';
@@ -72,7 +72,7 @@ function boardSvg(s, params) {
     const who = occupant(s, h);
     const cls = ['cell'];
     if (isPillar(cb, h)) cls.push('pillar');
-    else if (who?.startsWith('e') && canAct && inReach(cb, PLAYER, who)) cls.push('attackable');
+    else if (who?.startsWith('e') && canAct && !shooterInHand(s) && inReach(cb, PLAYER, who)) cls.push('attackable');
     else if (who?.startsWith('e') && canAct && rangeProfile(s, who).ok) cls.push('throwable');
     else if (pathKeys.has(k)) cls.push('path');
     else if (!who && reach.has(k) && reach.get(k).prev) cls.push(reach.get(k).jump ? 'jump' : 'reach');
@@ -147,10 +147,12 @@ function unitTip(s, uid) {
     const itReaches = !beside || inReach(cb, uid, PLAYER);
     const pct = need => Math.round(((21 - Math.min(20, Math.max(2, need))) / 20) * 100);
     const levels = n => `${n} level${n === 1 ? '' : 's'} ${mine.h < 0 ? 'up' : 'down'}`;
-    tip += youReach ? `. ${beside ? 'You' : 'In melee you'} hit it ${pct(rollNeed(s, m.ac) - mine.toHit)}%` : `. You can't reach it (${levels(Math.abs(mine.h))})`;
-    tip += itReaches ? `, it hits you ${pct(m.thac0 - me.ac - theirs.toHit)}%` : ", and it can't reach you";
-    tip += heightNotes(mine, theirs, youReach, itReaches);
-    if (!(beside && youReach)) tip += throwNote(s, uid, m);
+    // A sling can't strike, so its chances come from the shot note instead.
+    const sling = !!shooterInHand(s);
+    if (!sling) tip += youReach ? `. ${beside ? 'You' : 'In melee you'} hit it ${pct(rollNeed(s, m.ac) - mine.toHit)}%` : `. You can't reach it (${levels(Math.abs(mine.h))})`;
+    tip += itReaches ? `${sling ? '. It' : ', it'} hits you ${pct(m.thac0 - me.ac - theirs.toHit)}%` : `${sling ? '. It' : ', and it'} can't reach you`;
+    tip += heightNotes(mine, theirs, youReach && !sling, itReaches);
+    if (sling || !(beside && youReach)) tip += throwNote(s, uid, m);
   }
   return tip;
 }
@@ -165,29 +167,34 @@ function moveTip(s, reach, k) {
   return `${level ? `Level ${level}. ` : ''}Moving here costs ${cost}.${r.jump ? ` It's a jump: ${fallRange(s.character, r.jump).join('-')} falling damage (a saving throw halves it), and it ends your move.` : ''}`;
 }
 
-// If you have anything to throw: the weapon you'd throw, your chance and
-// damage at this distance and what changes them, or why you can't throw.
+// If you have anything to shoot or throw: the weapon, your chance and damage
+// at this distance and what changes them, or why you can't.
 function throwNote(s, uid, m) {
-  if (!throwsLeft(s)) return '';
+  if (!canShoot(s)) return '';
   const p = rangeProfile(s, uid);
-  if (!p.ok) return `. Can't throw: ${p.reason}`;
+  const shoot = p.ok ? p.shoot : !!shooterInHand(s) && pickShot(s, uid) === s.character.equipped;
+  if (!p.ok) return `. Can't ${shoot ? 'shoot' : 'throw'}: ${p.reason}`;
   const need = Math.min(20, Math.max(2, thac0(s.character.level) - m.ac - p.toHit));
   const parts = p.parts.map(([name, n]) => `${name} ${n > 0 ? '+' : ''}${n}`).join(', ');
   const name = WEAPON_BY_ID[s.character.weapons[p.index].id].name;
-  return `. Throw your ${name}: ${p.distance} hexes, ${Math.round(((21 - need) / 20) * 100)}% to hit, ${Math.round(p.dmgMult * 100)}% damage${parts ? ` (${parts})` : ''}`;
+  return `. ${shoot ? 'Shoot' : 'Throw'} your ${name}: ${p.distance} hexes, ${Math.round(((21 - need) / 20) * 100)}% to hit, ${Math.round(p.dmgMult * 100)}% damage${parts ? ` (${parts})` : ''}`;
 }
 
 // Which kind of weapon you'll throw next: "Best spare" lets the game choose
-// (never the weapon in your hand), or pick a kind yourself.
+// (never the weapon in your hand), or pick a kind yourself. With a sling in
+// hand, the default is to shoot it.
 function throwPicker(s) {
   const cb = s.combat;
   if (!s.character.weapons.length) return '';
+  const sling = shooterInHand(s);
   const groups = throwGroups(s);
-  if (!groups.length) return "<p class='muted small'>Throw: you've thrown everything you carry. You'll gather it up after the fight.</p>";
+  if (!groups.length) return sling ? '' : "<p class='muted small'>Throw: you've thrown everything you carry. You'll gather it up after the fight.</p>";
   const pick = groups.some(g => g.id === cb.throwPick) ? cb.throwPick : null;
   const opt = (label, id, title) => button(label, 'throwPick', { id: id ?? '' }, { cls: `link${pick === id ? ' on' : ''}`, disabled: busy, title });
-  return `<p class="muted small row throw-pick">Throw:
-    ${opt('Best spare', null, "The best weapon you aren't holding that can hurt the target")}
+  return `<p class="muted small row throw-pick">${sling ? 'Shoot or throw' : 'Throw'}:
+    ${sling
+    ? opt(`Shoot your ${esc(sling.name)}`, null, `Every attack shoots your ${sling.name}, unless you pick a weapon to throw`)
+    : opt('Best spare', null, "The best weapon you aren't holding that can hurt the target")}
     ${groups.map(g => opt(`${esc(g.name)}${g.count > 1 ? ` ×${g.count}` : ''}${g.inHand && g.count === 1 ? ' (in hand)' : ''}`, g.id,
       g.inHand && g.count === 1 ? 'Throwing the weapon in your hand: you draw another, or fight on with your fists' : '')).join(' ')}</p>`;
 }
@@ -270,11 +277,13 @@ function hintText(s) {
   if (cb.paralyzed > 0) return 'You are paralyzed. End your turn.';
   const t = cb.turn;
   if (t.moved && t.acted) return 'You have moved and acted. End your turn.';
-  const thrower = throwsLeft(s) > 0;
-  const attack = thrower ? 'attack an adjacent enemy (red) or throw at one in range (dashed)' : 'attack an adjacent enemy (red)';
+  const thrower = canShoot(s);
+  const sling = shooterInHand(s);
+  const attack = sling ? `shoot your ${sling.name} at an enemy in range (dashed)`
+    : thrower ? 'attack an adjacent enemy (red) or throw at one in range (dashed)' : 'attack an adjacent enemy (red)';
   if (t.moved) return `${attack.charAt(0).toUpperCase()}${attack.slice(1)}, use an item, or end your turn.`;
-  if (t.acted) return t.shot ? 'After a throw you can still step 1 hex, then end your turn.' : 'You can still move (blue hexes), then end your turn.';
-  return `Move (blue hexes) and ${attack}, in either order. Click any enemy to make it your target.${thrower ? ' Moving before a throw costs accuracy.' : ''}`;
+  if (t.acted) return t.shot ? 'After a shot or throw you can still step 1 hex, then end your turn.' : 'You can still move (blue hexes), then end your turn.';
+  return `Move (blue hexes) and ${attack}, in either order. Click any enemy to make it your target.${thrower ? ` Moving before a ${sling ? 'shot' : 'throw'} costs accuracy.` : ''}`;
 }
 
 // ---- Render ----
@@ -334,7 +343,7 @@ export function render(ctx, params) {
         </div>
         <aside>
           <div class="panel"><h3>Fighters</h3><div class="table-wrap">${roster(s)}</div>
-            <p class="muted small">Legend: blue hexes, where you can move · red, an enemy you can attack · dashed red, one you can throw at ·
+            <p class="muted small">Legend: blue hexes, where you can move · red, an enemy you can attack · dashed red, one you can shoot or throw at ·
               amber, where an enemy could reach and strike this round · 🪨 pillar.
               ${Object.keys(cb.grid.height ?? {}).length ? `<br>Shaded hexes are raised ground, numbered by level; thick edges are cliffs. Higher ground wins melee: blows reach only 1 level up or down, attacking up is harder, attacking down hits harder (hover an enemy for the numbers). Each step up or down costs extra movement (hover a blue hex for the cost; your numbers are on the Character screen); a cliff too high to climb is a wall (a thinner dashed edge is one you're strong enough to climb), and an orange hex is a jump down that will hurt.` : ''}</p></div>
           ${betaOn('hex-battlefield') ? testerPanel(s) : ''}

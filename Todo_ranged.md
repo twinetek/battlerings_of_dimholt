@@ -1,6 +1,6 @@
 # Ranged attacks on the hex battlefield: design
 
-Status: partly built. **Throwing** is built: you can throw any (melee) weapon you carry, one throw per weapon per fight, with each weapon's own `throw: { aim, hit }`. Built with it, the machinery every ranged attack shares:
+Status: partly built. **Throwing** is built: you can throw any (melee) weapon you carry, one throw per weapon per fight, with each weapon's own `throw: { aim, hit }`. So are the **Javelin** and the **Sling** (the first weapon with `ranged`, shot from your hand). Built with them, the machinery every ranged attack shares:
 - the range profile;
 - Dexterity's missile bonus and Strength's range bonus;
 - range by height and line of sight in three dimensions;
@@ -8,7 +8,7 @@ Status: partly built. **Throwing** is built: you can throw any (melee) weapon yo
 - the moved-first penalty and the shoot-then-move limit;
 - the board, tooltip, shop and log support.
 
-`DESIGN.md` ("Ranged attacks") documents all of that; this file covers the rest. The battlefield, and throwing, are in the main game; build new ranged work in the beta (`hex_battlefield/`) first. Move the settled parts into `DESIGN.md` once they're built.
+`DESIGN.md` ("Ranged attacks") documents all of that; this file covers the rest. The sling added `shootStats`, `pickShot` and the `shoot` flag on `rangeProfile`; bows and crossbows build on those. The battlefield, and throwing, are in the main game; build new ranged work in the beta (`hex_battlefield/`) first. Move the settled parts into `DESIGN.md` once they're built.
 
 ## Goals
 
@@ -35,12 +35,12 @@ The range profile, cover, moving first and line of sight are built (see `DESIGN.
 
 ## Weapon families still to build
 
-The **thrown** family is built. Each family uses Strength and Dexterity differently, so the choice of weapon follows the character:
+The **thrown** and **sling** families are built. Each family uses Strength and Dexterity differently, so the choice of weapon follows the character:
 
 | Family | Weapons | Strength | Dexterity | Weapon's own edge |
 |---|---|---|---|---|
-| **Thrown** (built) | Any melee weapon, through its `throw` profile (daggers and Throwing Axes fly best); still to add: Javelin | Full Str damage bonus and Str range bonus | Missile to-hit bonus | Never engaged; it's your melee weapon too |
-| **Sling** | Sling | Full Str damage bonus and Str range bonus | Missile to-hit bonus | Unlimited stones; a true ranged weapon (`ranged`), so not a melee weapon |
+| **Thrown** (built) | Any melee weapon, through its `throw` profile (the Javelin flies best, then daggers and Throwing Axes) | Full Str damage bonus and Str range bonus | Missile to-hit bonus | Never engaged; it's your melee weapon too |
+| **Sling** (built) | Sling | Full Str damage bonus and Str range bonus | Missile to-hit bonus | Unlimited stones; a true ranged weapon (`ranged`), so not a melee weapon |
 | **Self bow** (a plain bow) | Short Bow, Long Bow | Needs a minimum Str (`strMin`); no bonus above it | Missile to-hit bonus | Long reach, cheap |
 | **Composite bow** (built to a draw strength, its `pull`) | Composite Short Bow, Composite Long Bow | Str damage and range bonus, **up to the bow's pull** | Missile to-hit bonus | Strong archers get thrown-weapon damage at bow range |
 | **Crossbow** | Light, Heavy | None. Damage and range are fixed. | **Half** the missile to-hit bonus (rounded down) | Built-in accuracy, plus armor piercing |
@@ -94,8 +94,6 @@ New entries in `WEAPONS` (`data/equipment.js`) use the existing `ranged` field:
 
 | Weapon | Family | Cost | Damage | Base aim | Str | Accuracy | Notes |
 |---|---|---|---|---|---|---|---|
-| Sling | sling | 1 | 1d4 | 3 | full dmg + range | Dex | Cheap starter; good for a strong novice. Unlimited stones. |
-| Javelin | thrown | 2 | 1d6 | 4 | full dmg + range | Dex | One throw each, like a dagger; a 1d6 spear in melee. `throw: { aim: 4, hit: 0 }`, sold only in the beta. |
 | Short Bow | self | 30 | 1d6 | 4 | min 9 | Dex | |
 | Long Bow | self | 75 | 1d6 | 6 | min 12 | Dex | |
 | Composite Short Bow | composite | 100 | 1d6 | 4 | up to pull 17 | Dex | |
@@ -192,7 +190,7 @@ Archer AI:
 ## Build order
 
 1. ~~Throwing weapons and the shared range machinery~~ (built).
-2. Javelins and the sling.
+2. ~~Javelins and the sling~~ (built).
 3. Bows and crossbows: the remaining families, the engaged penalty, point blank, pierce, reload.
 4. Weapon switching.
 5. Giant boulders, which need `rangeProfile` for monsters.

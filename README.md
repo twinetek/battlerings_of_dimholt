@@ -2,7 +2,7 @@
 
 A browser gladiator game that builds on *Darkwood* (1992), the Macintosh shareware arena game by Robert Chancellor. It's a new fan-created game with its own ideas.
 
-Roll a gladiator and fight your way up the Battlerings, from giant rats to the Red Dragon. Every fight is on a hex battlefield: move, strike, or throw your spare weapons. Buy weapons, armor, and magic. Level up and spend stat points. Hire mercenaries, and coat your blade with venom from poisonous monsters. Beat the Red Dragon to become Captain of the Guard.
+Roll a gladiator and fight your way up the Battlerings, from giant rats to the Red Dragon. Every fight is on a hex battlefield: move, strike, throw your spare weapons, or shoot a sling. Buy weapons, armor, and magic. Level up and spend stat points. Hire mercenaries, and coat your blade with venom from poisonous monsters. Beat the Red Dragon to become Captain of the Guard.
 
 It's plain HTML, CSS, and JavaScript modules, with no build step and no server. Games save in your browser, and you can export a save file for backup.
 
@@ -16,7 +16,7 @@ Once GitHub Pages is on, the game is at https://twinetek.github.io/battlerings_o
 - It starts from a copy of your main game and never changes it.
 - Today there's one beta feature: **Battlefield tester** (`hex_battlefield/`): the battlefield with tester controls for setting up scenarios (add enemies or mercenaries, heal, pick an arena layout, auto-play). New battlefield rules land there first.
 
-**The battlefield** (main game): every fight is on a hex arena with pillars and a layout rolled at random: flat, hills, a stepped ziggurat, or raised ledges with ramps. High ground matters: you can only strike 1 level up or down, attacking up is harder, attacking down hits harder, and throwing down reaches farther. Climbing a level costs extra movement: Strength makes climbing cheaper, Dexterity makes you faster and surer going down, and heavy armor slows you unless you're strong enough to carry it. Too-high cliffs must be gone around, and you can jump down a drop at the cost of falling damage. Monsters move their own way: spiders walk up walls, dragons fly over them, giants step up them. Move and attack an adjacent enemy, or throw any weapon you carry at one in range; each weapon is one throw per fight, so five daggers are five throws. Daggers and Throwing Axes fly best; a two-handed sword barely flies at all. You gather everything up after each fight, and you can carry any number of weapons. Bows and crossbows come later.
+**The battlefield** (main game): every fight is on a hex arena with pillars and a layout rolled at random: flat, hills, a stepped ziggurat, or raised ledges with ramps. High ground matters: you can only strike 1 level up or down, attacking up is harder, attacking down hits harder, and throwing down reaches farther. Climbing a level costs extra movement: Strength makes climbing cheaper, Dexterity makes you faster and surer going down, and heavy armor slows you unless you're strong enough to carry it. Too-high cliffs must be gone around, and you can jump down a drop at the cost of falling damage. Monsters move their own way: spiders walk up walls, dragons fly over them, giants step up them. Move and attack an adjacent enemy, or throw any weapon you carry at one in range; each weapon is one throw per fight, so five daggers are five throws. Javelins fly farthest, then daggers and Throwing Axes; a two-handed sword barely flies at all. You gather everything up after each fight, and you can carry any number of weapons. A sling in your hand shoots stones every round and never runs out, but can't strike in melee. Bows and crossbows come later.
 
 ## Run locally
 
@@ -47,7 +47,7 @@ The test pages report PASS or FAIL lines. The playthroughs drive the real screen
 - `js/ui/`: screens.
 - `DESIGN.md`: design notes and decisions.
 - `TODO.md`: ideas that are decided but not built yet, and open findings from code reviews.
-- `Todo_ranged.md`: the design for ranged attacks on the battlefield. Throwing (any weapon you carry) is built; bows, crossbows and monsters that throw are not.
+- `Todo_ranged.md`: the design for ranged attacks on the battlefield. Throwing (any weapon you carry), javelins and the sling are built; bows, crossbows and monsters that throw are not.
 
 ## Credits
 

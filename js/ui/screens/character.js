@@ -42,7 +42,7 @@ function lootPanel(ctx, params) {
       <div class="apply-choose">
         <p class="small">Coat which weapon? Coatings fade by 1 each night and each arena visit. Up to ${MAX_COATINGS} different venoms per weapon.</p>
         ${c.weapons.length
-          ? weaponStacks(c).map(st => button(`${esc(WEAPON_BY_ID[st.id].name)}${st.inHand ? ' (in hand)' : st.indices.length > 1 ? ' (one of them)' : ''}`, 'apply', { loot: i, weapon: st.indices[0] }, { cls: 'small' })).join(' ')
+          ? weaponStacks(c).filter(st => !WEAPON_BY_ID[st.id].ranged).map(st => button(`${esc(WEAPON_BY_ID[st.id].name)}${st.inHand ? ' (in hand)' : st.indices.length > 1 ? ' (one of them)' : ''}`, 'apply', { loot: i, weapon: st.indices[0] }, { cls: 'small' })).join(' ')
           : '<span class="muted">You have no weapons to coat.</span>'}
         ${button('Cancel', 'cancelApply', {}, { cls: 'ghost small' })}
       </div>` : '';

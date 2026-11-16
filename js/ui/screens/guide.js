@@ -167,6 +167,7 @@ function battlefieldSection() {
               take one step.</li>
             <li>Hover an enemy to see your chance, damage and what changes them.</li>
           </ul></li>
+        <li><strong>Slings.</strong> ${slingText()}</li>
       </ul>`;
 }
 
@@ -258,7 +259,7 @@ function thac0Examples() {
 // hexes); ..." from the weapons' throw profiles.
 function throwKinds() {
   const kinds = new Map();
-  for (const w of WEAPONS) {
+  for (const w of WEAPONS.filter(x => x.throw)) {
     const key = `${w.throw.aim},${w.throw.hit}`;
     kinds.set(key, [...(kinds.get(key) ?? []), w]);
   }
@@ -266,6 +267,17 @@ function throwKinds() {
     .sort((a, b) => (b[0].throw.aim + b[0].throw.hit) - (a[0].throw.aim + a[0].throw.hit))
     .map(ws => `${ws.filter(w => !w.plus).map(w => esc(w.name)).join(', ')}: full power to ${ws[0].throw.aim} hex${ws[0].throw.aim === 1 ? '' : 'es'}${ws[0].throw.hit ? `, ${ws[0].throw.hit} to hit` : ''}`)
     .join('; ');
+}
+
+// The sling rules, from its data.
+function slingText() {
+  const w = WEAPONS.find(x => x.ranged?.family === 'sling');
+  return `A ${esc(w.name)} shoots ${w.ranged.thing}s from your hand, as often as you attack, and never runs out (full power to
+    ${w.ranged.aim} hexes before Strength). It uses the same range, height, line-of-sight and moving rules as throwing, with Strength's
+    range and damage bonus and Dexterity's to-hit bonus. A sling can't strike in melee, so with one in hand every attack is a shot,
+    even at an enemy beside you. ${esc(w.ranged.thing.charAt(0).toUpperCase() + w.ranged.thing.slice(1))}s carry no venom, and a sling can't be coated or thrown.
+    To throw your other weapons instead, pick one under <strong>Shoot or throw</strong>. You can't change weapons mid-fight, so to fight
+    in melee, equip another weapon before you go to the arena.`;
 }
 
 function weaponTable() {

@@ -2,8 +2,9 @@
 // 2nd edition Player's Handbook. Magic items and prices are the original
 // game's list.
 
-// Every weapon here is a melee weapon. Bows and other true ranged weapons will
-// come later with their own `ranged` field (see Todo_ranged.md).
+// Weapons are melee weapons (with `throw`) or true ranged weapons (with
+// `ranged`). So far the Sling is the only ranged weapon; bows and crossbows
+// will follow (see Todo_ranged.md).
 // speed:   added to the initiative roll, lower is faster.
 // plus:    magic bonus to hit and damage, and what magicReq checks against.
 // throw:   how well it flies when thrown on the battlefield: { aim, hit }
@@ -11,6 +12,12 @@
 //          hit  to-hit adjustment for throwing it
 //          Any weapon you carry can be thrown, one throw per weapon per fight;
 //          you gather them up afterward.
+// ranged:  a weapon that shoots, from your hand: { family, aim, hit?, thing }
+//          family  'sling' (more to come): which stats it uses (rules/ranged.js)
+//          aim     hexes at full accuracy and damage, before Str
+//          thing   what it shoots, for the battle log
+//          It can't be thrown, and on the battlefield every attack with it is
+//          a shot, even at an enemy beside you. Ammunition is unlimited.
 const MADE_TO_THROW = { aim: 3, hit: 0 };  // daggers, throwing axes
 const HANDY = { aim: 2, hit: -1 };         // small and balanced enough
 const AWKWARD = { aim: 1, hit: -2 };       // one-handed weapons
@@ -19,6 +26,8 @@ const CLUMSY = { aim: 1, hit: -4 };        // big two-handed weapons
 export const WEAPONS = [
   { id: 'dagger',          name: 'Dagger',             cost: 2,     speed: 2,  dmg: '1d4',   plus: 0, throw: MADE_TO_THROW },
   { id: 'throwing-axe',    name: 'Throwing Axe',       cost: 8,     speed: 4,  dmg: '1d6',   plus: 0, throw: MADE_TO_THROW },
+  { id: 'javelin',         name: 'Javelin',            cost: 2,     speed: 4,  dmg: '1d6',   plus: 0, throw: { aim: 4, hit: 0 } },
+  { id: 'sling',           name: 'Sling',              cost: 1,     speed: 6,  dmg: '1d4',   plus: 0, ranged: { family: 'sling', aim: 3, thing: 'stone' } },
   { id: 'hand-axe',        name: 'Hand Axe',           cost: 4,     speed: 4,  dmg: '1d6',   plus: 0, throw: HANDY },
   { id: 'short-sword',     name: 'Short Sword',        cost: 10,    speed: 3,  dmg: '1d6',   plus: 0, throw: AWKWARD },
   { id: 'mace',            name: 'Mace',               cost: 8,     speed: 7,  dmg: '1d6+1', plus: 0, throw: AWKWARD },

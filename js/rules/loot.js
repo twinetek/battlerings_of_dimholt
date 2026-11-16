@@ -89,6 +89,7 @@ export function applyVenom(state, lootIndex, weaponIndex) {
   const potency = glandPotency(state, g);
   if (potency <= 0) return fail(`The ${item.name} has spoiled.`);
   const weaponName = WEAPON_BY_ID[w.id].name;
+  if (WEAPON_BY_ID[w.id].ranged) return fail(`A ${weaponName} has no blade to coat.`);
   w.coatings = w.coatings.filter(ct => coatingStrength(state, ct) > 0);
   const same = w.coatings.find(ct => ct.source === item.source);
   if (same) {

@@ -5,7 +5,7 @@
 import { roll, die } from '../engine/dice.js';
 import { WEAPON_BY_ID, ARMOR_BY_ID, ITEM_BY_ID, UNARMED } from '../data/equipment.js';
 import {
-  STATS, strBonus, dexAc, conHp, thac0, XP_FOR_LEVEL, MAX_LEVEL,
+  STATS, strBonus, dexAc, dexMissile, conHp, thac0, XP_FOR_LEVEL, MAX_LEVEL,
   FIRST_LEVEL_HP, HIT_DIE, HP_AFTER_NINE, STARTING_GOLD,
   BASE_MOVE, MIN_MOVE, dexMove, dexDrop, strClimb, strCarry,
 } from './tables.js';
@@ -67,8 +67,10 @@ export function armorClass(c) {
   return 10 + dexAc(c.stats.dex) + (armorOf(c)?.ac ?? 0) - ringBonus(c);
 }
 
+// A weapon that shoots (a sling) aims with Dexterity, not Strength.
 export function toHitBonus(c, weapon = weaponOf(c)) {
-  return strBonus(c.stats.str).hit + weapon.plus;
+  const aim = weapon.ranged ? dexMissile(c.stats.dex) + (weapon.ranged.hit ?? 0) : strBonus(c.stats.str).hit;
+  return aim + weapon.plus;
 }
 
 export function damageBonus(c, weapon = weaponOf(c)) {

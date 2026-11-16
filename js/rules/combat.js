@@ -35,7 +35,7 @@ import {
   MELEE_HEIGHT_REACH, TALL_HEIGHT_REACH, UPHILL_TO_HIT, DOWNHILL_DMG, HIGH_GROUND_SAVE,
 } from './tables.js';
 import { levelOf } from './terrain.js';
-import { rangeProfile, rangedDamage, throwsLeft, pickThrow } from './ranged.js';
+import { rangeProfile, rangedDamage, throwsLeft, pickShot } from './ranged.js';
 import { weaponOf, weaponEntry, armorClass, rollToHit, gainXp, drainLevel, heal } from './character.js';
 import { rollLoot, liveCoatings, venomName } from './loot.js';
 import { LOOT_BY_ID } from '../data/loot.js';
@@ -202,8 +202,8 @@ export function playRound(state, action) {
   let playerFirst = false;
   if (cb.paralyzed === 0) {
     const lead = living(cb.enemies).find(e => e.main) ?? living(cb.enemies)[0];
-    const thrown = action.ranged ? WEAPON_BY_ID[c.weapons[pickThrow(state, cb.target)]?.id] : null;
-    const speed = action.type === 'use' ? ITEM_SPEED : (thrown ?? weaponOf(c)).speed;
+    const shot = action.ranged ? WEAPON_BY_ID[c.weapons[pickShot(state, cb.target)]?.id] : null;
+    const speed = action.type === 'use' ? ITEM_SPEED : (shot ?? weaponOf(c)).speed;
     playerFirst = die(10) + speed <= die(10) + MONSTER_BY_ID[lead.monsterId].speed;
   }
   ev.push({ t: 'initiative', first: playerFirst ? 'player' : 'monster' });
@@ -282,11 +282,12 @@ function playerTurn(state, action, ev) {
   }
 }
 
-// Throwing (hex battlefield beta): each of your attacks this round throws one
-// of your weapons (rules/ranged.js pickThrow) at your target, or, if it's out
-// of range or sight, at the nearest enemy you can hit. Range, cover and moving
-// first come from rules/ranged.js; melee height modifiers don't apply to
-// throws. A thrown weapon carries its venom coatings with it.
+// Shooting and throwing (hex battlefield): each of your attacks this round
+// shoots the sling in your hand or throws one of your weapons (rules/ranged.js
+// pickShot) at your target, or, if it's out of range or sight, at the nearest
+// enemy you can hit. Range, cover and moving first come from rules/ranged.js;
+// melee height modifiers don't apply. A thrown weapon carries its venom
+// coatings with it; a sling stone carries none, and the sling stays in hand.
 function rangedTurn(state, ev) {
   const c = state.character;
   const cb = state.combat;
@@ -305,17 +306,21 @@ function rangedTurn(state, ev) {
       ev.push({ t: 'immune', weapon: w.name, req: m.magicReq, target: e.name });
       return;
     }
-    (cb.thrown ??= []).push(p.index);
+    if (!p.shoot) (cb.thrown ??= []).push(p.index);
     const need = thac0(c.level) - m.ac - p.toHit;
     const r = die(20);
     const hit = r === 20 || (r !== 1 && r >= need);
-    const base = { t: 'attack', by: 'player', ranged: true, weapon: w.name, distance: p.distance, dmgMult: p.dmgMult };
+    const base = {
+      t: 'attack', by: 'player', ranged: true, weapon: w.name, distance: p.distance, dmgMult: p.dmgMult,
+      ...(p.shoot ? { shot: w.ranged.thing } : {}),
+    };
     if (!hit) {
       ev.push({ ...base, hit: false, target: e.name });
     } else {
       hurtEnemy(state, e, rangedDamage(roll(w.dmg), p), ev, { ...base, hit: true }, PLAYER);
-      if (e.hp > 0) envenom(state, e, ev, 0, entry);
+      if (e.hp > 0 && !p.shoot) envenom(state, e, ev, 0, entry);
     }
+    if (p.shoot) continue;
     if (p.index === c.equipped) drawWeapon(state, ev);
     if (throwsLeft(state) === 0) ev.push({ t: 'throwsSpent' });
   }

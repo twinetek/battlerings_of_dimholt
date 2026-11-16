@@ -75,6 +75,11 @@ function fallLine(e) {
 function attackLine(e) {
   if (e.ranged) {
     const hexes = `${e.distance} hex${e.distance === 1 ? '' : 'es'}`;
+    if (e.shot) {
+      return e.hit
+        ? { text: `Your ${e.weapon} sends a ${e.shot} into the ${e.target} (${hexes}) for ${e.dmg} damage${e.dmgMult < 1 ? ', weakened by the distance' : ''}.`, cls: 'good' }
+        : { text: `Your ${e.weapon}'s ${e.shot} whistles past the ${e.target} (${hexes}).`, cls: 'muted' };
+    }
     return e.hit
       ? { text: `You throw your ${e.weapon} at the ${e.target} (${hexes}) and hit for ${e.dmg} damage${e.dmgMult < 1 ? ', weakened by the distance' : ''}.`, cls: 'good' }
       : { text: `Your ${e.weapon} flies past the ${e.target} (${hexes}).`, cls: 'muted' };
@@ -134,7 +139,7 @@ export function describe(e) {
     case 'enemyDown': return e.crowd ? { text: `The ${e.name} falls!`, cls: 'good' } : null;
     case 'allyDown': return { text: `${e.name} falls!`, cls: 'bad' };
     case 'noReach': return { text: 'No enemy is within reach of your weapon.', cls: 'muted' };
-    case 'noShot': return { text: 'You have no clear throw at any enemy.', cls: 'muted' };
+    case 'noShot': return { text: 'You have no clear shot at any enemy.', cls: 'muted' };
     case 'throwsSpent': return { text: "You've thrown every weapon you carry. You'll gather them up after the fight.", cls: 'sys' };
     case 'draw': return { text: e.weapon ? `You draw your ${e.weapon}.` : 'You fight on with your fists.', cls: 'sys' };
     case 'throwsRecovered': return recoverLine(e);
