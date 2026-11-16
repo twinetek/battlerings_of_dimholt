@@ -2,7 +2,7 @@
 // Each returns { ok, msg } and changes the game state only when ok.
 
 import { roll } from '../engine/dice.js';
-import { WEAPON_BY_ID, ARMOR_BY_ID, ITEM_BY_ID } from '../data/equipment.js';
+import { WEAPON_BY_ID, ARMOR_BY_ID, ITEM_BY_ID, AMMO_BY_ID } from '../data/equipment.js';
 import { TOME_MAX, INN_PRICE, STATS } from './tables.js';
 import { advanceClock } from './loot.js';
 import { maxHp, heal, armorOf, readTome } from './character.js';
@@ -48,6 +48,28 @@ export function equipWeapon(c, index) {
   if (!w) return fail('No such weapon.');
   c.equipped = index;
   return ok(`You ready the ${w.name}.`);
+}
+
+// ---- Ammunition (arrows and bolts, sold in bundles; no limit carried) ----
+
+export function buyAmmo(c, id) {
+  const a = AMMO_BY_ID[id];
+  if (!a) return fail('No such ammunition.');
+  if (c.gold < a.cost) return fail(`You can't afford ${a.bundle} ${a.plural.toLowerCase()}.`);
+  c.gold -= a.cost;
+  c.ammo ??= {};
+  c.ammo[id] = (c.ammo[id] ?? 0) + a.bundle;
+  return ok(`You buy ${a.bundle} ${a.plural.toLowerCase()}. You have ${c.ammo[id]}.`);
+}
+
+// Ammunition sells back at half price, a bundle at a time.
+export function sellAmmo(c, id) {
+  const a = AMMO_BY_ID[id];
+  if (!a || (c.ammo?.[id] ?? 0) < a.bundle) return fail(`You need ${a ? a.bundle : 'a bundle of'} to sell.`);
+  const price = sellPrice(a);
+  c.ammo[id] -= a.bundle;
+  c.gold += price;
+  return ok(`You sell ${a.bundle} ${a.plural.toLowerCase()} for ${price} gold.`);
 }
 
 // ---- Armor (one suit at a time; the old suit is traded in) ----

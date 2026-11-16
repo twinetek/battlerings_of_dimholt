@@ -3,8 +3,8 @@
 // game's list.
 
 // Weapons are melee weapons (with `throw`) or true ranged weapons (with
-// `ranged`). So far the Sling is the only ranged weapon; bows and crossbows
-// will follow (see Todo_ranged.md).
+// `ranged`): the Sling, the Bow and the Crossbow (see Todo_ranged.md for
+// what's planned).
 // speed:   added to the initiative roll, lower is faster.
 // plus:    magic bonus to hit and damage, and what magicReq checks against.
 // throw:   how well it flies when thrown on the battlefield: { aim, hit }
@@ -12,12 +12,18 @@
 //          hit  to-hit adjustment for throwing it
 //          Any weapon you carry can be thrown, one throw per weapon per fight;
 //          you gather them up afterward.
-// ranged:  a weapon that shoots, from your hand: { family, aim, hit?, thing }
-//          family  'sling' (more to come): which stats it uses (rules/ranged.js)
-//          aim     hexes at full accuracy and damage, before Str
-//          thing   what it shoots, for the battle log
-//          It can't be thrown, and on the battlefield every attack with it is
-//          a shot, even at an enemy beside you. Ammunition is unlimited.
+// ranged:  a weapon that shoots, from your hand: { family, aim, hit?, thing?, ammo? }
+//          family  which stats it uses (shootStats in rules/ranged.js):
+//                  'sling'     Str adds range and damage, Dex to hit
+//                  'bow'       Dex to hit; Str adds nothing
+//                  'crossbow'  half Dex to hit; Str adds nothing
+//          aim     hexes at full accuracy and damage (a sling's before Str)
+//          hit     built-in accuracy
+//          thing   what it shoots, for the battle log, if it needs no ammo
+//          ammo    the AMMO kind it shoots, one per shot; none: unlimited
+//          It can't be thrown or strike in melee: on the battlefield every
+//          attack with it is a shot, even at an enemy beside you. Out of
+//          ammunition, you fight with your fists.
 const MADE_TO_THROW = { aim: 3, hit: 0 };  // daggers, throwing axes
 const HANDY = { aim: 2, hit: -1 };         // small and balanced enough
 const AWKWARD = { aim: 1, hit: -2 };       // one-handed weapons
@@ -28,6 +34,8 @@ export const WEAPONS = [
   { id: 'throwing-axe',    name: 'Throwing Axe',       cost: 8,     speed: 4,  dmg: '1d6',   plus: 0, throw: MADE_TO_THROW },
   { id: 'javelin',         name: 'Javelin',            cost: 2,     speed: 4,  dmg: '1d6',   plus: 0, throw: { aim: 4, hit: 0 } },
   { id: 'sling',           name: 'Sling',              cost: 1,     speed: 6,  dmg: '1d4',   plus: 0, ranged: { family: 'sling', aim: 3, thing: 'stone' } },
+  { id: 'bow',             name: 'Bow',                cost: 30,    speed: 7,  dmg: '1d6',   plus: 0, ranged: { family: 'bow', aim: 5, ammo: 'arrow' } },
+  { id: 'crossbow',        name: 'Crossbow',           cost: 35,    speed: 7,  dmg: '1d8',   plus: 0, ranged: { family: 'crossbow', aim: 4, hit: 1, ammo: 'bolt' } },
   { id: 'hand-axe',        name: 'Hand Axe',           cost: 4,     speed: 4,  dmg: '1d6',   plus: 0, throw: HANDY },
   { id: 'short-sword',     name: 'Short Sword',        cost: 10,    speed: 3,  dmg: '1d6',   plus: 0, throw: AWKWARD },
   { id: 'mace',            name: 'Mace',               cost: 8,     speed: 7,  dmg: '1d6+1', plus: 0, throw: AWKWARD },
@@ -45,6 +53,16 @@ export const WEAPONS = [
   { id: 'two-handed-sword-2', name: 'Two-Handed Sword +2', cost: 7000, speed: 10, dmg: '2d6', plus: 2, throw: CLUMSY },
   { id: 'long-sword-3',    name: 'Long Sword +3',      cost: 12000, speed: 5,  dmg: '1d8',   plus: 3, throw: AWKWARD },
   { id: 'two-handed-sword-3', name: 'Two-Handed Sword +3', cost: 18000, speed: 10, dmg: '2d6', plus: 3, throw: CLUMSY },
+];
+
+// Ammunition for bows and crossbows, carried as character.ammo { id: count }.
+// Sold in bundles. Each shot uses one; a hit breaks it with breakChance (in
+// percent), and every other one fired is gathered up after a fight you survive.
+// Later kinds (magic or flaming arrows) are new entries with the same `for`.
+// for:  the `ranged.ammo` it fits
+export const AMMO = [
+  { id: 'arrow', name: 'Arrow', plural: 'Arrows', for: 'arrow', bundle: 10, cost: 1, breakChance: 50 },
+  { id: 'bolt',  name: 'Bolt',  plural: 'Bolts',  for: 'bolt',  bundle: 10, cost: 2, breakChance: 25 },
 ];
 
 // Fists can't be thrown.
@@ -96,3 +114,4 @@ const byId = list => Object.fromEntries(list.map(x => [x.id, x]));
 export const WEAPON_BY_ID = byId(WEAPONS);
 export const ARMOR_BY_ID = byId(ARMOR);
 export const ITEM_BY_ID = byId(ITEMS);
+export const AMMO_BY_ID = byId(AMMO);

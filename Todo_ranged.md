@@ -1,6 +1,6 @@
 # Ranged attacks on the hex battlefield: design
 
-Status: partly built. **Throwing** is built: you can throw any (melee) weapon you carry, one throw per weapon per fight, with each weapon's own `throw: { aim, hit }`. So are the **Javelin** and the **Sling** (the first weapon with `ranged`, shot from your hand). Built with them, the machinery every ranged attack shares:
+Status: partly built. **Throwing** is built: you can throw any (melee) weapon you carry, one throw per weapon per fight, with each weapon's own `throw: { aim, hit }`. So are the **Javelin**, the **Sling** (the first weapon with `ranged`, shot from your hand), and a basic **Bow** and **Crossbow** that use **arrows and bolts** (`AMMO`, counted, breaking on a hit by chance, gathered up after a fight). Built with them, the machinery every ranged attack shares:
 - the range profile;
 - Dexterity's missile bonus and Strength's range bonus;
 - range by height and line of sight in three dimensions;
@@ -8,7 +8,7 @@ Status: partly built. **Throwing** is built: you can throw any (melee) weapon yo
 - the moved-first penalty and the shoot-then-move limit;
 - the board, tooltip, shop and log support.
 
-`DESIGN.md` ("Ranged attacks") documents all of that; this file covers the rest. The sling added `shootStats`, `pickShot` and the `shoot` flag on `rangeProfile`; bows and crossbows build on those. The battlefield, and throwing, are in the main game; build new ranged work in the beta (`hex_battlefield/`) first. Move the settled parts into `DESIGN.md` once they're built.
+`DESIGN.md` ("Ranged attacks") documents all of that; this file covers the rest. The sling added `shootStats`, `pickShot` and the `shoot` flag on `rangeProfile`; the bow and crossbow added the `bow` and `crossbow` families in `shootStats` and ammunition (`AMMO`, `character.ammo`, `readyShooter`, `nextAmmo`). The weapons below build on those. The battlefield, and throwing, are in the main game; build new ranged work in the beta (`hex_battlefield/`) first. Move the settled parts into `DESIGN.md` once they're built.
 
 ## Goals
 
@@ -31,7 +31,7 @@ The range profile, cover, moving first and line of sight are built (see `DESIGN.
 | **Armor piercing (`pierce`):** crossbows, against AC 3 or better | +2 to hit | Covers the Storm Giant, dragons, the Quickling and plated mercenaries. It gives crossbows a late-game role. |
 
 - **Engaged penalty:** shooting while engaged is allowed; it just costs to-hit.
-- **Built-in accuracy (`hit`):** light crossbow +1, heavy crossbow +2. `throwStats` already adds a weapon's throwing `hit`; the bow version should add `ranged.hit` the same way.
+- **Built-in accuracy (`hit`):** built; `shootStats` adds `ranged.hit` (the basic Crossbow has +1).
 
 ## Weapon families still to build
 
@@ -41,9 +41,9 @@ The **thrown** and **sling** families are built. Each family uses Strength and D
 |---|---|---|---|---|
 | **Thrown** (built) | Any melee weapon, through its `throw` profile (the Javelin flies best, then daggers and Throwing Axes) | Full Str damage bonus and Str range bonus | Missile to-hit bonus | Never engaged; it's your melee weapon too |
 | **Sling** (built) | Sling | Full Str damage bonus and Str range bonus | Missile to-hit bonus | Unlimited stones; a true ranged weapon (`ranged`), so not a melee weapon |
-| **Self bow** (a plain bow) | Short Bow, Long Bow | Needs a minimum Str (`strMin`); no bonus above it | Missile to-hit bonus | Long reach, cheap |
+| **Self bow** (a plain bow; the basic **Bow** is built, without `strMin`) | Short Bow, Long Bow | Needs a minimum Str (`strMin`); no bonus above it | Missile to-hit bonus | Long reach, cheap |
 | **Composite bow** (built to a draw strength, its `pull`) | Composite Short Bow, Composite Long Bow | Str damage and range bonus, **up to the bow's pull** | Missile to-hit bonus | Strong archers get thrown-weapon damage at bow range |
-| **Crossbow** | Light, Heavy | None. Damage and range are fixed. | **Half** the missile to-hit bonus (rounded down) | Built-in accuracy, plus armor piercing |
+| **Crossbow** (the basic **Crossbow** is built: half Dex, +1, no pierce or reload yet) | Light, Heavy | None. Damage and range are fixed. | **Half** the missile to-hit bonus (rounded toward 0, as built) | Built-in accuracy, plus armor piercing |
 
 - **Composite bows** add `strBonus(min(str, pull)).dmg` and `strRange(min(str, pull))`. A pull-17 bow gives at most +2 damage even to a Str 18 archer.
 - **Too weak for a self bow:** each point of Str below its `strMin` is −1 to hit and −1 aim. A weakling with a long bow can still shoot, just badly. Composite bows have no minimum (a weak archer simply gets no bonus). Crossbows have none (you crank them).
@@ -88,9 +88,9 @@ New entries in `WEAPONS` (`data/equipment.js`) use the existing `ranged` field:
 ```
 
 - **New fields:** `strMin` (self bows), `pull` (composite bows), `pierce` and `reload` (crossbows). All are optional, defaulting to 0 or false.
-- **Ammunition:** unlimited for bows, crossbows and slings, as the original game never tracked consumables apart from wand charges. A javelin is a single melee weapon with a good `throw` profile, like a dagger: carry three to throw three.
+- **Ammunition:** built. Bows shoot arrows and crossbows bolts (`ranged.ammo`), counted in `character.ammo` and sold in bundles; slings stay unlimited. A javelin is a single melee weapon with a good `throw` profile, like a dagger: carry three to throw three.
 - **Shots per round:** they follow `attacksThisRound` (3/2 at 7th, 2 at 13th), as throws already do.
-- **Melee:** bows and crossbows aren't melee weapons. Beside an enemy you're engaged; a bow user needs weapon switching (below) or a mercenary screen.
+- **Melee:** bows and crossbows aren't melee weapons (built: with one in hand every attack is a shot, and out of ammunition you punch). Beside an enemy you're engaged; a bow user needs weapon switching (below) or a mercenary screen.
 
 | Weapon | Family | Cost | Damage | Base aim | Str | Accuracy | Notes |
 |---|---|---|---|---|---|---|---|
@@ -104,8 +104,23 @@ New entries in `WEAPONS` (`data/equipment.js`) use the existing `ranged` field:
 | Heavy Crossbow +1 | crossbow | 1500 | 1d10 | 5 | none | ½ Dex, +3, pierce +2 | Hurts Gargoyles and Wights; +1 aim. |
 | Composite Long Bow +2 | composite | 6000 | 1d6 | 6 | up to pull 18 | Dex | Hurts the Earth Elemental; +2 aim. |
 
+- **The built basic Bow and Crossbow** stand in for the Short Bow and Light Crossbow here (the Bow has aim 5 and no `strMin`; the Crossbow has no `pierce`). When these families come in, decide whether to rename them or keep them as the plain entry-level versions.
 - **Heavy crossbow:** after a shot, `cb.turn.reloading = true` (and the same on a mercenary). It clears at the start of your next turn but one. The UI shows "Reloading". `rangeProfile` gains the reason "Reloading".
 - **Classic fights (no grid):** bows and crossbows are used at their aim range, with no range, movement, cover or engaged modifiers. Their stat and weapon bonuses still apply: Dex, `hit`, `pierce`, Str damage, the `strMin` shortfall and magic. Point blank doesn't, since there are no distances. There's no throwing in classic fights.
+
+## Better weapons and ammunition (ideas, not designed yet)
+
+The basic Bow, Crossbow, arrows and bolts are the base for these:
+
+- **Better bows:** for example a **Yew Bow** with longer range, better accuracy and more power than the plain Bow. It's a new `WEAPONS` entry in the `bow` family with a higher `aim`, `hit` and damage; the self and composite bow rules above may fold in here.
+- **Magic weapons:** a **Bow +1**, **Crossbow +1** and so on. `plus` already adds to hit, damage and aim, and meets `magicReq`, for shooters as for melee weapons.
+- **Magic or special ammunition:** for example **flaming**, **exploding** or **poisoned** arrows, bolts, sling stones and javelins. Each is a new `AMMO` entry with the same `for` as the plain kind, so a quiver can hold several kinds (`ammoKinds` lists them best first; `nextAmmo` takes the first you have).
+- **Still to decide:**
+  - Which modifiers each kind of ammunition can have. Sling stones and javelins aren't `AMMO` today: stones are unlimited and javelins are weapons, so special stones or javelins need a design of their own.
+  - Whether modifiers combine (a flaming +1 arrow?), and how they stack with a magic bow's `plus` (does a +1 arrow from a +1 bow hurt an Earth Elemental?).
+  - What a shot uses when you carry several kinds: the best, the cheapest, or a picker choice like the Throw picker.
+  - Whether special ammunition breaks more or less often, and whether flaming or exploding ammunition is always used up.
+  - How these meet monsters' `immune` and `resist` (fire), and venom coatings (stones and arrows carry none today).
 
 ## Switching weapons mid-fight
 
@@ -191,7 +206,7 @@ Archer AI:
 
 1. ~~Throwing weapons and the shared range machinery~~ (built).
 2. ~~Javelins and the sling~~ (built).
-3. Bows and crossbows: the remaining families, the engaged penalty, point blank, pierce, reload.
+3. Bows and crossbows: ~~a basic Bow and Crossbow, with arrows and bolts that can break~~ (built). Still to do: the remaining families and weapons in the table above, the engaged penalty, point blank, pierce, reload; then better and magic weapons and ammunition (above).
 4. Weapon switching.
 5. Giant boulders, which need `rangeProfile` for monsters.
 6. The battlefield balance simulation; tune the numbers.

@@ -2,7 +2,7 @@
 // data and rule files, so the guide stays correct when balance changes.
 
 import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
-import { WEAPONS, WEAPON_BY_ID, ARMOR, ITEMS } from '../../data/equipment.js';
+import { WEAPONS, WEAPON_BY_ID, ARMOR, ITEMS, AMMO } from '../../data/equipment.js';
 import {
   STATS, strBonus, dexAc, conHp, XP_FOR_LEVEL, MAX_LEVEL, FIRST_LEVEL_HP, HIT_DIE, HP_AFTER_NINE,
   thac0, attacksLabel, saveTarget, STARTING_GOLD, INN_PRICE, GLAND_DECAY_TICKS, MAX_COATINGS,
@@ -168,6 +168,7 @@ function battlefieldSection() {
             <li>Hover an enemy to see your chance, damage and what changes them.</li>
           </ul></li>
         <li><strong>Slings.</strong> ${slingText()}</li>
+        <li><strong>Bows and crossbows.</strong> ${bowText()}</li>
       </ul>`;
 }
 
@@ -278,6 +279,20 @@ function slingText() {
     even at an enemy beside you. ${esc(w.ranged.thing.charAt(0).toUpperCase() + w.ranged.thing.slice(1))}s carry no venom, and a sling can't be coated or thrown.
     To throw your other weapons instead, pick one under <strong>Shoot or throw</strong>. You can't change weapons mid-fight, so to fight
     in melee, equip another weapon before you go to the arena.`;
+}
+
+// The bow and crossbow rules, from their data.
+function bowText() {
+  const bow = WEAPONS.find(x => x.ranged?.family === 'bow');
+  const xbow = WEAPONS.find(x => x.ranged?.family === 'crossbow');
+  const ammo = AMMO.map(a => `${a.plural.toLowerCase()} ${a.breakChance}%`).join(', ');
+  return `A ${esc(bow.name)} (${bow.dmg}, full power to ${bow.ranged.aim} hexes) aims with your full Dexterity bonus; a
+    ${esc(xbow.name)} (${xbow.dmg}, full power to ${xbow.ranged.aim} hexes) is built to be accurate (${signed(xbow.ranged.hit)} to hit) but
+    takes only half your Dexterity bonus. Strength adds neither range nor damage to either. Otherwise they work like a sling: the same range,
+    height, line-of-sight and moving rules, every attack a shot, and no striking in melee. Each shot uses one arrow (bow) or bolt (crossbow),
+    sold in bundles at the Weaponsmith. A hit may break it (${ammo}); every other one you shoot, hits and misses, you gather up after a fight you
+    survive. The picker under the battle buttons shows how many you have left. Out of ammunition, beside an enemy you fight with your fists,
+    and you can still throw any other weapons you carry.`;
 }
 
 function weaponTable() {

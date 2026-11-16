@@ -34,8 +34,8 @@ import { glandPotency, coatingStrength, applyVenom, sellLoot, rollLoot, endArena
 import { readSlot, deleteSlot } from '../js/engine/save.js';
 import { MONSTERS } from '../js/data/monsters.js';
 import { MERC_BY_ID } from '../js/data/mercs.js';
-import { createCharacter, maxHp, armorClass, gainXp, drainLevel, spendStatPoints, readTome, moveStats, toHitBonus } from '../js/rules/character.js';
-import { buyWeapon, buyArmor, buyItem, sellWeapon, stayAtInn, useItemInTown } from '../js/rules/town.js';
+import { createCharacter, maxHp, armorClass, gainXp, drainLevel, spendStatPoints, readTome, moveStats, toHitBonus, damageBonus } from '../js/rules/character.js';
+import { buyWeapon, buyArmor, buyItem, sellWeapon, stayAtInn, useItemInTown, buyAmmo, sellAmmo } from '../js/rules/town.js';
 import { startCombat, playRound } from '../js/rules/combat.js';
 import { newGameState, SAVE_VERSION } from '../js/engine/state.js';
 import { reinforcementsDue, setTarget, summonKind } from '../js/rules/combat.js';
@@ -1222,8 +1222,8 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
     slingStats({}).aim === 4 && slingStats({}).dmgBonus === 1 && slingStats({}).toHit === 0);
   check('Str 18 slings 1 hex farther and +3 damage; Dex 17 adds +2 to hit',
     slingStats({ str: 18 }).aim === 5 && slingStats({ str: 18 }).dmgBonus === 3 && slingStats({ dex: 17 }).toHit === 2);
-  check('a dagger doesn\'t shoot, and the sling is the only weapon that does',
-    Ranged.shootStats(thrower({}, []).character, WEAPON_BY_ID.dagger) === null && WEAPONS.filter(w => w.ranged).map(w => w.id).join() === 'sling');
+  check('a dagger doesn\'t shoot; the sling, bow and crossbow do',
+    Ranged.shootStats(thrower({}, []).character, WEAPON_BY_ID.dagger) === null && WEAPONS.filter(w => w.ranged).map(w => w.id).join() === 'sling,bow,crossbow');
   st = thrower({}, ['sling', 'dagger']);
   check('a sling in hand: the next attack shoots it', st.character.equipped === 0 && Ranged.shooterInHand(st)?.id === 'sling'
     && Ranged.pickShot(st, 'e1') === 0 && Ranged.canShoot(st));
@@ -1280,6 +1280,83 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   const slinger = createCharacter('Slinger', { str: 16, int: 10, wis: 10, dex: 17, con: 15, cha: 10 });
   check('a sling aims with Dex (+2 at 17), a sword with Str (+1 at 16)',
     toHitBonus(slinger, WEAPON_BY_ID.sling) === 2 && toHitBonus(slinger, WEAPON_BY_ID['long-sword']) === strBonus(16).hit);
+
+  // Bows and crossbows: Dex aims (a crossbow takes half, plus its own +1), Str adds nothing, and each shot uses an arrow or bolt.
+  const shooterStats = (id, stats = {}) => Ranged.shootStats(thrower(stats, []).character, WEAPON_BY_ID[id]);
+  check('a bow: full power to 5 hexes and no damage bonus, even at Str 18; Dex 17 adds +2 to hit',
+    shooterStats('bow', { str: 18 }).aim === 5 && shooterStats('bow', { str: 18 }).dmgBonus === 0 && shooterStats('bow', { dex: 17 }).toHit === 2);
+  check('a crossbow: 4 hexes, +1 to hit of its own, and half the Dex bonus, rounded toward 0 (Dex 15: +1, 17: +2, 18: +2, 3: 0)',
+    shooterStats('crossbow', { str: 18 }).aim === 4 && shooterStats('crossbow', { str: 18 }).dmgBonus === 0
+    && [15, 17, 18, 3].map(dex => shooterStats('crossbow', { dex }).toHit).join() === '1,2,2,0');
+  check('a bow takes arrows and a crossbow bolts; a sling needs nothing',
+    Ranged.ammoKinds(WEAPON_BY_ID.bow).map(a => a.id).join() === 'arrow' && Ranged.ammoKinds(WEAPON_BY_ID.crossbow).map(a => a.id).join() === 'bolt'
+    && !Ranged.needsAmmo(WEAPON_BY_ID.sling) && Ranged.ammoLeft({ ammo: {} }, WEAPON_BY_ID.sling) === Infinity);
+  check('the character sheet uses the same numbers: a bow +0 to hit and damage at Dex 15, Str 16; a crossbow +1 to hit',
+    toHitBonus(thrower({}, []).character, WEAPON_BY_ID.bow) === 0 && damageBonus(thrower({}, []).character, WEAPON_BY_ID.bow) === 0
+    && toHitBonus(thrower({}, []).character, WEAPON_BY_ID.crossbow) === 1);
+
+  // Buying ammunition, in bundles.
+  st = thrower({}, ['bow']);
+  delete st.character.ammo; // a save from before ammunition
+  const goldBefore = st.character.gold;
+  check('a bow with no arrows can\'t shoot, and says why', !Ranged.readyShooter(st) && !Ranged.canShoot(st)
+    && /out of arrows for your Bow, and have nothing to throw/.test(Ranged.rangeProfile(st, 'e1').reason));
+  check('...clicking a distant enemy says so too', /out of arrows/.test(BF.actYou(st, { type: 'fight', target: 'e1' }).msg));
+  check('buy arrows 10 at a time, for 1 gold, even on an old save', buyAmmo(st.character, 'arrow').ok && st.character.ammo.arrow === 10 && st.character.gold === goldBefore - 1);
+  check('bolts: 10 for 2 gold', buyAmmo(st.character, 'bolt').ok && st.character.ammo.bolt === 10 && st.character.gold === goldBefore - 3);
+  check('sell a bundle back at half price', sellAmmo(st.character, 'bolt').ok && st.character.ammo.bolt === 0 && st.character.gold === goldBefore - 2
+    && !sellAmmo(st.character, 'bolt').ok);
+
+  // Shooting arrows. An 11 hits AC 9; a d6 rolls 4; a d100 rolls 51, so nothing breaks.
+  st = thrower({}, ['bow']);
+  st.character.ammo = { arrow: 3 };
+  check('with arrows the bow is ready, and the next attack shoots it', Ranged.readyShooter(st)?.id === 'bow' && Ranged.pickShot(st, 'e1') === 0);
+  let bp = Ranged.rangeProfile(st, 'e1');
+  check('at 4 hexes: full power, using an arrow', bp.ok && bp.shoot && bp.ammo === 'arrow' && bp.toHit === 0 && bp.max === 9);
+  let arrow = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
+  check('an arrow hits for 4 (no Strength bonus) and uses one up; it didn\'t break, so it\'s gathered later',
+    arrow?.shot === 'arrow' && arrow.hit && arrow.dmg === 4 && !arrow.broke && st.character.ammo.arrow === 2 && st.combat.ammoOut.arrow === 1);
+  newTurn(st);
+  const seq = (...xs) => { let i = 0; return () => xs[i++ % xs.length]; };
+  setRng(seq(0.5, 0.1, 0.5)); // d20 11 (hit), d100 11 (breaks: 50%), d6 4
+  arrow = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
+  check('a hit can break the arrow (50%)', arrow?.hit && arrow.broke && st.combat.ammoBroken.arrow === 1 && st.character.ammo.arrow === 1);
+  newTurn(st);
+  setRng(() => 0.02); // a 1: a miss
+  const last = BF.actYou(st, { type: 'fight', target: 'e1' }).events;
+  setRng(() => 0.5);
+  check('a miss never breaks: it\'s gathered up later', last.some(e => e.t === 'attack' && !e.hit) && st.combat.ammoOut.arrow === 2);
+  check('the last arrow says so', st.character.ammo.arrow === 0 && last.some(e => e.t === 'ammoSpent' && e.ammo === 'arrows'));
+  check('out of arrows, the bow isn\'t ready', !Ranged.readyShooter(st) && !Ranged.canShoot(st));
+  newTurn(st);
+  st.combat.grid.pos.e1 = ahead(1);
+  const punch2 = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
+  check('...so beside an enemy you fight with your fists', punch2 && !punch2.ranged && punch2.weapon === 'Fists');
+  const gathered = playRound(st, { type: 'surrender' }).find(e => e.t === 'ammoRecovered');
+  check('leaving the fight gathers up the arrows that didn\'t break', gathered?.ammo[0].back === 2 && gathered.ammo[0].broken === 1
+    && st.character.ammo.arrow === 2 && !Object.keys(st.combat.ammoOut).length);
+  check('the log counts them', describe(gathered).text === 'You gather up 2 arrows (1 broke).');
+  check('...and when all that hit broke', describe({ t: 'ammoRecovered', ammo: [{ ammo: 'Bolt', back: 0, broken: 2 }] }).text === 'All 2 bolts that hit broke.');
+  check('the log names the arrow, and a break', describe({ t: 'attack', by: 'player', ranged: true, shot: 'arrow', weapon: 'Bow', target: 'Orc', distance: 5, dmgMult: 1, hit: true, dmg: 4, broke: true }).text
+    === 'Your Bow sends an arrow into the Orc (5 hexes) for 4 damage. The arrow breaks.');
+
+  // Bolts.
+  st = thrower({}, ['crossbow', 'dagger']);
+  st.character.ammo = { bolt: 5 };
+  const bolt = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
+  check('a crossbow bolt at 4 hexes: +1 to hit, a d8 rolls 5, no Strength bonus, one bolt used',
+    Ranged.rangeProfile(st, 'e1').toHit === 1 && bolt?.shot === 'bolt' && bolt.weapon === 'Crossbow' && bolt.dmg === 5 && st.character.ammo.bolt === 4);
+  st.character.ammo.bolt = 0;
+  check('out of bolts, the next attack throws your spare dagger instead', Ranged.pickShot(st, 'e1') === 1 && Ranged.rangeProfile(st, 'e1').shoot === false);
+  st = thrower({}, ['bow']);
+  st.character.ammo = { arrow: 5 };
+  st.combat.grid.pos.e1 = ahead(1);
+  check('auto-play with a loaded bow shoots an enemy beside you', BF.autoYou(st).events.findIndex(e => e.shot === 'arrow') === 0);
+  st = thrower({}, ['bow']);
+  st.character.ammo = { arrow: 5 };
+  st.character.weapons[0].coatings = [];
+  st.character.loot.push({ id: 'spider-venom', potency: 4, gotAt: st.clock });
+  check('a bow can\'t be coated either', !applyVenom(st, 0, 0).ok);
 
   // Classic fights: no throwing.
   st = newGameState(createCharacter('Classic', { str: 16, int: 10, wis: 10, dex: 15, con: 15, cha: 10 }));

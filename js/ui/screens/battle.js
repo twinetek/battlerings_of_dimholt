@@ -4,15 +4,15 @@
 
 import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
 import { MERCS, MERC_BY_ID } from '../../data/mercs.js';
-import { ITEM_BY_ID, WEAPON_BY_ID } from '../../data/equipment.js';
-import { maxHp, armorClass, weaponEntry, rollToHit, moveStats } from '../../rules/character.js';
+import { ITEM_BY_ID, WEAPON_BY_ID, UNARMED } from '../../data/equipment.js';
+import { maxHp, armorClass, weaponEntry, weaponOf, rollToHit, moveStats } from '../../rules/character.js';
 import { playRound, setTarget, openingEvents, inReach, heightMods, PLAYER } from '../../rules/combat.js';
 import {
   DEFAULT_FIELD, boardHexes, isPillar, livingUnits, occupant, reachableFor, threatZone, moveOf,
   moveYou, actYou, endTurn, autoYou, setThrowPick, fallRange, moveStatsOf, testerPaint, testerAddEnemy, testerAddMerc, testerHeal, testerRebuild,
 } from '../../rules/battlefield.js';
 import { TERRAINS, TERRAIN_BY_ID, RANDOM, MAX_HEIGHT, levelOf, cliffEdges } from '../../rules/terrain.js';
-import { rangeProfile, throwGroups, canShoot, shooterInHand, pickShot } from '../../rules/ranged.js';
+import { rangeProfile, throwGroups, canShoot, shooterInHand, readyShooter, pickShot, needsAmmo, ammoLeft, ammoKinds } from '../../rules/ranged.js';
 import * as H from '../../engine/hex.js';
 import { COMBAT_LOG_LIMIT, thac0 } from '../../rules/tables.js';
 import { toLines, describeAll, SUMMARIZE_ABOVE } from '../presenter.js';
@@ -72,7 +72,7 @@ function boardSvg(s, params) {
     const who = occupant(s, h);
     const cls = ['cell'];
     if (isPillar(cb, h)) cls.push('pillar');
-    else if (who?.startsWith('e') && canAct && !shooterInHand(s) && inReach(cb, PLAYER, who)) cls.push('attackable');
+    else if (who?.startsWith('e') && canAct && !readyShooter(s) && inReach(cb, PLAYER, who)) cls.push('attackable');
     else if (who?.startsWith('e') && canAct && rangeProfile(s, who).ok) cls.push('throwable');
     else if (pathKeys.has(k)) cls.push('path');
     else if (!who && reach.has(k) && reach.get(k).prev) cls.push(reach.get(k).jump ? 'jump' : 'reach');
@@ -147,8 +147,8 @@ function unitTip(s, uid) {
     const itReaches = !beside || inReach(cb, uid, PLAYER);
     const pct = need => Math.round(((21 - Math.min(20, Math.max(2, need))) / 20) * 100);
     const levels = n => `${n} level${n === 1 ? '' : 's'} ${mine.h < 0 ? 'up' : 'down'}`;
-    // A sling can't strike, so its chances come from the shot note instead.
-    const sling = !!shooterInHand(s);
+    // A loaded shooter can't strike, so its chances come from the shot note instead.
+    const sling = !!readyShooter(s);
     if (!sling) tip += youReach ? `. ${beside ? 'You' : 'In melee you'} hit it ${pct(rollNeed(s, m.ac) - mine.toHit)}%` : `. You can't reach it (${levels(Math.abs(mine.h))})`;
     tip += itReaches ? `${sling ? '. It' : ', it'} hits you ${pct(m.thac0 - me.ac - theirs.toHit)}%` : `${sling ? '. It' : ', and it'} can't reach you`;
     tip += heightNotes(mine, theirs, youReach && !sling, itReaches);
@@ -170,7 +170,7 @@ function moveTip(s, reach, k) {
 // If you have anything to shoot or throw: the weapon, your chance and damage
 // at this distance and what changes them, or why you can't.
 function throwNote(s, uid, m) {
-  if (!canShoot(s)) return '';
+  if (!canShoot(s)) return shooterInHand(s) ? `. ${ammoNote(s)}` : '';
   const p = rangeProfile(s, uid);
   const shoot = p.ok ? p.shoot : !!shooterInHand(s) && pickShot(s, uid) === s.character.equipped;
   if (!p.ok) return `. Can't ${shoot ? 'shoot' : 'throw'}: ${p.reason}`;
@@ -180,20 +180,38 @@ function throwNote(s, uid, m) {
   return `. ${shoot ? 'Shoot' : 'Throw'} your ${name}: ${p.distance} hexes, ${Math.round(((21 - need) / 20) * 100)}% to hit, ${Math.round(p.dmgMult * 100)}% damage${parts ? ` (${parts})` : ''}`;
 }
 
+// "Out of arrows for your Bow: beside an enemy you fight with your fists."
+function ammoNote(s) {
+  const w = shooterInHand(s);
+  return `Out of ${ammoKinds(w)[0].plural.toLowerCase()} for your ${w.name}: beside an enemy you fight with your fists`;
+}
+
+// "Bow, 12 arrows" for the picker, or just "Sling".
+function shooterLabel(s, w) {
+  if (!needsAmmo(w)) return esc(w.name);
+  const n = ammoLeft(s.character, w);
+  const kind = ammoKinds(w)[0];
+  return `${esc(w.name)}, ${n} ${(n === 1 ? kind.name : kind.plural).toLowerCase()}`;
+}
+
 // Which kind of weapon you'll throw next: "Best spare" lets the game choose
-// (never the weapon in your hand), or pick a kind yourself. With a sling in
-// hand, the default is to shoot it.
+// (never the weapon in your hand), or pick a kind yourself. With a loaded
+// shooter in hand, the default is to shoot it; the picker shows its ammunition.
 function throwPicker(s) {
   const cb = s.combat;
   if (!s.character.weapons.length) return '';
-  const sling = shooterInHand(s);
+  const sling = readyShooter(s);
+  const empty = shooterInHand(s) && !sling ? `<p class='muted small'>${ammoNote(s)}.</p>` : '';
   const groups = throwGroups(s);
-  if (!groups.length) return sling ? '' : "<p class='muted small'>Throw: you've thrown everything you carry. You'll gather it up after the fight.</p>";
+  if (!groups.length) {
+    if (sling) return `<p class='muted small'>Shoot: your ${shooterLabel(s, sling)}.</p>`;
+    return `${empty}<p class='muted small'>Throw: you've thrown everything you carry. You'll gather it up after the fight.</p>`;
+  }
   const pick = groups.some(g => g.id === cb.throwPick) ? cb.throwPick : null;
   const opt = (label, id, title) => button(label, 'throwPick', { id: id ?? '' }, { cls: `link${pick === id ? ' on' : ''}`, disabled: busy, title });
-  return `<p class="muted small row throw-pick">${sling ? 'Shoot or throw' : 'Throw'}:
+  return `${empty}<p class="muted small row throw-pick">${sling ? 'Shoot or throw' : 'Throw'}:
     ${sling
-    ? opt(`Shoot your ${esc(sling.name)}`, null, `Every attack shoots your ${sling.name}, unless you pick a weapon to throw`)
+    ? opt(`Shoot your ${shooterLabel(s, sling)}`, null, `Every attack shoots your ${sling.name}, unless you pick a weapon to throw`)
     : opt('Best spare', null, "The best weapon you aren't holding that can hurt the target")}
     ${groups.map(g => opt(`${esc(g.name)}${g.count > 1 ? ` ×${g.count}` : ''}${g.inHand && g.count === 1 ? ' (in hand)' : ''}`, g.id,
       g.inHand && g.count === 1 ? 'Throwing the weapon in your hand: you draw another, or fight on with your fists' : '')).join(' ')}</p>`;
@@ -214,7 +232,8 @@ function heightNotes(mine, theirs, youReach, itReaches) {
 }
 
 // The d20 roll you need against an AC, with your bonuses (same as the arena screen).
-const rollNeed = (s, ac) => rollToHit(s.character, ac);
+// A shooter in hand can't strike, so melee chances are with your fists.
+const rollNeed = (s, ac) => rollToHit(s.character, ac, weaponOf(s.character).ranged ? UNARMED : weaponOf(s.character));
 
 // ---- Side panels ----
 
@@ -278,7 +297,7 @@ function hintText(s) {
   const t = cb.turn;
   if (t.moved && t.acted) return 'You have moved and acted. End your turn.';
   const thrower = canShoot(s);
-  const sling = shooterInHand(s);
+  const sling = readyShooter(s);
   const attack = sling ? `shoot your ${sling.name} at an enemy in range (dashed)`
     : thrower ? 'attack an adjacent enemy (red) or throw at one in range (dashed)' : 'attack an adjacent enemy (red)';
   if (t.moved) return `${attack.charAt(0).toUpperCase()}${attack.slice(1)}, use an item, or end your turn.`;

@@ -5,11 +5,12 @@
 import { roll, die } from '../engine/dice.js';
 import { WEAPON_BY_ID, ARMOR_BY_ID, ITEM_BY_ID, UNARMED } from '../data/equipment.js';
 import {
-  STATS, strBonus, dexAc, dexMissile, conHp, thac0, XP_FOR_LEVEL, MAX_LEVEL,
+  STATS, strBonus, dexAc, conHp, thac0, XP_FOR_LEVEL, MAX_LEVEL,
   FIRST_LEVEL_HP, HIT_DIE, HP_AFTER_NINE, STARTING_GOLD,
   BASE_MOVE, MIN_MOVE, dexMove, dexDrop, strClimb, strCarry,
 } from './tables.js';
 import { earnsStatPoint, spendPoints, addTome, revokeLevel } from './stats.js';
+import { shootStats } from './ranged.js';
 
 // 3d6 in order, like the old books.
 export function rollStats() {
@@ -32,6 +33,7 @@ export function createCharacter(name, stats) {
     gold: roll(STARTING_GOLD) * 10,
     weapons: [],               // { id, coatings: [] }, one per weapon carried, any number
     equipped: -1,              // index into weapons, -1 for bare hands
+    ammo: {},                  // { ammo id: count }, arrows and bolts (data/equipment.js AMMO); older saves lack it
     armor: null,               // armor id
     items: [],                 // { id, charges? }
     loot: [],                  // { id, potency, gotAt } (see rules/loot.js)
@@ -67,13 +69,15 @@ export function armorClass(c) {
   return 10 + dexAc(c.stats.dex) + (armorOf(c)?.ac ?? 0) - ringBonus(c);
 }
 
-// A weapon that shoots (a sling) aims with Dexterity, not Strength.
+// A weapon that shoots aims with Dexterity, not Strength, and its damage
+// takes Strength only for a sling (shootStats in rules/ranged.js).
 export function toHitBonus(c, weapon = weaponOf(c)) {
-  const aim = weapon.ranged ? dexMissile(c.stats.dex) + (weapon.ranged.hit ?? 0) : strBonus(c.stats.str).hit;
-  return aim + weapon.plus;
+  if (weapon.ranged) return shootStats(c, weapon).toHit;
+  return strBonus(c.stats.str).hit + weapon.plus;
 }
 
 export function damageBonus(c, weapon = weaponOf(c)) {
+  if (weapon.ranged) return shootStats(c, weapon).dmgBonus;
   return strBonus(c.stats.str).dmg + weapon.plus;
 }
 

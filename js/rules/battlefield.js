@@ -26,7 +26,7 @@ import { MONSTER_BY_ID } from '../data/monsters.js';
 import { MERC_BY_ID } from '../data/mercs.js';
 import { WEAPON_BY_ID } from '../data/equipment.js';
 import { maxHp, moveStats } from './character.js';
-import { rangeProfile, throwsLeft, shooterInHand } from './ranged.js';
+import { rangeProfile, throwsLeft, readyShooter } from './ranged.js';
 import {
   SHOT_MOVE, BASE_MOVE, CLIMB_COST, CLIMB_MAX, DROP_COST, SAFE_DROP, JUMP_EXTRA, FALL_DIE, MOVE_TRAITS, AI_FALL_SHARE,
   conHp, saveTarget,
@@ -342,8 +342,10 @@ function takeFall(state, uid, levels, ev) {
 // action: { type: 'fight', target, ranged? } | { type: 'use', index, target? }
 // A fight action strikes your target in melee if you can reach it. If not and
 // you have a weapon to throw, you throw it (ranged: true forces a throw).
-// Otherwise you strike whoever else is in reach. With a sling in your hand
-// every attack is a shot, even at an enemy beside you: a sling can't strike.
+// Otherwise you strike whoever else is in reach. With a loaded shooter in
+// your hand (a sling, or a bow or crossbow with ammunition) every attack is a
+// shot, even at an enemy beside you: they can't strike. Out of ammunition,
+// you strike with your fists (rules/combat.js playerTurn).
 export function actYou(state, action) {
   const cb = state.combat;
   if (cb.over) return fail('The fight is over.');
@@ -353,7 +355,7 @@ export function actYou(state, action) {
   let act = action;
   if (action.type === 'fight') {
     const thrower = state.character.weapons.length > 0;
-    const slinger = !!shooterInHand(state);
+    const slinger = !!readyShooter(state);
     const enemies = livingUnits(state).filter(u => u.side === 'enemy');
     const meleeTarget = !action.ranged && !slinger && inReach(cb, PLAYER, cb.target);
     let shot = thrower && !meleeTarget ? rangeProfile(state, cb.target) : null;
@@ -438,14 +440,14 @@ function advance(state, uid, ev, preferUid = null) {
 // Let the AI play your turn (tester tool, and the balance simulations). If
 // you're not yet in melee and have a spare weapon to throw, you throw before
 // moving (moving first costs accuracy); then you move toward your target and
-// strike, or throw if still out of reach. With a sling in hand you shoot
-// whenever you have a shot, else close in and shoot.
+// strike, or throw if still out of reach. With a loaded shooter in hand you
+// shoot whenever you have a shot, else close in and shoot.
 export function autoYou(state) {
   const cb = state.combat;
   const ev = [];
   if (cb.over || cb.paralyzed > 0) return ok(ev);
   const near = () => livingUnits(state).filter(u => u.side === 'enemy' && inReach(cb, PLAYER, u.uid));
-  const slinger = () => !!shooterInHand(state);
+  const slinger = () => !!readyShooter(state);
   const tryThrow = () => {
     if (cb.turn.acted || (!slinger() && (!throwsLeft(state) || near().length))) return;
     const r = actYou(state, { type: 'fight', ranged: true });

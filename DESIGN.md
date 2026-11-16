@@ -352,9 +352,9 @@ Multi-level terrain is complete: every fight's arena is **generated** from a ran
   - **Balance:** the terrain balance bounds above.
 - **Playthroughs:** `tests/smoke.html` plays main-game fights on whatever layout is rolled, avoiding hexes where a cliff stops its blows. `tests/beta-smoke.html` rebuilds the arena as a Ziggurat and as Ledges, then on a flat floor paints a hill beside you with **Paint height**, checks the hover preview's cost against your stats, climbs it, and paints a 2-level edge to check it's drawn as a cliff or as climbable for your Strength.
 
-**Ranged attacks: throwing any weapon, javelins and the sling**
+**Ranged attacks: throwing any weapon, javelins, the sling, and bows and crossbows**
 
-The full ranged design (bows, crossbows, giants throwing boulders, archer mercenaries) is in `Todo_ranged.md`. So far **throwing** and the **sling** are built, by you only, along with the rules every later ranged attack will share. Weapons in `data/equipment.js` are melee weapons (with `throw`) or true ranged weapons (with `ranged`); the Sling is the only ranged weapon so far.
+The full ranged design (bows, crossbows, giants throwing boulders, archer mercenaries) is in `Todo_ranged.md`. So far **throwing**, the **sling**, and a basic **bow** and **crossbow** with **arrows and bolts** are built, by you only, along with the rules every later ranged attack will share. Weapons in `data/equipment.js` are melee weapons (with `throw`) or true ranged weapons (with `ranged`): the Sling, Bow and Crossbow.
 
 - **Any weapon you carry can be thrown, once per fight each.** Five daggers, two Daggers +1 and two Throwing Axes are nine throws. A thrown weapon stays on the field until the fight ends.
   - **No weapon limit:** the original's 6-weapon cap (`MAX_WEAPONS`) is gone, in the main game too, so you can carry as many spares as you can pay for. The Weaponsmith and the Equipment screen stack identical weapons ("Dagger ×5"; "Sell one"). The weapon in your hand, and any with venom on it, get a row of their own.
@@ -391,6 +391,23 @@ The full ranged design (bows, crossbows, giants throwing boulders, archer mercen
   - **Initiative** rolls with the sling's speed. **Magic-only monsters** ignore plain stones.
   - **Classic fights** (no grid): `toHitBonus` aims a ranged weapon with Dex instead of Str, so a sling in an old classic fight still uses the right stat.
   - **Shown:** the Weaponsmith and Equipment screen ("Shoots stones (never runs out): full power to 4 hexes, reaches 8. Can't strike in melee"), dashed red hexes for every enemy in range (beside you too), the hover note ("Shoot your Sling: …"), the hint, and the log ("Your Sling sends a stone into the Kobold (4 hexes) for 4 damage." / "Your Sling's stone whistles past the Kobold (6 hexes).").
+- **The Bow and the Crossbow** (`ranged.family` `'bow'` and `'crossbow'`), basic versions that better and magic ones will build on:
+
+  | Weapon | Cost | Speed | Damage | Full power to | To hit | Strength | Shoots |
+  |---|---|---|---|---|---|---|---|
+  | Bow | 30 | 7 | 1d6 | 5 hexes | Dex missile bonus | adds nothing | arrows |
+  | Crossbow | 35 | 7 | 1d8 | 4 hexes | half the Dex missile bonus (rounded toward 0), +1 of its own | adds nothing | bolts |
+
+  - `shootStats` reads the family: a sling takes Strength's range and damage; a bow and crossbow don't. `toHitBonus` and `damageBonus` in `rules/character.js` use `shootStats` for any shooter, so the Character screen matches.
+  - Everything else is as for the sling: the range profile, a shot every attack (beside an enemy too), the dashed hexes, no venom and no coating, `SHOT_MOVE` after a shot.
+- **Ammunition** (`AMMO` in `data/equipment.js`): arrows (10 for 1 gold, **50%** break on a hit) and bolts (10 for 2 gold, **25%**).
+  - **Carried** as `character.ammo` `{ id: count }`, any number. Saves from before it have no `ammo` field; every read defaults it to empty, so the save version is unchanged.
+  - **Bought and sold** at the Weaponsmith's Ammunition panel, a bundle at a time (`buyAmmo`, `sellAmmo` in `rules/town.js`; selling pays half). The Character screen lists what you carry.
+  - **Which ammunition a weapon takes:** its `ranged.ammo` names a kind, and each `AMMO` entry's `for` says which kind it is, so later magic or flaming arrows are just new entries (`ammoKinds`, best first; `nextAmmo` takes the first you have; `ammoLeft` counts them all, Infinity for a sling).
+  - **Each shot uses one** (`rangedTurn` in `rules/combat.js`; `rangeProfile` reports its `ammo`). A hit breaks it with its `breakChance` (a d100); everything else shot, hits and misses, goes into `combat.ammoOut`, broken ones into `combat.ammoBroken`.
+  - **Gathered up** when a fight you survive ends (`recoverAmmo`, called from `recoverThrows`): "You gather up 7 arrows (3 broke)." Dying loses them with everything else.
+  - **Running out:** "You've shot your last arrow." ends your shots that round. `readyShooter` is then null: the next attack throws a spare weapon if you have one (`pickShot`), and beside an enemy you **fight with your fists**, since a bow can't strike (`playerTurn` uses `UNARMED` for a shooter on the grid). Clicking a distant enemy says "You're out of arrows for your Bow, and have nothing to throw."
+  - **Shown:** the picker reads "Shoot or throw: Shoot your Bow, 17 arrows · Dagger ×2", or notes you're out; the Weaponsmith says "Shoots arrows (sold below)"; the log says "Your Bow sends an arrow into the Orc (5 hexes) for 4 damage. The arrow breaks."
 - **State:** `combat.thrown` (indices into `character.weapons`), `combat.throwPick`, `combat.handBefore`. Save version 5 turns the old beta sets into single weapons: Throwing Daggers into 3 Daggers (the first keeps any venom), Throwing Axes into 2 Throwing Axes.
 - **Where it lives:** `js/rules/ranged.js`, which is pure: no DOM, no dice.
   - `throwStats(c, weapon)` and `shootStats(c, weapon)`: the character's numbers with that weapon, anywhere; `rangedStats` is whichever applies. `shooterInHand` and `canShoot` say whether you have a sling in hand, or anything to shoot or throw.
@@ -438,8 +455,9 @@ The full ranged design (bows, crossbows, giants throwing boulders, archer mercen
 - **Tests:**
   - **Unit checks:** hex lines; the Dex and Str tables; `throwStats` per weapon profile and with magic; counting, grouping and picking throws (including magic for a gargoyle); falloff at aim, aim + 1 and max; height; pillars, hills and cover from above; moving first; and a fixed-roll throw.
   - **Throwing in play:** throwing every spare; choosing the weapon in hand and drawing (another of its kind, the long sword, fists); recovery and putting your weapon back; melee beside an enemy; throwing up a cliff; the gargoyle; venom on a thrown dagger; auto-play; classic fights; the log; the version 4 save migration.
+  - **Bows and crossbows:** their numbers by Str and Dex (half Dex for crossbows, rounded toward 0); which ammunition each takes; buying and selling bundles, also on a save without `ammo`; a shot using an arrow; a seeded break and a miss that doesn't break; the last arrow; fists beside an enemy when out; gathering up after a surrender, and the log lines; bolts; falling back to a spare dagger; auto-play; no coating. A Node simulation of 2,000 shots each measured the break rates at 50.1% and 25.0%.
   - **Javelins and the sling:** the javelin's numbers, the picker throwing it first, a 5-hex javelin hit; sling numbers by Str and Dex; a shot at 4 hexes and out of range at 9; six shots in a row with nothing used up; the step after a shot; shooting an enemy beside you; picking a dagger to throw with the sling in hand, then shooting again; a sling with nothing else; no venom and no coating; the gargoyle; auto-play beside and far away; Dex to-hit for classic fights; the log line.
-  - **The beta playthrough** buys two Throwing Axes, rebuilds without pillars, walks up, picks axes in the Throw picker and throws one through the real board. Later it buys a Javelin and a Sling, takes the sling in hand, checks the shop, Guide, hint and picker, and shoots a kobold through the real board.
+  - **The beta playthrough** buys two Throwing Axes, rebuilds without pillars, walks up, picks axes in the Throw picker and throws one through the real board. Later it buys a Javelin and a Sling, takes the sling in hand, checks the shop, Guide, hint and picker, and shoots a kobold through the real board. Then it buys a Bow and 20 arrows, checks the picker's count, shoots, and checks the arrows that didn't break come back after the fight.
 
 ### Player guide
 

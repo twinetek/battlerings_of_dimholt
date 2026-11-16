@@ -1,6 +1,6 @@
 // The weaponsmith, the armorer, and the magic shop.
 
-import { WEAPONS, WEAPON_BY_ID, ARMOR, ITEMS, ITEM_BY_ID } from '../../data/equipment.js';
+import { WEAPONS, WEAPON_BY_ID, ARMOR, ITEMS, ITEM_BY_ID, AMMO } from '../../data/equipment.js';
 import { FALLOFF_HEXES } from '../../rules/tables.js';
 import { rangedStats } from '../../rules/ranged.js';
 import { LOOT_BY_ID } from '../../data/loot.js';
@@ -18,14 +18,41 @@ const confirmSale = (name, price) => price < 100 || window.confirm(`Sell the ${n
 const weaponName = w => (w.plus ? `<span class="magic">${esc(w.name)}</span>` : esc(w.name));
 
 // "Thrown: full power to 4 hexes, reaches 8, -2 to hit" for this character,
-// or "Shoots stones: ..., can't strike in melee" for a sling.
+// or "Shoots arrows: ..., can't strike in melee" for a weapon that shoots.
 export function throwText(c, w) {
   const r = rangedStats(c, w);
   if (!r) return '';
   const own = w.ranged ? (w.ranged.hit ?? 0) : w.throw.hit;
   const hit = own ? `, ${signed(own)} to hit` : '';
-  const how = w.ranged ? `Shoots ${w.ranged.thing}s (never runs out)` : 'Thrown';
+  const kind = w.ranged?.ammo ? AMMO.find(a => a.for === w.ranged.ammo) : null;
+  const how = !w.ranged ? 'Thrown' : kind ? `Shoots ${kind.plural.toLowerCase()} (sold below)` : `Shoots ${w.ranged.thing}s (never runs out)`;
   return `<span class="muted small block">${how}: full power to ${r.aim} hex${r.aim === 1 ? '' : 'es'}, reaches ${r.aim + FALLOFF_HEXES}${hit}${w.ranged ? ". Can't strike in melee" : ''}</span>`;
+}
+
+// The arrows and bolts for sale, with how many you carry.
+function ammoPanel(c) {
+  const rows = AMMO.map(a => {
+    const have = c.ammo?.[a.id] ?? 0;
+    return `
+      <tr>
+        <td>${esc(a.plural)} <span class="muted small block">${a.breakChance}% break on a hit; the rest you gather up after a fight</span></td>
+        <td class="num">${a.bundle}</td>
+        <td class="num">${gp(a.cost)}</td>
+        <td class="num">${have}</td>
+        <td class="act">
+          ${button(`Buy ${a.bundle}`, 'buyAmmo', { id: a.id }, { disabled: c.gold < a.cost })}
+          ${have >= a.bundle ? button(`Sell ${a.bundle}`, 'sellAmmo', { id: a.id }, { cls: 'ghost' }) : ''}
+        </td>
+      </tr>`;
+  }).join('');
+  return `
+    <div class="panel">
+      <h3>Ammunition</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Kind</th><th class="num">Bundle</th><th class="num">Cost</th><th class="num">You have</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
 }
 
 // Your weapons with identical ones stacked: [{ id, indices, inHand, entry }].
@@ -84,7 +111,8 @@ export const weapons = {
         <p class="muted">Damage includes any magic bonus. Speed is added to your initiative roll, so lower strikes first.
           Gargoyles and wights need a +1 weapon to harm; earth elementals need +2.
           On the battlefield you can throw any weapon you carry, each one once per fight, so a spare dagger or two pays for itself.
-          A sling in your hand shoots stones every round instead, but can't strike in melee.</p>
+          A sling, bow or crossbow in your hand shoots every round instead, but can't strike in melee. A sling never runs out of stones;
+          a bow needs arrows and a crossbow bolts, one per shot.</p>
         ${goldLine(c)}
         <div class="cols">
           <div class="panel">
@@ -102,11 +130,14 @@ export const weapons = {
             </table></div>
           </div>
         </div>
+        <div class="cols">${ammoPanel(c)}</div>
         <div class="row">${backToTown()}</div>
       </section>`;
   },
   actions: {
     buy: (ctx, d) => ctx.commit(s => town.buyWeapon(s.character, d.id)),
+    buyAmmo: (ctx, d) => ctx.commit(s => town.buyAmmo(s.character, d.id)),
+    sellAmmo: (ctx, d) => ctx.commit(s => town.sellAmmo(s.character, d.id)),
     equip: (ctx, d) => ctx.commit(s => town.equipWeapon(s.character, Number(d.index))),
     sell(ctx, d) {
       const entry = ctx.state.character.weapons[d.index];

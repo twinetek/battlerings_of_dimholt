@@ -72,12 +72,26 @@ function fallLine(e) {
     : { text: `${who} jumps down and lands on its feet.`, cls: 'muted' };
 }
 
+// "You gather up 7 arrows (3 broke)." / "All 2 bolts you hit with broke."
+function ammoLine(e) {
+  const parts = e.ammo.map(({ ammo, back, broken }) => {
+    const word = n => `${n} ${ammo.toLowerCase()}${n === 1 ? '' : 's'}`;
+    if (!back) return `all ${word(broken)} that hit broke`;
+    return `${word(back)}${broken ? ` (${broken} broke)` : ''}`;
+  });
+  const gathered = parts.filter(p => !p.startsWith('all '));
+  const lost = parts.filter(p => p.startsWith('all '));
+  const text = [gathered.length ? `You gather up ${list(gathered)}.` : '', lost.length ? `${list(lost).replace(/^a/, 'A')}.` : ''].filter(Boolean).join(' ');
+  return { text, cls: 'sys' };
+}
+
 function attackLine(e) {
   if (e.ranged) {
     const hexes = `${e.distance} hex${e.distance === 1 ? '' : 'es'}`;
     if (e.shot) {
+      const a = /^[aeiou]/.test(e.shot) ? 'an' : 'a';
       return e.hit
-        ? { text: `Your ${e.weapon} sends a ${e.shot} into the ${e.target} (${hexes}) for ${e.dmg} damage${e.dmgMult < 1 ? ', weakened by the distance' : ''}.`, cls: 'good' }
+        ? { text: `Your ${e.weapon} sends ${a} ${e.shot} into the ${e.target} (${hexes}) for ${e.dmg} damage${e.dmgMult < 1 ? ', weakened by the distance' : ''}.${e.broke ? ` The ${e.shot} breaks.` : ''}`, cls: 'good' }
         : { text: `Your ${e.weapon}'s ${e.shot} whistles past the ${e.target} (${hexes}).`, cls: 'muted' };
     }
     return e.hit
@@ -143,6 +157,8 @@ export function describe(e) {
     case 'throwsSpent': return { text: "You've thrown every weapon you carry. You'll gather them up after the fight.", cls: 'sys' };
     case 'draw': return { text: e.weapon ? `You draw your ${e.weapon}.` : 'You fight on with your fists.', cls: 'sys' };
     case 'throwsRecovered': return recoverLine(e);
+    case 'ammoSpent': return { text: `You've shot your last ${e.ammo.replace(/s$/, '')}. Beside an enemy you'll fight with your fists.`, cls: 'sys' };
+    case 'ammoRecovered': return ammoLine(e);
     case 'move': return null; // shown by the battlefield, not the log
     case 'fall': return fallLine(e);
     case 'loot': return { text: `The ${e.from} leaves behind a ${e.item} (potency ${e.potency})!`, cls: 'win' };

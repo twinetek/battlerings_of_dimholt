@@ -1,6 +1,6 @@
 // The equipment dialog: stats, combat numbers, gear, and items.
 
-import { WEAPON_BY_ID, ITEM_BY_ID } from '../../data/equipment.js';
+import { WEAPON_BY_ID, ITEM_BY_ID, AMMO } from '../../data/equipment.js';
 import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
 import { STATS, strBonus, dexAc, conHp, thac0, attacksLabel } from '../../rules/tables.js';
 import { weaponOf, armorOf, armorClass, ringBonus, maxHp, toHitBonus, damageBonus, moveStats } from '../../rules/character.js';
@@ -70,6 +70,8 @@ export function render(ctx, params = {}) {
       </li>`;
     }).join('')
     : '<li class="muted">No weapons. Visit the Weaponsmith.</li>';
+  const quiver = AMMO.filter(a => (c.ammo?.[a.id] ?? 0) > 0)
+    .map(a => `<li><span>${esc(a.plural)} ×${c.ammo[a.id]} <span class="muted small">${a.breakChance}% break on a hit</span></span></li>`).join('');
 
   const items = c.items.length
     ? c.items.map((entry, i) => {
@@ -130,7 +132,7 @@ export function render(ctx, params = {}) {
         </div>
       </div>
       <div class="cols">
-        <div class="panel"><h3>Weapons</h3><ul class="list">${weapons}</ul></div>
+        <div class="panel"><h3>Weapons</h3><ul class="list">${weapons}${quiver}</ul></div>
         <div class="panel"><h3>Magic items</h3><ul class="list">${items}</ul></div>
         ${lootPanel(ctx, params)}
         <div class="panel"><h3>Arena record</h3><ul class="list">${wins}</ul></div>

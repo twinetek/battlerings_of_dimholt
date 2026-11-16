@@ -246,6 +246,57 @@ frame.addEventListener('load', async () => {
       }
       await click('[data-action="leave"]');
       log(screen() === 'town' && st().character.equipped === slingAt, 'leaving the fight keeps the sling in hand');
+
+      // A bow and arrows: buy them, shoot, and gather up the arrows that didn't break.
+      await click('[data-to="weapons"]');
+      log(/Ammunition/.test(q('#screen').textContent) && /Bow.*Shoots arrows \(sold below\)/.test(q('#screen').textContent.replace(/\s+/g, ' ')),
+        'the weaponsmith sells bows, crossbows and ammunition');
+      await click('[data-action="buy"][data-id="bow"]');
+      await click('[data-action="buyAmmo"][data-id="arrow"]');
+      await click('[data-action="buyAmmo"][data-id="arrow"]');
+      const bowAt = st().character.weapons.findIndex(x => x.id === 'bow');
+      await click(`[data-action="equip"][data-index="${bowAt}"]`);
+      log(st().character.ammo.arrow === 20 && st().character.equipped === bowAt, 'bought a bow and 20 arrows, and took the bow in hand');
+      await click('[data-action="go"][data-to="town"]');
+      await click('[data-to="arena"]');
+      await click('tr[data-id="kobold"]');
+      await click('[data-action="fight"][data-id="kobold"]');
+      q('#tester-pillars').checked = false;
+      q('#tester-terrain').value = 'flat';
+      await click('[data-action="rebuild"]');
+      await wait(300);
+      log(/Shoot your Bow, 20 arrows/.test(q('.throw-pick')?.textContent ?? ''), 'the picker shows the bow and its arrows');
+      let fired = 0;
+      for (let turn = 0; turn < 6 && !st().combat.over && fired < 2; turn++) {
+        const shotAt = q('.cell.throwable');
+        if (shotAt) {
+          await click(`[data-key="${shotAt.dataset.key}"]`);
+          await wait(400);
+          fired = 20 - st().character.ammo.arrow;
+        } else {
+          const foe3 = st().combat.grid.pos.e1;
+          const dist3 = k => { const [kq, kr] = k.split(',').map(Number); return (Math.abs(kq - foe3.q) + Math.abs(kr - foe3.r) + Math.abs(kq + kr - foe3.q - foe3.r)) / 2; };
+          const step = [...d.querySelectorAll('.cell.reach')].map(c => c.dataset.key).sort((a, b) => dist3(a) - dist3(b))[0];
+          if (step) { await click(`[data-key="${step}"]`); await wait(300); }
+        }
+        if (!st().combat.over) { await click('[data-action="endTurn"]'); await wait(500); }
+      }
+      const arrowLog = q('#combat-log').textContent;
+      log(/Your Bow sends an arrow into the Kobold|Your Bow's arrow whistles past the Kobold/.test(arrowLog) && st().character.ammo.arrow < 20,
+        `clicking a dashed enemy shoots an arrow, and uses it (${20 - st().character.ammo.arrow} shot)`);
+      // What's out on the field: shot and not broken (if the fight is already won, they're back already).
+      const before = st();
+      const out = before.combat.over ? 0 : (before.combat.ammoOut?.arrow ?? 0);
+      const broken = before.combat.over ? null : (before.combat.ammoBroken?.arrow ?? 0);
+      if (!before.combat.over) {
+        await click('[data-action="surrender"]');
+        await wait(300);
+      }
+      const s3 = st();
+      log(s3.character.ammo.arrow === before.character.ammo.arrow + out && (broken === null || s3.character.ammo.arrow === 20 - broken)
+        && /You gather up \d+ arrows?|that hit broke/.test(q('#combat-log').textContent),
+      `after the fight you gather up every arrow that didn't break (${broken ?? '?'} broke, ${s3.character.ammo.arrow} left)`);
+      await click('[data-action="leave"]');
     }
   } catch (err) {
     log(false, err.message);

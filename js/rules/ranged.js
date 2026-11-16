@@ -1,28 +1,33 @@
 // Ranged attacks on the hex battlefield. So far, by you: throwing, and
-// shooting a sling. Any melee weapon you carry can be thrown; each one is a
-// throw, and a thrown weapon stays on the field until the fight ends. A sling
-// (a weapon with `ranged`) shoots from your hand and never runs out of stones.
-// The full design (bows, crossbows, monsters and mercenaries that shoot) is
+// shooting a sling, bow or crossbow. Any melee weapon you carry can be
+// thrown; each one is a throw, and a thrown weapon stays on the field until
+// the fight ends. A weapon with `ranged` shoots from your hand: a sling never
+// runs out of stones; a bow uses arrows and a crossbow bolts (data/equipment.js
+// AMMO), one per shot, carried as character.ammo { id: count }.
+// The rest of the design (monsters and mercenaries that shoot, and more) is
 // in Todo_ranged.md; DESIGN.md ("Ranged attacks") describes what's built.
 //
 // A shot's numbers come from two places:
 //   throwStats(c, weapon)              the character and weapon, anywhere
-//   shootStats(c, weapon)              the same for a sling
+//   shootStats(c, weapon)              the same for a weapon that shoots
 //   rangeProfile(state, uid, index)    that, plus the board: distance, height,
 //                                      line of sight, cover, and moving first
 //
 // combat.thrown     indices into character.weapons thrown this fight
 // combat.throwPick  the weapon id you chose to throw, or null to let the game
-//                   choose (see pickShot: with a sling in hand, you shoot it)
+//                   choose (see pickShot: with a loaded shooter in hand, you shoot it)
 // combat.handBefore the weapon you held before throwing it, put back in your
 //                   hand after the fight
+// combat.ammoOut    { ammo id: count } shot this fight and not broken, gathered
+//                   up after it (rules/combat.js recoverThrows)
+// combat.ammoBroken { ammo id: count } broken on a hit this fight, for the log
 //
 // Range: up to its aim range a throw is at full accuracy and damage. Each hex
 // beyond costs 1 to hit and 1/8 of the damage, down to half at the maximum
 // range (aim + FALLOFF_HEXES). Nothing here touches the DOM or rolls dice.
 
 import * as H from '../engine/hex.js';
-import { WEAPON_BY_ID } from '../data/equipment.js';
+import { WEAPON_BY_ID, AMMO } from '../data/equipment.js';
 import { MONSTER_BY_ID } from '../data/monsters.js';
 import { levelOf, MAX_HEIGHT } from './terrain.js';
 import {
@@ -44,15 +49,20 @@ export function throwStats(c, w) {
   };
 }
 
-// The same for a weapon that shoots (`ranged`). A sling uses Strength like a
-// thrown weapon: its full damage bonus and its range bonus. null otherwise.
+// The same for a weapon that shoots (`ranged`), by its family. null otherwise.
+//   sling     Strength like a thrown weapon (damage and range), Dex to hit
+//   bow       Dex to hit; Strength adds nothing
+//   crossbow  half Dex's missile bonus (rounded toward 0); Strength adds nothing
+// All add magic and the weapon's own `hit`.
 export function shootStats(c, w) {
   const r = w?.ranged;
   if (!r) return null;
+  const strong = r.family === 'sling';
+  const dex = dexMissile(c.stats.dex);
   return {
-    aim: Math.min(AIM_CAP, r.aim + w.plus + strRange(c.stats.str)),
-    toHit: dexMissile(c.stats.dex) + w.plus + (r.hit ?? 0),
-    dmgBonus: w.plus + strBonus(c.stats.str).dmg,
+    aim: Math.min(AIM_CAP, r.aim + w.plus + (strong ? strRange(c.stats.str) : 0)),
+    toHit: (r.family === 'crossbow' ? Math.trunc(dex / 2) : dex) + w.plus + (r.hit ?? 0),
+    dmgBonus: w.plus + (strong ? strBonus(c.stats.str).dmg : 0),
     steady: c.stats.dex >= STEADY_DEX,
   };
 }
@@ -60,11 +70,28 @@ export function shootStats(c, w) {
 // How well a weapon flies, shot or thrown. null for fists.
 export const rangedStats = (c, w) => shootStats(c, w) ?? throwStats(c, w);
 
-// The weapon in your hand if it shoots (a sling), else null.
+// The weapon in your hand if it shoots, else null.
 export function shooterInHand(state) {
   const c = state.character;
   const w = c.equipped >= 0 ? WEAPON_BY_ID[c.weapons[c.equipped]?.id] : null;
   return w?.ranged ? w : null;
+}
+
+// ---- Ammunition ----
+
+// The ammunition kinds a weapon shoots, best first (just one kind each so far).
+export const ammoKinds = w => (w?.ranged?.ammo ? AMMO.filter(a => a.for === w.ranged.ammo) : []);
+export const needsAmmo = w => !!w?.ranged?.ammo;
+// How many shots you have for it: Infinity for a sling.
+export const ammoLeft = (c, w) => (needsAmmo(w) ? ammoKinds(w).reduce((n, a) => n + (c.ammo?.[a.id] ?? 0), 0) : Infinity);
+// The kind the next shot uses, or null (a sling, or none left).
+export const nextAmmo = (c, w) => ammoKinds(w).find(a => (c.ammo?.[a.id] ?? 0) > 0) ?? null;
+
+// The weapon in your hand if it can shoot right now (a sling, or a bow or
+// crossbow with ammunition), else null.
+export function readyShooter(state) {
+  const w = shooterInHand(state);
+  return w && ammoLeft(state.character, w) > 0 ? w : null;
 }
 
 // ---- What you have to throw ----
@@ -80,7 +107,7 @@ export function throwable(state) {
 export const throwsLeft = state => throwable(state).length;
 
 // Anything to shoot or throw this fight?
-export const canShoot = state => !!shooterInHand(state) || throwsLeft(state) > 0;
+export const canShoot = state => !!readyShooter(state) || throwsLeft(state) > 0;
 
 // The same, grouped by kind for the throw picker:
 // [{ id, name, count, inHand }], best throwers first.
@@ -118,12 +145,12 @@ export function pickThrow(state, targetUid = null) {
 }
 
 // What a ranged attack at `targetUid` uses (an index into character.weapons),
-// or -1: the kind you chose to throw, if you have one left; else the sling in
-// your hand; else pickThrow's best spare.
+// or -1: the kind you chose to throw, if you have one left; else the weapon
+// in your hand if it can shoot (readyShooter); else pickThrow's best spare.
 export function pickShot(state, targetUid = null) {
   const pick = state.combat?.throwPick;
   if (pick && throwable(state).some(x => x.entry.id === pick)) return pickThrow(state, targetUid);
-  if (shooterInHand(state)) return state.character.equipped;
+  if (readyShooter(state)) return state.character.equipped;
   return pickThrow(state, targetUid);
 }
 
@@ -173,9 +200,10 @@ export function lineOfSight(state, from, to) {
 // ---- The shot ----
 
 // Everything about throwing weapon `index` (default: pickShot), or shooting
-// it if it's the sling in your hand (shoot: true), at `targetUid` from where
-// you stand:
-// { ok, reason, index, shoot, distance, aim, max, toHit, dmgMult, dmgBonus, parts }.
+// it if it's the shooter in your hand (shoot: true), at `targetUid` from
+// where you stand:
+// { ok, reason, index, shoot, ammo, distance, aim, max, toHit, dmgMult, dmgBonus, parts }.
+// ammo: the AMMO kind the shot uses, or null (a sling, or a throw).
 // toHit is the whole bonus (stats, range, cover, moving); parts lists each
 // piece for tooltips, e.g. [['Dex', 2], ['range', -1]].
 export function rangeProfile(state, targetUid, index = pickShot(state, targetUid)) {
@@ -186,9 +214,15 @@ export function rangeProfile(state, targetUid, index = pickShot(state, targetUid
   const w = WEAPON_BY_ID[c.weapons[index]?.id];
   const shoot = index >= 0 && index === c.equipped && !!w?.ranged;
   if (!shoot) {
+    const empty = shooterInHand(state);
+    if (throwsLeft(state) <= 0 && empty && needsAmmo(empty)) {
+      return no(`You're out of ${ammoKinds(empty)[0].plural.toLowerCase()} for your ${empty.name}, and have nothing to throw.`);
+    }
     if (throwsLeft(state) <= 0) return no(c.weapons.length ? "You've thrown every weapon you carry this fight." : 'You have nothing to throw.');
     if (index < 0) return no('The only weapon you have left is the one in your hand. Choose it under Throw to throw it anyway.');
   }
+  const ammo = shoot ? nextAmmo(c, w) : null;
+  if (shoot && needsAmmo(w) && !ammo) return no(`You're out of ${ammoKinds(w)[0].plural.toLowerCase()} for your ${w.name}.`);
   const stats = shoot ? shootStats(c, w) : throwStats(c, w);
   if (!stats || (!shoot && (cb.thrown ?? []).includes(index))) return no("You can't throw that.");
   const from = cb.grid.pos[YOU], to = cb.grid.pos[targetUid];
@@ -207,14 +241,15 @@ export function rangeProfile(state, targetUid, index = pickShot(state, targetUid
   const movePenalty = stats.steady ? Math.ceil(moved / 2) : moved;
   const parts = [];
   const part = (name, n) => { if (n) parts.push([name, n]); };
-  part('Dex', dexMissile(c.stats.dex));
+  const dex = dexMissile(c.stats.dex);
+  part('Dex', shoot && w.ranged.family === 'crossbow' ? Math.trunc(dex / 2) : dex);
   part('magic', w.plus);
   part('weapon', shoot ? (w.ranged.hit ?? 0) : w.throw.hit);
   part('range', -over);
   part('cover', -COVER_PENALTY * sight.cover);
   part('moved', -movePenalty);
   return {
-    ok: true, reason: null, index, shoot, distance, aim, max,
+    ok: true, reason: null, index, shoot, ammo: ammo?.id ?? null, distance, aim, max,
     toHit: stats.toHit - over - COVER_PENALTY * sight.cover - movePenalty,
     dmgMult: 1 - 0.5 * over / FALLOFF_HEXES,
     dmgBonus: stats.dmgBonus,

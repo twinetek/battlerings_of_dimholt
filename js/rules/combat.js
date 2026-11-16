@@ -28,14 +28,14 @@
 
 import { roll, die, random } from '../engine/dice.js';
 import { MONSTERS, MONSTER_BY_ID } from '../data/monsters.js';
-import { ITEM_BY_ID, WEAPON_BY_ID } from '../data/equipment.js';
+import { ITEM_BY_ID, WEAPON_BY_ID, AMMO_BY_ID, UNARMED } from '../data/equipment.js';
 import { MERCS, MERC_BY_ID, MERC_NAMES, crewCost, crewText } from '../data/mercs.js';
 import {
   attacksThisRound, saveTarget, strBonus, thac0, ITEM_SPEED,
   MELEE_HEIGHT_REACH, TALL_HEIGHT_REACH, UPHILL_TO_HIT, DOWNHILL_DMG, HIGH_GROUND_SAVE,
 } from './tables.js';
 import { levelOf } from './terrain.js';
-import { rangeProfile, rangedDamage, throwsLeft, pickShot } from './ranged.js';
+import { rangeProfile, rangedDamage, throwsLeft, pickShot, ammoLeft } from './ranged.js';
 import { weaponOf, weaponEntry, armorClass, rollToHit, gainXp, drainLevel, heal } from './character.js';
 import { rollLoot, liveCoatings, venomName } from './loot.js';
 import { LOOT_BY_ID } from '../data/loot.js';
@@ -255,7 +255,8 @@ function playerTurn(state, action, ev) {
     rangedTurn(state, ev);
     return;
   }
-  const w = weaponOf(c);
+  // A bow or crossbow can't strike: out of ammunition beside an enemy, you punch.
+  const w = cb.grid && weaponOf(c).ranged ? UNARMED : weaponOf(c);
   const swings = attacksThisRound(c.level, cb.round);
   for (let i = 0; i < swings && !cb.over; i++) {
     const e = currentTarget(cb, cb.grid ? PLAYER : null);
@@ -283,11 +284,13 @@ function playerTurn(state, action, ev) {
 }
 
 // Shooting and throwing (hex battlefield): each of your attacks this round
-// shoots the sling in your hand or throws one of your weapons (rules/ranged.js
+// shoots the weapon in your hand or throws one of your weapons (rules/ranged.js
 // pickShot) at your target, or, if it's out of range or sight, at the nearest
 // enemy you can hit. Range, cover and moving first come from rules/ranged.js;
 // melee height modifiers don't apply. A thrown weapon carries its venom
-// coatings with it; a sling stone carries none, and the sling stays in hand.
+// coatings with it; shots carry none, and the shooter stays in hand. Each
+// arrow or bolt is used up as it's shot; a hit breaks it with its AMMO
+// breakChance, and the rest are gathered up after the fight (cb.ammoOut).
 function rangedTurn(state, ev) {
   const c = state.character;
   const cb = state.combat;
@@ -307,18 +310,30 @@ function rangedTurn(state, ev) {
       return;
     }
     if (!p.shoot) (cb.thrown ??= []).push(p.index);
+    const ammo = p.ammo ? AMMO_BY_ID[p.ammo] : null;
+    if (ammo) c.ammo[ammo.id]--;
     const need = thac0(c.level) - m.ac - p.toHit;
     const r = die(20);
     const hit = r === 20 || (r !== 1 && r >= need);
     const base = {
       t: 'attack', by: 'player', ranged: true, weapon: w.name, distance: p.distance, dmgMult: p.dmgMult,
-      ...(p.shoot ? { shot: w.ranged.thing } : {}),
+      ...(p.shoot ? { shot: ammo ? ammo.name.toLowerCase() : w.ranged.thing } : {}),
     };
+    // An arrow or bolt that hits may break; anything else shot is gathered up later.
+    const broke = !!ammo && hit && die(100) <= ammo.breakChance;
+    if (ammo) {
+      const pile = broke ? (cb.ammoBroken ??= {}) : (cb.ammoOut ??= {});
+      pile[ammo.id] = (pile[ammo.id] ?? 0) + 1;
+    }
     if (!hit) {
       ev.push({ ...base, hit: false, target: e.name });
     } else {
-      hurtEnemy(state, e, rangedDamage(roll(w.dmg), p), ev, { ...base, hit: true }, PLAYER);
+      hurtEnemy(state, e, rangedDamage(roll(w.dmg), p), ev, { ...base, hit: true, ...(broke ? { broke: true } : {}) }, PLAYER);
       if (e.hp > 0 && !p.shoot) envenom(state, e, ev, 0, entry);
+    }
+    if (ammo && ammoLeft(c, w) === 0) {
+      ev.push({ t: 'ammoSpent', ammo: ammo.plural.toLowerCase(), weapon: w.name });
+      return;
     }
     if (p.shoot) continue;
     if (p.index === c.equipped) drawWeapon(state, ev);
@@ -343,8 +358,9 @@ function drawWeapon(state, ev) {
 
 // Thrown weapons are never lost: when a fight you survive ends, you pick up
 // every one you threw, hits and misses alike, and take back the weapon you
-// started with.
+// started with. Arrows and bolts that didn't break come back too.
 function recoverThrows(state, ev) {
+  recoverAmmo(state, ev);
   const c = state.character;
   const cb = state.combat;
   if (!cb.thrown?.length || c.dead) return;
@@ -362,6 +378,24 @@ function recoverThrows(state, ev) {
   if (cb.handBefore != null) c.equipped = cb.handBefore;
   cb.thrown = [];
   cb.handBefore = null;
+}
+
+// Arrows and bolts shot this fight: the unbroken ones go back in your quiver.
+// The log line names how many broke.
+function recoverAmmo(state, ev) {
+  const c = state.character;
+  const cb = state.combat;
+  const kinds = new Set([...Object.keys(cb.ammoOut ?? {}), ...Object.keys(cb.ammoBroken ?? {})]);
+  if (!kinds.size || c.dead) return;
+  const lines = [];
+  for (const id of kinds) {
+    const back = cb.ammoOut?.[id] ?? 0;
+    c.ammo[id] = (c.ammo[id] ?? 0) + back;
+    lines.push({ ammo: AMMO_BY_ID[id].name, back, broken: cb.ammoBroken?.[id] ?? 0 });
+  }
+  ev.push({ t: 'ammoRecovered', ammo: lines });
+  cb.ammoOut = {};
+  cb.ammoBroken = {};
 }
 
 // Your target if you can throw at it, else the nearest enemy you can.
