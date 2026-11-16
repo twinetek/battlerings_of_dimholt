@@ -1,8 +1,7 @@
 // Battlefield terrain: the level of every hex, from 0 (the arena floor) to
 // MAX_HEIGHT. Every fight rolls its layout at random (pickTerrain, weighted
-// by TERRAINS[].weight). See todo_terrain.md for the full design and
-// DESIGN.md ("Terrain") for what's built: melee reach and throwing use the
-// levels, movement doesn't yet. The Guide lists TERRAINS for players, so keep
+// by TERRAINS[].weight). DESIGN.md ("Terrain") describes it all:
+// movement, melee reach and throwing use the levels. The Guide lists TERRAINS for players, so keep
 // the names and descriptions in plain words.
 //
 // combat.grid.height = { "q,r": level }. Hexes that aren't listed are level

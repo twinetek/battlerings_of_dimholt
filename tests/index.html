@@ -25,14 +25,15 @@ import { exposeToPoison, sweatOut } from '../js/rules/poison.js';
 import * as Hex from '../js/engine/hex.js';
 import * as BF from '../js/rules/battlefield.js';
 import * as Terrain from '../js/rules/terrain.js';
-import { heightMods, inReach, enemyTurn } from '../js/rules/combat.js';
+import { heightMods, inReach, enemyTurn, monsterSaveLevel } from '../js/rules/combat.js';
 import * as Ranged from '../js/rules/ranged.js';
-import { dexMissile, strRange, saveTarget, CLIMB_COST, DROP_COST } from '../js/rules/tables.js';
+import { dexMissile, strRange, saveTarget, CLIMB_COST, DROP_COST, MOVE_TRAITS } from '../js/rules/tables.js';
 import { WEAPONS, WEAPON_BY_ID, UNARMED } from '../js/data/equipment.js';
 import { describe } from '../js/ui/presenter.js';
 import { glandPotency, coatingStrength, applyVenom, sellLoot, rollLoot, endArenaVisit, advanceClock, liveCoatings } from '../js/rules/loot.js';
 import { readSlot, deleteSlot } from '../js/engine/save.js';
 import { MONSTERS } from '../js/data/monsters.js';
+import { MERC_BY_ID } from '../js/data/mercs.js';
 import { createCharacter, maxHp, armorClass, gainXp, drainLevel, spendStatPoints, readTome, moveStats } from '../js/rules/character.js';
 import { buyWeapon, buyArmor, buyItem, sellWeapon, stayAtInn, useItemInTown } from '../js/rules/town.js';
 import { startCombat, playRound } from '../js/rules/combat.js';
@@ -687,9 +688,17 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   setRng(seeded(5));
   st = fresh('orc');
   raise(st, BESIDE, 2);
+  st.combat.enemies[0].hp = 9; // too frail to risk a 1d6 fall (more than a quarter of its hp)
   const stuck = BF.endTurn(st).events;
-  check('an orc on a 2-level column with no slope can\'t climb down, so it can\'t reach you',
+  check('a 9-hp orc on a 2-level column with no slope won\'t jump down, so it can\'t reach you',
     !stuck.some(e => e.t === 'move' && e.uid === 'e1') && !stuck.some(e => e.t === 'attack' && e.by === 'enemy'));
+  setRng(seeded(5));
+  st = fresh('orc'); // 999 hp: a 1d6 fall is nothing to it
+  raise(st, BESIDE, 2);
+  const leap = BF.endTurn(st).events;
+  check('a sturdy orc jumps down beside you, takes the fall, then attacks',
+    leap.some(e => e.t === 'move' && e.uid === 'e1') && leap.some(e => e.t === 'fall' && e.uid === 'e1' && e.levels === 1)
+    && leap.some(e => e.t === 'attack' && e.by === 'enemy'));
   setRng(seeded(5));
   st = fresh('orc');
   raise(st, BESIDE, 2);
@@ -761,14 +770,15 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   const up = BF.moveYou(st, { q: 0, r: 3 });
   check('...and it ends the move', up.ok && !BF.moveYou(st, { q: 0, r: 2 }).ok);
 
-  // Monsters pay the same costs. A Hill Giant (2 points) at the foot of a slope.
+  // A Hill Giant (2 points, tall: 2 levels a step for 1 + 1 × 2 = 3) at the foot of a 2-level step.
   st = field();
   st.combat.enemies[0].monsterId = 'hill-giant';
   st.combat.grid.pos.e1 = { q: 0, r: 0 };
-  raise(st, { q: 0, r: 1 }, 1);
-  raise(st, { q: 0, r: 2 }, 1);
+  raise(st, { q: 0, r: 1 }, 2);
+  raise(st, { q: 0, r: 2 }, 2);
   const giant = BF.reachableFor(st, 'e1');
-  check('a slow giant can still take one step up a slope, and no farther that turn', giant.has('0,1') && !giant.has('0,2'));
+  check('a slow giant can still take one step up, over budget, and no farther that turn',
+    BF.moveOf(st, 'e1') === 2 && giant.get('0,1')?.cost === 3 && !giant.has('0,2'));
   // A ridge between an orc and you: it walks around rather than over.
   st = field();
   st.combat.enemies[0].monsterId = 'orc';
@@ -784,7 +794,7 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   check('on a flat floor a step costs 1, so you move your full ' + BF.PLAYER_MOVE + ' hexes',
     Math.max(...[...BF.reachableFor(st, 'you').values()].map(v => v.cost)) === BF.PLAYER_MOVE);
 
-  // Your stats and armor (todo_terrain.md step 2). The design's three gladiators:
+  // Your stats and armor. The design's three example gladiators:
   const glad = (str, dex, armor) => {
     const c = createCharacter('Mover', { str, int: 10, wis: 10, dex, con: 12, cha: 10 });
     c.gold = 100000;
@@ -820,7 +830,8 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   st = mover({ dex: 10 }, 'plate');
   check('in plate without the Strength for it you have 2 fewer points', BF.moveOf(st, 'you') === BF.PLAYER_MOVE - 2
     && Math.max(...[...BF.reachableFor(st, 'you').values()].map(v => v.cost)) === BF.PLAYER_MOVE - 2);
-  check('mercenaries and monsters keep the base numbers', BF.moveStatsOf(st, 'e1').climbCost === CLIMB_COST && BF.moveStatsOf(st, 'e1').safeDrop === 1);
+  st.combat.enemies[0].monsterId = 'orc';
+  check('your stats don\'t change a monster\'s numbers: an orc keeps the base ones', BF.moveStatsOf(st, 'e1').climbCost === CLIMB_COST && BF.moveStatsOf(st, 'e1').safeDrop === 1);
 
   // Jumping: a column 3 levels high, flat floor all round. Dex 12 drops 1 safely, so it's a 2-level jump.
   const COLUMN = { q: 0, r: 2 };
@@ -866,6 +877,101 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   st.combat.enemies[0].hp = st.combat.enemies[0].maxHp = 999;
   const autoJump = BF.autoYou(st).events;
   check('auto-play never jumps for you', !autoJump.some(e => e.t === 'fall') && Hex.equal(st.combat.grid.pos.you, COLUMN));
+
+  // Monster traits and mercenary tiers.
+  const statsAs = (monsterId) => {
+    const st = field();
+    st.combat.enemies[0].monsterId = monsterId;
+    return BF.moveStatsOf(st, 'e1');
+  };
+  const traitOf = id => MONSTER_BY_ID[id].move.join();
+  check('traits in the data: spiders and centipedes climb; giants, ettins, minotaurs, trolls and earth elementals are tall; gargoyles, wyverns and dragons fly; rats, kobolds, goblins and quicklings are nimble',
+    ['giant-spider', 'giant-centipede'].every(id => traitOf(id) === 'climber')
+    && ['hill-giant', 'fire-giant', 'storm-giant', 'ettin', 'minotaur', 'troll', 'earth-elemental'].every(id => traitOf(id) === 'tall')
+    && ['gargoyle', 'wyvern', 'black-dragon', 'red-dragon'].every(id => traitOf(id) === 'flier')
+    && ['giant-rat', 'kobold', 'goblin', 'quickling'].every(id => traitOf(id) === 'nimble')
+    && MONSTERS.every(m => m.move.every(t => MOVE_TRAITS[t])));
+  const orcStats = statsAs('orc'), spider = statsAs('giant-spider'), giantStats = statsAs('hill-giant'), dragon = statsAs('red-dragon'), kobold = statsAs('kobold');
+  check('an orc has no trait: the base numbers', orcStats.climbCost === CLIMB_COST && orcStats.climbMax === 1 && orcStats.dropCost === DROP_COST && orcStats.safeDrop === 1);
+  check('climber: climbs free, any height', spider.climbCost === 0 && spider.climbMax === Infinity && spider.safeDrop === 1);
+  check('tall: climbs +1 per level, 2 levels a step, drops 2 safely', giantStats.climbCost === 1 && giantStats.climbMax === 2 && giantStats.safeDrop === 2);
+  check('flier: ignores levels', dragon.climbCost === 0 && dragon.dropCost === 0 && dragon.climbMax === Infinity && dragon.safeDrop === Infinity);
+  check('nimble: steps down free, drops 2 safely', kobold.dropCost === 0 && kobold.safeDrop === 2 && kobold.climbCost === CLIMB_COST);
+
+  st = field();
+  st.combat.enemies[0].monsterId = 'giant-spider';
+  st.combat.grid.pos.e1 = { q: 0, r: 0 };
+  raise(st, { q: 0, r: 1 }, 3);
+  check('a spider walks straight up a 3-level wall for 1', BF.reachableFor(st, 'e1').get('0,1')?.cost === 1);
+  st.combat.enemies[0].monsterId = 'red-dragon';
+  st.combat.grid.pillars = ['1,0'];
+  reach = BF.reachableFor(st, 'e1');
+  check('a dragon flies up the wall too, but pillars still stop it', reach.get('0,1')?.cost === 1 && !reach.has('1,0'));
+  st.combat.enemies[0].monsterId = 'orc';
+  check('an orc can\'t climb it at all', !BF.reachableFor(st, 'e1').has('0,1'));
+
+  st = field();
+  BF.testerAddMerc(st, 'knight');
+  BF.testerAddMerc(st, 'militia');
+  const knight = st.combat.allies.find(a => a.mercId === 'knight').uid, militia = st.combat.allies.find(a => a.mercId === 'militia').uid;
+  check('Knights and Champions wear plate: 3 points, but climb for +1; Militia keep the base numbers',
+    BF.moveOf(st, knight) === 3 && BF.moveStatsOf(st, knight).climbCost === 1 && BF.moveOf(st, militia) === BF.MERC_MOVE
+    && BF.moveStatsOf(st, militia).climbCost === CLIMB_COST && MERC_BY_ID.champion.move.mp === 3);
+
+  // Jumping for monsters and mercenaries: only when the worst fall is at most a quarter of their hp.
+  check('AI jump limit: none under 24 hp, 1 level from 24, 2 from 48', BF.aiJumpLevels(23) === 0 && BF.aiJumpLevels(24) === 1
+    && BF.aiJumpLevels(47) === 1 && BF.aiJumpLevels(48) === 2 && BF.aiJumpLevels(9999) === 2);
+  const orcOnColumn = hp => {
+    const st = field();
+    st.combat.enemies[0].monsterId = 'orc';
+    st.combat.enemies[0].name = 'Orc';
+    st.combat.enemies[0].hp = st.combat.enemies[0].maxHp = hp;
+    st.combat.grid.pos.e1 = { q: 0, r: 1 };
+    raise(st, { q: 0, r: 1 }, 3); // a 3-level column: a 2-level jump for an orc
+    st.character.hp = 999;
+    return st;
+  };
+  st = orcOnColumn(9);
+  let ev = BF.endTurn(st).events;
+  check('a 9-hp orc on a 3-level column won\'t jump (2d6 could be more than a quarter of its hp)',
+    !ev.some(e => e.t === 'move' && e.uid === 'e1') && !ev.some(e => e.t === 'fall'));
+  setRng(() => 0.5); // d6 rolls 4, d20 rolls 11
+  st = orcOnColumn(60);
+  ev = BF.endTurn(st).events;
+  const orcFall = ev.find(e => e.t === 'fall' && e.uid === 'e1');
+  const orcSaves = 11 >= saveTarget('paralysis', monsterSaveLevel(MONSTER_BY_ID.orc));
+  check(`a 60-hp orc jumps down toward you and takes the fall: 2d6 = 8, ${orcSaves ? 'halved by its save (it saves like a fighter of 21 - THAC0)' : 'its save failed'}`,
+    ev.some(e => e.t === 'move' && e.uid === 'e1') && orcFall?.dmg === (orcSaves ? 4 : 8) && orcFall.saved === orcSaves
+    && orcFall.enemy && orcFall.name === 'Orc' && st.combat.enemies[0].hp === 60 - orcFall.dmg);
+  check('the log describes a monster\'s fall', describe(orcFall).text === `The Orc jumps down and lands hard: ${orcFall.dmg} damage.`
+    && describe({ t: 'fall', uid: 'a1', name: 'Militia Brann', enemy: false, levels: 1, dmg: 0, saved: true }).text === 'Militia Brann jumps down and lands on its feet.');
+  st = orcOnColumn(60);
+  st.combat.enemies[0].monsterId = 'red-dragon';
+  st.combat.enemies[0].hp = 60;
+  ev = BF.endTurn(st).events;
+  check('a dragon flies down without falling', ev.some(e => e.t === 'move' && e.uid === 'e1') && !ev.some(e => e.t === 'fall'));
+  setRng(seeded(42));
+
+  // High ground: of equally cheap hexes to strike from, a monster takes the higher one.
+  const spiderFrom = raised => {
+    const st = field();
+    st.combat.enemies[0].monsterId = 'giant-spider';
+    st.combat.enemies[0].hp = 999;
+    st.combat.grid.pos.e1 = { q: 1, r: 1 }; // 2 hexes from both (0,3) and (1,3), which are beside you
+    raise(st, raised, 1);
+    st.character.hp = 999;
+    return BF.endTurn(st).events.find(e => e.t === 'move' && e.uid === 'e1')?.path.at(-1);
+  };
+  check('a spider with two equally cheap spots beside you takes the higher one, either way round',
+    Hex.equal(spiderFrom({ q: 0, r: 3 }) ?? {}, { q: 0, r: 3 }) && Hex.equal(spiderFrom({ q: 1, r: 3 }) ?? {}, { q: 1, r: 3 }));
+
+  // The tester paint tool.
+  st = field();
+  check('paint raises a hex one level at a time, up to 3', [1, 2, 3, 4].map(() => (BF.testerPaint(st, { q: 0, r: 0 }, 1), Terrain.levelOf(st.combat.grid, { q: 0, r: 0 }))).join() === '1,2,3,3');
+  check('...and lowers it back to the floor, leaving no height entry', [1, 2, 3].map(() => (BF.testerPaint(st, { q: 0, r: 0 }, -1), Terrain.levelOf(st.combat.grid, { q: 0, r: 0 }))).join() === '2,1,0'
+    && !('0,0' in st.combat.grid.height));
+  st.combat.grid.pillars = ['1,1'];
+  check('pillars can\'t be painted', !BF.testerPaint(st, { q: 1, r: 1 }, 1).ok);
 
   // No fight can lock up: pillars on the Ledges band once sealed the way between its two ramps.
   const band = {};
@@ -1163,6 +1269,47 @@ const fine = cs.character.gold;
 playRound(cs, { type: 'surrender' });
 check('surrender fines 500', cs.character.gold === fine - 500 && cs.combat.result === 'surrender');
 
+// ---- Terrain balance (battlefield) ----
+// Three level-1 builds with a long sword, played by auto-play against three
+// early opponents on every layout. Seeded, so the numbers only change when the
+// rules do. Terrain may favor a build (Dex 17 drops 2 levels safely, which
+// pays off on the Ledges) but shouldn't swing any matchup by more than
+// TERRAIN_SWING points, and every build should win at least half its fights.
+const TERRAIN_SWING = 20;
+const TERRAIN_BUILDS = [['Average (Str 12, Dex 12, leather)', 12, 12, 'leather'], ['Strong (Str 18, Dex 10, plate)', 18, 10, 'plate'], ['Agile (Str 10, Dex 17, leather)', 10, 17, 'leather']];
+const LAYOUTS = ['flat', 'hills', 'ziggurat', 'ledges'];
+let terrainRows = '';
+{
+  setRng(seeded(2024));
+  let swingOk = true, viable = true, worst = 0;
+  for (const monster of ['kobold', 'goblin', 'orc']) {
+    for (const [name, str, dex, armor] of TERRAIN_BUILDS) {
+      const rates = LAYOUTS.map(terrain => {
+        let wins = 0;
+        const N = 200;
+        for (let i = 0; i < N; i++) {
+          const st = newGameState(createCharacter('Sim', { str, int: 10, wis: 10, dex, con: 12, cha: 10 }));
+          st.character.gold = 100000;
+          buyWeapon(st.character, 'long-sword');
+          buyArmor(st.character, armor);
+          st.character.hp = Math.max(st.character.hp, 10);
+          BF.startBattle(st, monster, {}, { radius: 5, pillars: true, terrain });
+          for (let k = 0; k < 100 && !st.combat.over; k++) { BF.autoYou(st); if (!st.combat.over) BF.endTurn(st); }
+          if (st.combat.result === 'victory') wins++;
+        }
+        return wins / N;
+      });
+      for (const r of rates.slice(1)) worst = Math.max(worst, Math.abs(r - rates[0]) * 100);
+      if (rates.some(r => Math.abs(r - rates[0]) * 100 > TERRAIN_SWING)) swingOk = false;
+      if (rates.some(r => r < 0.5)) viable = false;
+      terrainRows += `<tr><td>${MONSTER_BY_ID[monster].name}</td><td>${name}</td>${rates.map(r => `<td>${Math.round(r * 100)}%</td>`).join('')}</tr>`;
+    }
+  }
+  check(`terrain balance: no layout moves any build's win rate more than ${TERRAIN_SWING} points from the flat arena (largest: ${Math.round(worst)})`, swingOk);
+  check('terrain balance: every build wins at least half its fights against a kobold, goblin and orc on every layout', viable);
+  setRng(seeded(42));
+}
+
 out.insertAdjacentHTML('beforeend', `\n${passed} passed, ${failed} failed\n`);
 
 // ---- Balance simulation ----
@@ -1266,6 +1413,9 @@ document.getElementById('sim').insertAdjacentHTML('beforeend',
    <table id="venom"><thead><tr><th>Opponent</th><th>Level</th><th>Plain weapon</th>${VENOMS.map(([name]) => `<th>${name}</th>`).join('')}</tr></thead>
    <tbody>${venomRows}</tbody>
    <tfoot><tr><th colspan="3">Average change in win rate (points)</th>${VENOMS.map((_, k) => `<th>${avgGain(k)}</th>`).join('')}</tr></tfoot></table>`);
+document.getElementById('sim').insertAdjacentHTML('beforeend',
+  `<h2>Terrain</h2><p>Level-1 win rates on each arena layout, auto-play, long sword (seeded; checked above).</p>
+   <table id="terrain"><thead><tr><th>Opponent</th><th>Build</th>${LAYOUTS.map(l => `<th>${l}</th>`).join('')}</tr></thead><tbody>${terrainRows}</tbody></table>`);
 document.body.dataset.done = 'yes';
 </script>
 </body>

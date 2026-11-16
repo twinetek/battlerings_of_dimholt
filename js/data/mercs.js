@@ -4,6 +4,9 @@
 //
 // weapon.plus counts for magic-weapon requirements, so a Veteran can hurt a
 // Gargoyle. dmgBonus stands in for the merc's Strength.
+// move (optional): battlefield movement that differs from the base numbers
+// (MERC_MOVE points, rules/tables.js for climbing). Knights and Champions are
+// slowed by their plate but strong enough to climb well.
 
 export const MERCS = [
   { id: 'militia',   name: 'Militia',   art: '🧑‍🌾', level: 1,  hp: 8,  ac: 7,  thac0: 20,
@@ -16,10 +19,10 @@ export const MERCS = [
     weapon: { name: 'Long Sword +1', dmg: '1d8', plus: 1 }, dmgBonus: 1, wage: 150,
     desc: 'Scarred and reliable. The magic sword can hurt Gargoyles and Wights.' },
   { id: 'knight',    name: 'Knight',    art: '🛡️', level: 8,  hp: 55, ac: 1,  thac0: 13,
-    weapon: { name: 'Bastard Sword +1', dmg: '1d10', plus: 1 }, dmgBonus: 2, wage: 500,
+    weapon: { name: 'Bastard Sword +1', dmg: '1d10', plus: 1 }, dmgBonus: 2, wage: 500, move: { mp: 3, climbCost: 1 },
     desc: 'Heavy armor and three blows every two rounds.' },
   { id: 'champion',  name: 'Champion',  art: '🏅', level: 11, hp: 75, ac: -1, thac0: 10,
-    weapon: { name: 'Long Sword +2', dmg: '1d8', plus: 2 }, dmgBonus: 3, wage: 1500,
+    weapon: { name: 'Long Sword +2', dmg: '1d8', plus: 2 }, dmgBonus: 3, wage: 1500, move: { mp: 3, climbCost: 1 },
     desc: 'A legend of the Battlerings. Even Earth Elementals fear the +2 blade.' },
 ];
 

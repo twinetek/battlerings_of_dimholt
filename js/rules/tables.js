@@ -90,9 +90,10 @@ export const UPHILL_TO_HIT = 2;      // to-hit penalty per level when attacking 
 export const DOWNHILL_DMG = 2;       // damage bonus per level when attacking down
 export const HIGH_GROUND_SAVE = 2;   // save bonus per level for a defender above its attacker
 
-// Movement across terrain levels (rules/battlefield.js; todo_terrain.md).
-// Mercenaries and monsters use these base numbers for now; your Strength,
-// Dexterity and armor change yours (moveStats in rules/character.js).
+// Movement across terrain levels (rules/battlefield.js; DESIGN.md, "Movement across levels").
+// These base numbers are for mercenaries (data/mercs.js `move` changes the
+// Knight's and Champion's) and monsters (MOVE_TRAITS below change some); your
+// Strength, Dexterity and armor change yours (moveStats in rules/character.js).
 export const BASE_MOVE = 4;          // movement points per round
 export const MIN_MOVE = 2;           // armor never slows you below this
 export const CLIMB_COST = 2;         // extra movement per level stepped up
@@ -101,6 +102,18 @@ export const DROP_COST = 1;          // extra movement per level stepped down
 export const SAFE_DROP = 1;          // the most levels one step can drop without harm
 export const JUMP_EXTRA = 2;         // you may jump this many levels past your safe drop
 export const FALL_DIE = 6;           // falling damage: 1d6 per level past your safe drop
+
+// Monster movement traits (data/monsters.js `move`): each replaces some of
+// the base numbers. Fliers ignore levels entirely and never fall.
+export const MOVE_TRAITS = {
+  climber: { climbCost: 0, climbMax: Infinity },
+  tall: { climbCost: 1, climbMax: 2, safeDrop: 2 },
+  flier: { climbCost: 0, climbMax: Infinity, dropCost: 0, safeDrop: Infinity },
+  nimble: { dropCost: 0, safeDrop: 2 },
+};
+// Monsters and mercenaries jump only when the worst fall can't cost them more
+// than this share of their current hit points.
+export const AI_FALL_SHARE = 1 / 4;
 
 // Dexterity: speed on the flat, and agility going down.
 export function dexMove(d) {

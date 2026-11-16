@@ -5,13 +5,13 @@
 import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
 import { MERCS, MERC_BY_ID } from '../../data/mercs.js';
 import { ITEM_BY_ID, WEAPON_BY_ID } from '../../data/equipment.js';
-import { maxHp, armorClass, weaponEntry, rollToHit } from '../../rules/character.js';
+import { maxHp, armorClass, weaponEntry, rollToHit, moveStats } from '../../rules/character.js';
 import { playRound, setTarget, openingEvents, inReach, heightMods, PLAYER } from '../../rules/combat.js';
 import {
   DEFAULT_FIELD, boardHexes, isPillar, livingUnits, occupant, reachableFor, threatZone, moveOf,
-  moveYou, actYou, endTurn, autoYou, setThrowPick, fallRange, testerAddEnemy, testerAddMerc, testerHeal, testerRebuild,
+  moveYou, actYou, endTurn, autoYou, setThrowPick, fallRange, moveStatsOf, testerPaint, testerAddEnemy, testerAddMerc, testerHeal, testerRebuild,
 } from '../../rules/battlefield.js';
-import { TERRAINS, TERRAIN_BY_ID, RANDOM, levelOf, cliffEdges } from '../../rules/terrain.js';
+import { TERRAINS, TERRAIN_BY_ID, RANDOM, MAX_HEIGHT, levelOf, cliffEdges } from '../../rules/terrain.js';
 import { rangeProfile, throwsLeft, throwGroups } from '../../rules/ranged.js';
 import * as H from '../../engine/hex.js';
 import { COMBAT_LOG_LIMIT, thac0 } from '../../rules/tables.js';
@@ -25,6 +25,7 @@ const SIZE = 30;
 const DELAYS = { instant: 0, fast: 60, normal: 160 };
 let busy = false;
 let skipping = false;
+let paint = null; // tester paint tool: null, 'raise' or 'lower'
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const field = s => s.settings.battle ?? DEFAULT_FIELD;
@@ -79,10 +80,7 @@ function boardSvg(s, params) {
     if (who === cb.target && !cb.over) cls.push('targeted');
     const pts = hexPoints(h);
     const level = levelOf(cb.grid, h);
-    const jump = !who && reach.get(k)?.jump;
-    const tip = who ? unitTip(s, who)
-      : jump ? `Level ${level}. Jump down here: ${fallRange(s.character, jump).join('-')} falling damage (a saving throw halves it). It ends your move.`
-        : level ? `Level ${level}` : '';
+    const tip = who ? unitTip(s, who) : moveTip(s, reach, k) ?? (level ? `Level ${level}` : '');
     return `<polygon class="${cls.join(' ')}" points="${pts}" data-action="hex" data-key="${k}">${tip ? `<title>${esc(tip)}</title>` : ''}</polygon>`;
   }).join('');
 
@@ -94,11 +92,13 @@ function boardSvg(s, params) {
     return `<polygon class="level-shade l${level}" points="${hexPoints(h)}"></polygon>`
       + `<text class="level-mark" x="${p.x.toFixed(1)}" y="${(p.y - SIZE * 0.62).toFixed(1)}">${level}</text>`;
   }).join('');
-  const cliffs = cliffEdges(cb.grid).map(({ a, b }) => {
+  // Edges you're strong enough to climb (Str 18 and up) are drawn thinner.
+  const climb = moveStats(s.character).climbMax;
+  const cliffs = cliffEdges(cb.grid).map(({ a, b, drop }) => {
     const toB = H.toPixel(b, SIZE);
     const dist = p => Math.hypot(p.x - toB.x, p.y - toB.y);
     const [p1, p2] = H.corners(H.toPixel(a, SIZE), SIZE).sort((x, y) => dist(x) - dist(y)); // the shared edge
-    return `<line class="cliff" x1="${p1.x.toFixed(1)}" y1="${p1.y.toFixed(1)}" x2="${p2.x.toFixed(1)}" y2="${p2.y.toFixed(1)}"></line>`;
+    return `<line class="cliff${drop <= climb ? ' climbable' : ''}" x1="${p1.x.toFixed(1)}" y1="${p1.y.toFixed(1)}" x2="${p2.x.toFixed(1)}" y2="${p2.y.toFixed(1)}"></line>`;
   }).join('');
 
   const rocks = cb.grid.pillars.map(k => {
@@ -153,6 +153,16 @@ function unitTip(s, uid) {
     if (!(beside && youReach)) tip += throwNote(s, uid, m);
   }
   return tip;
+}
+
+// A hex you can move to: what it costs, and for a jump, what it may cost you.
+function moveTip(s, reach, k) {
+  const r = reach.get(k);
+  if (!r?.prev) return null;
+  const mp = moveStatsOf(s, PLAYER).mp;
+  const level = levelOf(s.combat.grid, H.fromKey(k));
+  const cost = `${r.cost > mp ? `${r.cost} (more than your ${mp}, but a first step is always allowed; it ends your move)` : `${r.cost} of your ${mp}`} movement`;
+  return `${level ? `Level ${level}. ` : ''}Moving here costs ${cost}.${r.jump ? ` It's a jump: ${fallRange(s.character, r.jump).join('-')} falling damage (a saving throw halves it), and it ends your move.` : ''}`;
 }
 
 // If you have anything to throw: the weapon you'd throw, your chance and
@@ -235,12 +245,22 @@ function testerPanel(s) {
       <label class="field small">Arena radius <input id="tester-radius" type="number" min="3" max="9" value="${f.radius}"></label>
       <label class="small"><input id="tester-pillars" type="checkbox"${f.pillars ? ' checked' : ''}> Pillars</label>
       <div class="row tight">${button('Rebuild battlefield', 'rebuild', {}, { cls: 'small', disabled: over || busy })}</div>
+      <p class="small row tight">Paint height:
+        ${[[null, 'Off'], ['raise', 'Raise'], ['lower', 'Lower']].map(([mode, label]) => button(label, 'paint', { mode: mode ?? '' }, { cls: `link${paint === mode ? ' on' : ''}` })).join(' ')}</p>
+      ${paint ? `<p class="muted small">Click hexes to ${paint} them one level (0-${MAX_HEIGHT}). Turn painting off to move again.</p>` : ''}
       <label class="small"><input type="checkbox" data-action="threat"${showThreat(s) ? ' checked' : ''}> Show enemy threat zone</label>
       <div class="row tight">
         ${button('Auto-play my turn', 'autoTurn', {}, { cls: 'small', disabled: over || busy })}
         ${button('Auto-play the fight', 'autoFight', {}, { cls: 'small', disabled: over || busy })}
       </div>
     </div>`;
+}
+
+// While you hover a hex you can move to, the hint shows the move's cost.
+function hoverHint(s, params) {
+  const cb = s.combat;
+  if (!params.hover || cb.over || busy || cb.turn.moved || cb.paralyzed > 0 || paint) return null;
+  return moveTip(s, reachableFor(s, PLAYER), params.hover);
 }
 
 function hintText(s) {
@@ -306,7 +326,7 @@ export function render(ctx, params) {
       <div class="battle-grid">
         <div>
           <div class="board-wrap">${boardSvg(s, params)}</div>
-          <p class="hint" id="hint">${esc(hintText(s))}</p>
+          <p class="hint" id="hint">${esc(hoverHint(s, params) ?? hintText(s))}</p>
           ${controls}
           <ol class="log" id="combat-log" aria-live="polite">${cb.log.map(l => `<li class="${l.cls}">${esc(l.text)}</li>`).join('')}</ol>
           <p class="muted small row">Speed:
@@ -316,7 +336,7 @@ export function render(ctx, params) {
           <div class="panel"><h3>Fighters</h3><div class="table-wrap">${roster(s)}</div>
             <p class="muted small">Legend: blue hexes, where you can move · red, an enemy you can attack · dashed red, one you can throw at ·
               amber, where an enemy could reach and strike this round · 🪨 pillar.
-              ${Object.keys(cb.grid.height ?? {}).length ? `<br>Shaded hexes are raised ground, numbered by level; thick edges are cliffs. Higher ground wins melee: blows reach only 1 level up or down, attacking up is harder, attacking down hits harder (hover an enemy for the numbers). Each step up or down costs extra movement (your numbers are on the Character screen); a cliff too high to climb is a wall, and an orange hex is a jump down that will hurt.` : ''}</p></div>
+              ${Object.keys(cb.grid.height ?? {}).length ? `<br>Shaded hexes are raised ground, numbered by level; thick edges are cliffs. Higher ground wins melee: blows reach only 1 level up or down, attacking up is harder, attacking down hits harder (hover an enemy for the numbers). Each step up or down costs extra movement (hover a blue hex for the cost; your numbers are on the Character screen); a cliff too high to climb is a wall (a thinner dashed edge is one you're strong enough to climb), and an orange hex is a jump down that will hurt.` : ''}</p></div>
           ${betaOn('hex-battlefield') ? testerPanel(s) : ''}
         </aside>
       </div>
@@ -405,6 +425,10 @@ export const actions = {
     const cb = s.combat;
     if (busy || cb.over) return;
     const h = H.fromKey(d.key);
+    if (paint && betaOn('hex-battlefield')) {
+      ctx.commit(st => testerPaint(st, h, paint === 'raise' ? 1 : -1));
+      return;
+    }
     const who = occupant(s, h);
     if (who?.startsWith('e')) {
       if (!cb.turn.acted && cb.paralyzed === 0 && (inReach(cb, PLAYER, who) || rangeProfile(s, who).ok)) {
@@ -461,6 +485,10 @@ export const actions = {
     };
     ctx.mutate(st => { st.settings.battle = f; });
     run(ctx, st => testerRebuild(st, f));
+  },
+  paint(ctx, d) {
+    paint = d.mode || null;
+    ctx.render();
   },
   threat(ctx) {
     ctx.commit(st => { st.settings.battleThreat = !showThreat(st); });

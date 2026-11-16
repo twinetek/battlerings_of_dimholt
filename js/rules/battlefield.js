@@ -28,12 +28,13 @@ import { WEAPON_BY_ID } from '../data/equipment.js';
 import { maxHp, moveStats } from './character.js';
 import { rangeProfile, throwsLeft } from './ranged.js';
 import {
-  SHOT_MOVE, BASE_MOVE, CLIMB_COST, CLIMB_MAX, DROP_COST, SAFE_DROP, JUMP_EXTRA, FALL_DIE, conHp, saveTarget,
+  SHOT_MOVE, BASE_MOVE, CLIMB_COST, CLIMB_MAX, DROP_COST, SAFE_DROP, JUMP_EXTRA, FALL_DIE, MOVE_TRAITS, AI_FALL_SHARE,
+  conHp, saveTarget,
 } from './tables.js';
-import { generateTerrain, levelOf, pickTerrain, RANDOM } from './terrain.js';
+import { generateTerrain, levelOf, pickTerrain, RANDOM, MAX_HEIGHT } from './terrain.js';
 import {
   startCombat, setTarget, inReach, meleeReach, spawnEnemy, rangedTarget, PLAYER,
-  beginRound, playerTurn, allyTurn, enemyTurn, endOfRound,
+  beginRound, playerTurn, allyTurn, enemyTurn, endOfRound, monsterSaveLevel,
 } from './combat.js';
 
 export const PLAYER_MOVE = BASE_MOVE; // before your Dexterity and armor
@@ -56,7 +57,8 @@ const fail = msg => ({ ok: false, msg, events: [] });
 export function moveOf(state, uid) {
   if (uid === PLAYER) return moveStats(state.character).mp;
   const e = state.combat.enemies.find(x => x.uid === uid);
-  return e ? moveFor(MONSTER_BY_ID[e.monsterId]) : MERC_MOVE;
+  if (e) return moveFor(MONSTER_BY_ID[e.monsterId]);
+  return MERC_BY_ID[state.combat.allies.find(a => a.uid === uid)?.mercId]?.move?.mp ?? MERC_MOVE;
 }
 
 // Movement points a fighter has right now: after a ranged attack you only step.
@@ -93,28 +95,42 @@ export const passableFor = (state, uid) => h => {
 //   up n levels        1 + climbCost × n    (no more than climbMax levels)
 //   down n levels      1 + dropCost × n     (no more than safeDrop levels)
 // Your numbers come from your Strength, Dexterity and armor (moveStats in
-// rules/character.js); mercenaries and monsters use the base numbers until
-// their traits are built (todo_terrain.md). The first step of a move is
+// rules/character.js), a monster's from its traits (MOVE_TRAITS), and a
+// mercenary's from its tier (data/mercs.js). The first step of a move is
 // always allowed, even if it costs more than the budget, and it ends the move,
 // so slow movers are never stuck at the foot of a slope.
 //
-// Jumping (you only, for now): you may drop up to JUMP_EXTRA levels past your
-// safe drop, at the normal cost, taking falling damage (takeFall). A jump is
-// always the last step of a move, the hex you chose, never a step along the
-// way, so the game never hurts you on a path it picked.
+// Jumping: dropping past your safe drop, at the normal cost, takes falling
+// damage (takeFall). You may jump up to JUMP_EXTRA levels, but only as the last
+// step of a move, the hex you chose, so the game never hurts you on a path it
+// picked (auto-play never jumps for you). Monsters and mercenaries jump when
+// the fall can't hurt them much (aiJumpLevels).
 
 export function moveStatsOf(state, uid) {
   const mp = stepsLeft(state, uid);
   if (uid === PLAYER) return { ...moveStats(state.character), mp };
-  return { mp, climbCost: CLIMB_COST, climbMax: CLIMB_MAX, dropCost: DROP_COST, safeDrop: SAFE_DROP };
+  const base = { climbCost: CLIMB_COST, climbMax: CLIMB_MAX, dropCost: DROP_COST, safeDrop: SAFE_DROP };
+  const e = state.combat.enemies.find(x => x.uid === uid);
+  if (e) return Object.assign(base, ...MONSTER_BY_ID[e.monsterId].move.map(t => MOVE_TRAITS[t]), { mp });
+  const tier = MERC_BY_ID[state.combat.allies.find(a => a.uid === uid)?.mercId];
+  return { ...base, ...tier?.move, mp };
 }
 
+const hpOf = (state, uid) => (uid === PLAYER ? state.character.hp
+  : [...state.combat.allies, ...state.combat.enemies].find(u => u.uid === uid)?.hp ?? 0);
+
+// How many levels past its safe drop a fighter may jump. You: JUMP_EXTRA, your
+// choice, as the last step of a move (reachableFor). Monsters and mercenaries:
+// only as far as the worst fall (FALL_DIE per level) stays within
+// AI_FALL_SHARE of their hit points, and never more than JUMP_EXTRA.
+export const aiJumpLevels = hp => Math.min(JUMP_EXTRA, Math.floor((hp * AI_FALL_SHARE) / FALL_DIE));
+
 // cost(from, to) for one step of `uid`, Infinity if it can't be taken.
-// With jumps, drops of up to JUMP_EXTRA past the safe drop are allowed too.
-export function stepCostFor(state, uid, ms = moveStatsOf(state, uid), jumps = false) {
+// jumpLevels: how many levels past the safe drop a step may fall.
+export function stepCostFor(state, uid, ms = moveStatsOf(state, uid), jumpLevels = 0) {
   const grid = state.combat.grid;
   const passable = passableFor(state, uid);
-  const deepest = ms.safeDrop + (jumps ? JUMP_EXTRA : 0);
+  const deepest = ms.safeDrop + jumpLevels;
   return (from, to) => {
     if (!passable(to)) return Infinity;
     const rise = levelOf(grid, to) - levelOf(grid, from);
@@ -127,6 +143,10 @@ export function stepCostFor(state, uid, ms = moveStatsOf(state, uid), jumps = fa
 const fallLevels = (state, ms, from, to) =>
   Math.max(0, levelOf(state.combat.grid, from) - levelOf(state.combat.grid, to) - ms.safeDrop);
 
+// The cost function a fighter's own moves use: monsters and mercenaries may
+// jump within their limit anywhere along a path; you jump only as the last step.
+const moveCostFor = (state, uid, ms) => stepCostFor(state, uid, ms, uid === PLAYER ? 0 : aiJumpLevels(hpOf(state, uid)));
+
 // Where `uid` can move this turn: a Map of key -> { cost, prev, jump? } (see
 // H.pathIn). Includes the start at cost 0, any first step over budget, and,
 // for you, hexes you can only reach by ending the move with a jump (jump: the
@@ -134,14 +154,14 @@ const fallLevels = (state, ms, from, to) =>
 export function reachableFor(state, uid) {
   const from = state.combat.grid.pos[uid];
   const ms = moveStatsOf(state, uid);
-  const cost = stepCostFor(state, uid, ms);
+  const cost = moveCostFor(state, uid, ms);
   const map = H.cheapestReachable(from, ms.mp, cost);
   for (const n of H.neighbors(from)) {
     const c = cost(from, n);
     if (c < Infinity && !map.has(H.key(n))) map.set(H.key(n), { cost: c, prev: from });
   }
   if (uid !== PLAYER) return map;
-  const jump = stepCostFor(state, uid, ms, true);
+  const jump = stepCostFor(state, uid, ms, JUMP_EXTRA);
   const landings = new Map();
   for (const [k, v] of map) {
     const at = H.fromKey(k);
@@ -290,23 +310,33 @@ export function moveYou(state, to) {
   cb.turn.movedHexes = path.length;
   const ev = [{ t: 'move', uid: PLAYER, path }];
   const levels = reach.get(H.key(to)).jump;
-  if (levels) takeFall(state, levels, ev);
+  if (levels) takeFall(state, PLAYER, levels, ev);
   return ok(ev);
 }
 
-// Falling damage for a jump `levels` past your safe drop: FALL_DIE per level,
-// less your Constitution hit-point bonus (a penalty adds to it), halved by a
-// saving throw against paralysis. A fall never takes you below 1 hp.
+// Falling damage for a jump `levels` past the jumper's safe drop: FALL_DIE per
+// level, less your Constitution hit-point bonus (a penalty adds to it; monsters
+// and mercenaries have none), halved by a saving throw against paralysis (a
+// monster saves like a fighter of monsterSaveLevel, a mercenary at its level).
+// A fall never takes anyone below 1 hp.
 export const fallRange = (c, levels) => [Math.max(0, levels - conHp(c.stats.con)), Math.max(0, levels * FALL_DIE - conHp(c.stats.con))];
 
-function takeFall(state, levels, ev) {
-  const c = state.character;
-  let dmg = Math.max(0, roll(`${levels}d${FALL_DIE}`) - conHp(c.stats.con));
-  const saved = die(20) >= saveTarget('paralysis', c.level);
+function takeFall(state, uid, levels, ev) {
+  const cb = state.combat;
+  const unit = uid === PLAYER ? state.character : [...cb.allies, ...cb.enemies].find(u => u.uid === uid);
+  const enemy = cb.enemies.includes(unit) ? unit : null;
+  const conBonus = uid === PLAYER ? conHp(state.character.stats.con) : 0;
+  const saveLevel = uid === PLAYER ? state.character.level
+    : enemy ? monsterSaveLevel(MONSTER_BY_ID[enemy.monsterId]) : MERC_BY_ID[unit.mercId].level;
+  let dmg = Math.max(0, roll(`${levels}d${FALL_DIE}`) - conBonus);
+  const saved = die(20) >= saveTarget('paralysis', saveLevel);
   if (saved) dmg = Math.floor(dmg / 2);
-  const before = c.hp;
-  c.hp = Math.max(Math.min(c.hp, 1), c.hp - dmg);
-  ev.push({ t: 'fall', levels, dmg: before - c.hp, saved, hp: { uid: PLAYER, hp: c.hp } });
+  const before = unit.hp;
+  unit.hp = Math.max(Math.min(unit.hp, 1), unit.hp - dmg);
+  ev.push({
+    t: 'fall', uid, levels, dmg: before - unit.hp, saved, hp: { uid, hp: unit.hp },
+    ...(uid === PLAYER ? {} : { name: unit.name, enemy: !!enemy }),
+  });
 }
 
 // action: { type: 'fight', target, ranged? } | { type: 'use', index, target? }
@@ -358,7 +388,8 @@ export function setThrowPick(state, id) {
 // Step toward the nearest foe (preferring `preferUid`), along the cheapest
 // path and as far as its movement points go, unless already able to strike
 // one. "Toward" means to a hex it can strike from: next to the foe and within
-// its height reach.
+// its height reach. Of equally cheap strike spots it takes the highest, and a
+// monster or mercenary takes falling damage for any jump on the way.
 function advance(state, uid, ev, preferUid = null) {
   const cb = state.combat;
   const from = cb.grid.pos[uid];
@@ -368,28 +399,38 @@ function advance(state, uid, ev, preferUid = null) {
     // Already engaged; only a mercenary chasing your target moves on.
     if (!preferred || inReach(cb, uid, preferred.uid)) return;
   }
-  const strikeSpot = target => h => canStrike(cb, uid, h, target);
   const ms = moveStatsOf(state, uid);
-  const cost = stepCostFor(state, uid, ms);
+  const cost = moveCostFor(state, uid, ms);
+  const all = H.cheapestReachable(from, Infinity, cost);
+  const level = h => levelOf(cb.grid, h);
+  const spots = [...all].map(([k, v]) => ({ h: H.fromKey(k), cost: v.cost }));
   const options = foes
-    .map(f => ({ f, route: H.cheapestPath(from, strikeSpot(cb.grid.pos[f.uid]), cost) }))
-    .filter(x => x.route)
-    .sort((a, b) => (b.f === preferred) - (a.f === preferred) || a.route.cost - b.route.cost);
-  if (!options.length || !options[0].route.path.length) return;
+    .map(f => {
+      const best = spots.filter(x => canStrike(cb, uid, x.h, cb.grid.pos[f.uid]))
+        .sort((a, b) => a.cost - b.cost || level(b.h) - level(a.h))[0];
+      return best && { f, spot: best };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b.f === preferred) - (a.f === preferred) || a.spot.cost - b.spot.cost);
+  const route = options.length ? H.pathIn(all, options[0].spot.h) : null;
+  if (!route?.length) return;
   // Walk as far as the points go; the first step is always allowed.
   const steps = [];
+  const falls = [];
   let spent = 0;
   let at = from;
-  for (const h of options[0].route.path) {
+  for (const h of route) {
     const c = cost(at, h);
     if (steps.length && spent + c > ms.mp) break;
     steps.push(h);
+    falls.push(fallLevels(state, ms, at, h));
     spent += c;
     at = h;
   }
   cb.grid.pos[uid] = steps.at(-1);
   if (uid === PLAYER) cb.turn.movedHexes = steps.length;
   ev.push({ t: 'move', uid, path: steps });
+  for (const levels of falls) if (levels) takeFall(state, uid, levels, ev);
 }
 
 // Let the AI play your turn (tester tool). If you're not yet in melee and
@@ -478,6 +519,20 @@ export function testerHeal(state) {
 }
 
 // Redraw the arena with a new size or pillars; fighters are redeployed.
+// Raise (delta 1) or lower (-1) one hex, within 0..MAX_HEIGHT. Pillars can't
+// be painted. Like the other tester tools, it bends the rules: it can make a
+// cliff anywhere, even one nobody can cross.
+export function testerPaint(state, h, delta) {
+  const cb = state.combat;
+  if (cb.over) return fail('The fight is over.');
+  if (!onBoard(cb, h)) return fail("You can't paint a pillar or off the board.");
+  const k = H.key(h);
+  const level = Math.max(0, Math.min(MAX_HEIGHT, levelOf(cb.grid, h) + delta));
+  if (level) cb.grid.height[k] = level;
+  else delete cb.grid.height[k];
+  return ok([]);
+}
+
 export function testerRebuild(state, field) {
   deploy(state, field);
   return ok([]);

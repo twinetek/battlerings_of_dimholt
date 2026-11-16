@@ -194,7 +194,8 @@ Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and s
 - **Tester controls** on the battle screen (beta only), for setting up scenarios:
   - Add an enemy (counts as a summoned helper: XP, no gold) or a free mercenary.
   - Heal to full.
-  - Rebuild the arena with a new layout (terrain), radius or pillars.
+  - Rebuild the arena with a new layout (terrain, or "Random each battle"), radius or pillars.
+  - Paint height: raise or lower single hexes.
   - Show or hide the enemy threat zone.
   - Auto-play your turn or the whole fight.
 - **`js/engine/hex.js`** is the grid math: axial coordinates, distance, boards, reachable hexes and pathfinding. It's unit-tested.
@@ -207,7 +208,7 @@ Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and s
   1. You move up to 4 hexes and attack one adjacent enemy (or throw one of your weapons at one in range; see "Ranged attacks"), in either order.
   2. Each mercenary moves 4 toward the nearest enemy (preferring the one you last attacked) and attacks if adjacent.
   3. Each enemy moves toward the nearest fighter on your side and makes all its attacks if adjacent.
-- **Monster movement** is a first guess from initiative speed: `6 − speed/2`, clamped to 2-8. That gives the Quickling 8, rats and spiders 4-5, and giants 2-3.
+- **Monster movement** is a first guess from initiative speed: `6 − speed/2`, clamped to 2-8. That gives the Quickling 8, rats and spiders 4-5, and giants 2-3. On raised ground the points are spent per step; see "Movement across levels" below.
 - **Melee range is 1 hex.** Fighters block movement, but there's no zone of control, so you can walk past enemies.
 - **Visual aids:**
   - Blue hexes show where you can move, with the path previewed on hover.
@@ -221,25 +222,42 @@ Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and s
 - **Initiative:** should it decide move order, per side or per fighter, instead of you always moving first?
 - **Zone of control:** should leaving a hex next to an enemy end your movement or provoke a free attack?
 - **Reach and ranged attacks:** halberds and dragon breath could have reach 2, and breath could hit a cone or line.
-- **Mercenary orders:** "guard me", "attack target", "hold".
+- **Mercenary orders:** "guard me", "attack target", "hold", "hold the high ground".
 - **Big monsters** occupying several hexes: giants, dragons, the Hydra.
-- **Arena features:** pits, fire, and walls of the ring, plus spawn points for reinforcements. Raised ground is designed and partly built; see "Terrain" below.
+- **Arena features:** pits, water and mud (levels below the floor, hexes that cost extra movement), fire, and walls of the ring, plus spawn points for reinforcements. Raised ground is built; see "Terrain" below.
+- **Height and combat:** should attacking down also add +1 to hit, or is +2 damage enough? Should high ground improve armor class, or is the save bonus the defender's only reward?
+- **Magic armor bulk:** should +1 armor count 1 lighter, making expensive armor a movement upgrade too?
+- **Knockback:** should a big hit (giants, the Minotaur's charge) push a fighter off a ledge, with falling damage?
+- **Fliers and reach:** should fliers ignore melee height reach, so a dragon can always reach you on a tower, or land on a hex like everyone else? Should halberds reach 2 levels as well as 2 hexes?
+- **Unfair layouts:** should some layouts favor the opponent on purpose, for example the Red Dragon fighting from a ziggurat? Today every layout is symmetric.
 - **Moving vs. attacking:** does moving cost attacks (for example, no 3/2 extra attack after a full move)?
 - **Threat display:** show the threat zone inside your movement range too, so you can see which of your moves are dangerous.
 
-**Terrain: rolled at random each fight, shown, and used in melee and throwing**
+**Terrain: rolled at random each fight, and used in movement, melee and throwing**
 
-The full design for multi-level terrain is in `todo_terrain.md`: movement points with costs for climbing and descending, stats that change them, melee height rules, and ranged range by height. So far the terrain is **generated**, **rolled at random for every fight**, **shown on the board**, testers can pick a layout, and **movement, melee and throwing use it** (see "Movement across levels" and "Melee and height" below). Your Strength, Dexterity and armor change how you move, and you can jump down at the cost of falling damage. Still to come: monster and mercenary movement traits, and jumping for them.
+Multi-level terrain is complete: every fight's arena is **generated** from a randomly rolled layout and **shown on the board**, and **movement, melee and throwing all use it**. Your Strength, Dexterity and armor change how you move; monsters move by their traits and mercenaries by their tier; anyone can jump down a drop at the cost of falling damage. Testers can pick a layout or paint heights by hand. The design notes that drove it (the old `todo_terrain.md`) are folded into this section; the questions still open are under "Questions to workshop" above.
 
-- **Movement across levels** (`rules/battlefield.js`, numbers in `rules/tables.js`): movement is a budget of points per round (`moveOf(state, uid)`: yours from `moveStats`, mercenaries 4, monsters `moveFor`), spent per step:
+- **Movement across levels** (`rules/battlefield.js`, numbers in `rules/tables.js`): movement is a budget of points per round (`moveOf(state, uid)`: yours from `moveStats`, a mercenary's `MERC_MOVE` or its tier's `move.mp`, a monster's `moveFor`), spent per step:
 
   | Step into a hex that is… | Cost |
   |---|---|
   | Level with you | 1 |
-  | Up *n* levels | 1 + `CLIMB_COST` (2) × *n* |
-  | Down *n* levels | 1 + `DROP_COST` (1) × *n* |
+  | Up *n* levels | 1 + `climbCost` × *n* |
+  | Down *n* levels | 1 + `dropCost` × *n* |
 
-  - **Limits:** a step can climb at most `climbMax` levels and drop at most `safeDrop` without harm. The base numbers (`CLIMB_COST` 2, `CLIMB_MAX` 1, `DROP_COST` 1, `SAFE_DROP` 1) are what mercenaries and monsters use; yours come from your stats (below).
+  - **Limits:** a step can climb at most `climbMax` levels and drop at most `safeDrop` without harm. The base numbers are `CLIMB_COST` 2, `CLIMB_MAX` 1, `DROP_COST` 1, `SAFE_DROP` 1.
+  - **Who gets which numbers** (`moveStatsOf(state, uid)`):
+    - **You:** from your stats and armor (below).
+    - **Mercenaries:** the base numbers with `MERC_MOVE` (4) points, except tiers with a `move` override in `data/mercs.js`: the Knight and Champion wear plate, 3 points, but climb for +1.
+    - **Monsters:** the base numbers, changed by their traits (`move` in `data/monsters.js`, numbers in `MOVE_TRAITS`):
+
+      | Trait | Who | Effect |
+      |---|---|---|
+      | *(none)* | Everyone else | The base numbers |
+      | `climber` | Giant Spider, Giant Centipede | Climb free, any height: they walk up walls |
+      | `tall` | Minotaur, Ettin, Hill/Fire/Storm Giant, Earth Elemental, Troll | Climb +1 per level, 2 levels a step; drop 2 safely. Also 2-level melee reach (below) |
+      | `flier` | Gargoyle, Wyvern, Black Dragon, Red Dragon | Ignore levels: no climb or drop costs or limits, never fall. Pillars and fighters still block them |
+      | `nimble` | Giant Rat, Kobold, Goblin, Quickling | Step down free; drop 2 safely |
   - **Your stats and armor** (`moveStats(c)` in `rules/character.js`, shown on the Character screen as Movement, Climbing and Going down):
 
     | Score | 3-5 | 6-8 | 9-15 | 16 | 17 | 18 | 19-22 | 23-25 |
@@ -250,15 +268,18 @@ The full design for multi-level terrain is in `todo_terrain.md`: movement points
     | Str: armor bulk carried free (`strCarry`) | 0 | 0 | 0 | 1 | 1 | 2 | 2 | 3 |
 
     - **Armor bulk** (`bulk` on each armor; the Armorer and the Guide show it): 0 up to Studded Leather, 1 for Scale and Chain, 2 from Splint Mail up. Magic armor is no lighter.
-    - `mp = BASE_MOVE (4) + dexMove − max(0, bulk − strCarry)`, never below `MIN_MOVE` (2). The design's examples hold: Str 10/Dex 10 in chain has 3; Str 16/Dex 17 in chain has 5 and climbs for +1; Str 18/Dex 10 in plate has 4 and climbs 2 levels a step.
-  - **Jumping (you only, for now):** you can drop up to `JUMP_EXTRA` (2) levels past your safe drop. `reachableFor` adds those landings as `jump` entries (orange hexes, with the fall damage range in the tooltip from `fallRange`), only as the **last step of a move**: they're added after the search, from hexes reached safely, so a path the game picks never includes a jump you didn't click. `moveYou` then calls `takeFall`: `levels`d6 (`FALL_DIE`) less your `conHp` bonus (a penalty adds), halved by a save against paralysis, never below 1 hp. It pushes a `fall` event ("You jump down and land hard: 6 damage, halved as you roll with the fall."). Mercenaries and monsters, and auto-play's `advance` for you, never jump: that waits for the AI rule in `todo_terrain.md`. Deeper drops are refused with "too far down to jump", higher climbs with "too high".
+    - `mp = BASE_MOVE (4) + dexMove − max(0, bulk − strCarry)`, never below `MIN_MOVE` (2). For example: Str 10/Dex 10 in chain has 3; Str 16/Dex 17 in chain has 5 and climbs for +1; Str 18/Dex 10 in plate has 4 and climbs 2 levels a step.
+  - **Jumping:** dropping past your safe drop, up to `JUMP_EXTRA` (2) levels farther, at the normal cost, takes falling damage (`takeFall`): `levels`d6 (`FALL_DIE`), less your `conHp` bonus (a penalty adds; monsters and mercenaries have none), halved by a save against paralysis (a monster saves at `monsterSaveLevel`, a mercenary at its level). A fall never takes anyone below 1 hp. Each fall is a `fall` event ("You jump down and land hard: 6 damage, halved as you roll with the fall." / "The Orc jumps down and lands hard: 8 damage.").
+    - **You** jump only as the **last step of a move**: `reachableFor` adds those landings as `jump` entries after the search, from hexes reached safely (orange hexes, with the damage range from `fallRange` in the tooltip), so a path the game picks never includes a jump you didn't click. Auto-play never jumps for you.
+    - **Monsters and mercenaries** may jump anywhere on their path, but only as far as `aiJumpLevels(hp)` allows: the worst fall (6 per level) must stay within `AI_FALL_SHARE` (a quarter) of their current hp. So a 9-hp orc won't jump a level, a 24-hp one will jump 1, a 48-hp one 2. Fliers never fall.
+    - Deeper drops are refused with "too far down to jump", higher climbs with "too high".
   - **The first step is always allowed,** even over budget, and it ends the move. Slow movers (giants with 2 points) are never stuck at the foot of a slope, and after a throw (`SHOT_MOVE`, 1 point) you can still take any one step.
-  - **One cost function:** you, mercenaries and monsters all go through `moveStatsOf(state, uid)` and `stepCostFor(state, uid, ms, jumps)`, which also treats other fighters and pillars as impassable. `crossable` (below) checks arenas with the base numbers and no jumps, the weakest mover's rules, so stats can only make an arena easier.
-  - **Search:** `engine/hex.js` has `cheapestReachable(start, budget, cost)` (a Map of key → `{ cost, prev }`), `pathIn(map, goal)` and `cheapestPath(start, done, cost)`, a small Dijkstra search. `reachableFor` (blue hexes, the threat zone) adds the over-budget first steps. `moveYou` follows the cheapest path and explains a refused cliff. `advance` picks the foe whose strike spot is cheapest to reach, then walks that path as far as its points go, so monsters go around a ridge (cost 4) rather than over it (6). `cb.turn.movedHexes` still counts hexes, for the throwing penalty.
-  - **No arena can lock up:** pillars once landed on the Ledges band between its two ramps and sealed the sides apart, so no one could reach anyone (5 stalled fights in 2,000 simulated). `deploy` now checks `crossable(radius, height, pillars)`, a walk from your starting edge to the enemy's under the base rules, and rolls the arena again if it fails (up to 20 times; the last try has no pillars). After the fix: 0 stalls in 2,000.
-  - **Balance check** (same simulation as below, 300 fights each): deaths against a Kobold 11% flat, 13-14% raised; against an Orc 40% flat, 35-41% raised. Fights on Ledges run about 2 rounds longer, since crossing goes by the ramps.
+  - **One cost function:** everyone goes through `moveStatsOf` and `stepCostFor(state, uid, ms, jumpLevels)`, which also treats other fighters and pillars as impassable.
+  - **Search:** `engine/hex.js` has `cheapestReachable(start, budget, cost)` (a Map of key → `{ cost, prev }`), `pathIn(map, goal)` and `cheapestPath(start, done, cost)`, a small Dijkstra search. `reachableFor` (blue hexes, the threat zone) adds the over-budget first steps. `moveYou` follows the cheapest path. `cb.turn.movedHexes` still counts hexes, for the throwing penalty.
+  - **AI** (`advance`, for monsters, mercenaries and your auto-play): it searches the whole board once, finds every hex it could strike each foe from, and heads for the cheapest; **of equally cheap spots it takes the highest**. Then it walks that path as far as its points go, taking falling damage for any jump on the way. So monsters go around a ridge (cost 4) rather than over it (6), and a spider with two equal spots beside you takes the raised one.
+  - **No arena can lock up:** pillars once landed on the Ledges band between its two ramps and sealed the sides apart, so no one could reach anyone (5 stalled fights in 2,000 simulated). `deploy` checks `crossable(radius, height, pillars)`, a walk from your starting edge to the enemy's under the base rules without jumps (the weakest mover's rules, so stats and traits only make an arena easier), and rolls the arena again if it fails (up to 20 times; the last try has no pillars). After the fix: 0 stalls in 2,000.
 - **Random layouts:** `DEFAULT_FIELD.terrain` is `RANDOM`, so `deploy` calls `pickTerrain()` (`rules/terrain.js`), which rolls through `dice.js` by each layout's `weight`: Flat 3, Hills 3, Ziggurat 2, Ledges 2 (30/30/20/20%). The chosen id is stored as `combat.grid.terrain`, so reloading shows the same arena; the battle screen's round line names it ("Arena: Hills."). A field with no `terrain` (as tests pass) is flat, and saves from before have no `grid.terrain` and simply show no name.
-- **Balance check:** a simulation of a level-1 gladiator (all 12s, long sword, leather) playing by auto-play, 300 fights per layout: deaths against a Kobold 11% flat, 6-13% raised; against an Orc 44% flat, 22-33% raised. Raised ground doesn't make fights deadlier; if anything it gives you somewhere to stand.
+- **Balance** (`tests/index.html`, "Terrain balance", seeded, 200 fights per cell): three level-1 builds with a long sword, played by auto-play against a Kobold, Goblin and Orc on each layout. The test fails if any layout moves a build's win rate more than 20 points from the flat arena, or any build drops below 50%. At the time of writing the largest swing is 13 points: the agile build (Str 10, Dex 17, leather) against an Orc goes from 69% flat to 81% on the Ziggurat and Ledges, since Dex 17 drops 2 levels safely. That's the intended "agile builds have their ground". The strong plate build wins 94-100% everywhere; its edge is armor class, not terrain. Fights on Ledges run about 2 rounds longer, since crossing goes by the ramps.
 
 - **Where it lives:** `js/rules/terrain.js`. It's pure and uses only `engine/hex.js` and `engine/dice.js`, so it's unit-testable and seedable.
 - **The model:**
@@ -270,7 +291,7 @@ The full design for multi-level terrain is in `todo_terrain.md`: movement points
   - `deploy(state, field)` calls `generateTerrain(radius, field.terrain)` and gets back `{ height, ramps }`.
   - Terrain is generated before the pillars.
   - Pillars are never placed on a ramp or next to one, so raised ground stays reachable.
-  - The layout comes from `settings.battle.terrain`, next to `radius` and `pillars`. The tester panel's **Arena layout** picker sets it when you press **Rebuild battlefield**, and later fights use it too.
+  - The main game always rolls a layout (`DEFAULT_FIELD`). In the beta, the layout comes from `settings.battle.terrain` (default "Random each battle"), next to `radius` and `pillars`. The tester panel's **Arena layout** picker sets it when you press **Rebuild battlefield**, and later fights use it too.
 - **Layouts** (`TERRAINS`):
   - **Flat:** no height map. It uses no random numbers, so flat battles roll exactly as they did before terrain existed.
   - **Hills:** a 50% chance of a hill in the middle, plus a mirrored pair, so one to three hills in all.
@@ -290,8 +311,10 @@ The full design for multi-level terrain is in `todo_terrain.md`: movement points
   - Raised hexes get a tint over the cell (`.level-shade`, stronger per level) and their level number at the top of the hex (`.level-mark`). The tint uses the ink color: lighter ground in the dark theme, darker in the light theme.
   - Neighbors 2 or more levels apart get a thick **cliff** edge (`.cliff`). `cliffEdges(grid)` in `terrain.js` finds them, each pair once.
   - The overlays ignore the pointer, so clicks and hover still reach the cells.
-  - Hover tooltips give a raised hex's level, and a fighter's level.
-  - The legend explains shading and cliffs only when the arena has raised ground.
+  - A 2-level edge you're strong enough to climb in one step (Str 18+) is drawn as a thinner dashed line (`.cliff.climbable`) instead of a full cliff.
+  - Hover tooltips give a raised hex's level, and a fighter's level. Hovering a hex you can move to shows the move's cost in the tooltip and the hint line ("Level 1. Moving here costs 3 of your 4 movement."), or for an over-budget first step that it's allowed and ends your move. Jump hexes are orange (`.cell.jump`) and add the falling damage range.
+  - The legend explains shading, cliffs, climbable edges and jump hexes only when the arena has raised ground.
+  - **Paint height** (beta tester controls): Off / Raise / Lower; while on, clicking a hex raises or lowers it a level within 0-`MAX_HEIGHT` (`testerPaint`). Pillars can't be painted. Like the other tester tools it bends the rules: it can make a cliff nobody can cross.
 - **Adding a layout:** write a function `radius → { shape(hex) → level, ramps: [hex] }`, register it in `LAYOUTS` and `TERRAINS`, and keep it symmetric. A shape that's mirror-symmetric (for example built from `mirror(center)` pairs combined with `Math.max`) stays symmetric after the ceiling is applied. The symmetry test runs every registered layout, so a lopsided one fails it.
 - **Melee and height** (`rules/combat.js`, constants in `rules/tables.js`). Let *h* be the attacker's level minus the defender's.
 
@@ -310,18 +333,24 @@ The full design for multi-level terrain is in `todo_terrain.md`: movement points
     - `inReach` checks the height reach; `meleeReach(cb, uid)` gives it per fighter.
     - **Without a grid every value is 0** and no extra dice are rolled, so the main game and the balance simulator are unchanged.
     - Wands and the fiery potion ignore height.
-  - **Movement AI:** `advance` heads for a hex the mover can *strike* from: adjacent and within its height reach. So an orc beside you on a cliff top walks round to a slope instead of standing there. The threat zone uses the same test.
+  - **Movement AI:** `advance` heads for a hex the mover can *strike* from: adjacent and within its height reach. So an orc beside you on a cliff top walks round to a slope, or, if it's sturdy enough, jumps down, instead of standing there. The threat zone uses the same test.
   - **What the player sees:**
     - Melee lines in the log end with ", striking down from above." or ", attacking uphill.". Attack events carry `height` when it isn't 0.
     - Hovering an enemy beside you shows hit chances with height included, who holds the high ground, and only the effects that apply. Out-of-reach directions say "You can't reach it (2 levels up)".
     - Attacking out of reach explains why: "That enemy is too far above or below you to reach."
   - **Tests:** a fixed-roll test shows each modifier flipping a hit to a miss, or a failed save to a pass, at exactly its threshold: reach, uphill, downhill damage, poison, paralysis, venom and breath saves. The AI tests check moving to a strike spot, tall reach, and the threat zone.
-- **Next steps,** in the build order of `todo_terrain.md`:
-  1. Switch movement to movement points.
-  2. Add stats and monster movement traits.
-  3. Make Hills the default once movement uses levels.
-
-  Ranged range by height and line of sight in three dimensions are built (see "Ranged attacks").
+- **Ranged range by height** and line of sight in three dimensions are part of throwing (see "Ranged attacks").
+- **Terrain tests** (`tests/index.html`):
+  - **Layouts:** symmetry for every layout, flat start rows, the ceiling, bounds, ramps, cliff edges, random-layout weights over 1,000 rolls, and 40 main-game deployments (layout recorded, pillars, everyone on the floor).
+  - **Movement:** the weighted search (cheapest around an expensive hex, budgets, walls); step costs up and down; cliffs refused with the reason; the first-step rule for you and a slow giant; monsters going around a ridge; the flat-floor full move.
+  - **Stats:** the three example gladiators, the minimum of 2, Tome scores, magic armor, Str 18 climbing a 2-level cliff, Dex 17 dropping 2 free, plate slowing a weak fighter.
+  - **Jumping:** the jump hex and its cost, nothing beyond the landing, the damage range, fixed-roll falls (failed save, Con 16, never below 1 hp, a save halving), Dex 17 shrinking the jump, too-deep drops refused, auto-play never jumping.
+  - **Traits and tiers:** every trait in the data is defined and on the right monsters; each trait's numbers; a spider and a dragon going up a 3-level wall (the dragon still stopped by a pillar) and an orc not; Knight, Champion and Militia numbers.
+  - **AI:** the jump limit by hp; a 9-hp orc staying on a column, a 60-hp orc jumping down and taking the fall, a sturdy melee orc jumping down beside you and attacking; a dragon flying down without falling; a spider taking the higher of two equal strike spots, both ways round; the log lines.
+  - **Crossability:** the exact sealed Ledges layout is rejected and 300 random arenas are all crossable.
+  - **Paint tool:** raising to the cap, lowering back to no entry, pillars refused.
+  - **Balance:** the terrain balance bounds above.
+- **Playthroughs:** `tests/smoke.html` plays main-game fights on whatever layout is rolled, avoiding hexes where a cliff stops its blows. `tests/beta-smoke.html` rebuilds the arena as a Ziggurat and as Ledges, then on a flat floor paints a hill beside you with **Paint height**, checks the hover preview's cost against your stats, climbs it, and paints a 2-level edge to check it's drawn as a cliff or as climbable for your Strength.
 
 **Ranged attacks: throwing any weapon**
 
@@ -525,7 +554,7 @@ battlerings_of_dimholt/   (repository root)
     └── beta-smoke.html   Scripted playthrough of the battlefield tester beta
 ```
 
-Design docs for work not built yet sit next to this file: `TODO.md` (decided ideas and open review findings), `Todo_ranged.md` (ranged attacks on the battlefield; throwing any weapon is built) and `todo_terrain.md` (multi-level terrain; generation, the board display, melee height and ranged height are built). When part of one is built, document it here and mark it built there.
+Design docs for work not built yet sit next to this file: `TODO.md` (decided ideas and open review findings) and `Todo_ranged.md` (ranged attacks on the battlefield; throwing any weapon is built). When part of one is built, document it here and mark it built there. Multi-level terrain had its own design doc, now fully built and folded into "Terrain" above.
 
 ### Key decisions
 

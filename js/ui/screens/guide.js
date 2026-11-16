@@ -121,7 +121,7 @@ function battlefieldSection() {
         <li><strong>The amber zone</strong> marks every hex an enemy could reach and strike this round.</li>
         ${beta ? `<li><strong>Tester controls</strong> on the battle screen let you add enemies or free mercenaries, heal, rebuild the arena,
           and auto-play turns. They're for trying out scenarios and bend the rules. Pick an <strong>Arena layout</strong> and press
-          <strong>Rebuild battlefield</strong> to fight on a particular one.</li>` : ''}
+          <strong>Rebuild battlefield</strong> to fight on a particular one. <strong>Paint height</strong> raises or lowers single hexes.</li>` : ''}
         <li><strong>Terrain.</strong> Each fight's arena is chosen at random: ${TERRAINS.map(t => `${esc(t.name)} ${Math.round(terrainChance(t) * 100)}%${t.id === 'flat' ? '' : ` (${esc(t.description.charAt(0).toLowerCase() + t.description.slice(1, -1))})`}`).join('; ')}.
           The round line above the board names the arena. Raised ground goes up to ${MAX_HEIGHT} levels: shaded hexes show their level, and thick edges are
           cliffs. Every layout is the same on both sides, and you always start on the floor.</li>
@@ -132,8 +132,16 @@ function battlefieldSection() {
           <ul>
             <li><strong>Jumping.</strong> You can jump down up to ${JUMP_EXTRA} levels farther than you can step safely (an orange hex). You take 1d${FALL_DIE} per extra
               level, less your Constitution hit-point bonus, halved by a saving throw against paralysis. A fall never takes you below 1 hp. A jump ends your move.</li>
-            <li><strong>Mercenaries and monsters</strong> have ${MERC_MOVE} points and the amounts below, pay ${1 + CLIMB_COST} to step up and ${1 + DROP_COST} to step down,
-              climb or drop only ${CLIMB_MAX} level a step, and never jump, for now. Climbing spiders, flying dragons and armored knights will change that later.</li>
+            <li><strong>Mercenaries and monsters</strong> pay ${1 + CLIMB_COST} to step up and ${1 + DROP_COST} to step down, and climb or drop ${CLIMB_MAX} level a step,
+              unless a trait says otherwise. Mercenaries have ${MERC_MOVE} points; ${MERCS.filter(t => t.move).map(t => `${esc(t.name)}s`).join(' and ')} wear plate:
+              ${MERCS.find(t => t.move)?.move.mp} points, but they climb for +${MERCS.find(t => t.move)?.move.climbCost}. Monster traits:
+              <strong>climbers</strong> walk up walls (${traitNames('climber')});
+              <strong>tall</strong> monsters climb 2 levels a step for +1 and drop 2 safely (${traitNames('tall')});
+              <strong>fliers</strong> ignore levels and never fall (${traitNames('flier')});
+              <strong>nimble</strong> monsters step down for free and drop 2 safely (${traitNames('nimble')}).</li>
+            <li><strong>How they move.</strong> Monsters and mercenaries take the cheapest way to a hex they can strike from, and of equally cheap ones, the highest.
+              They jump only when the worst fall couldn't cost them more than a quarter of their hit points, and take the same falling damage you do
+              (without the Constitution bonus).</li>
           </ul>
           ${movementTable()}</li>
         <li><strong>High ground in melee.</strong> A blow reaches a fighter beside you only if they're at most ${MELEE_HEIGHT_REACH} level up or down
@@ -272,6 +280,9 @@ function armorTable() {
 
 // How Strength and Dexterity change movement, one row per run of scores that
 // share the same numbers.
+// "Giant Spider, Giant Centipede": the monsters with a movement trait.
+const traitNames = trait => MONSTERS.filter(m => m.move.includes(trait)).map(m => esc(m.name)).join(', ');
+
 function movementTable() {
   const cells = v => {
     const { climbCost, climbMax } = strClimb(v);

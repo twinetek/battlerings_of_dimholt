@@ -14,9 +14,9 @@ Once GitHub Pages is on, the game is at https://twinetek.github.io/battlerings_o
 
 - Each beta feature is the full game with one experimental feature switched on, in its own folder with its own saves.
 - It starts from a copy of your main game and never changes it.
-- Today there's one beta feature: **Battlefield tester** (`hex_battlefield/`): the battlefield with tester controls for setting up scenarios (add enemies or mercenaries, heal, pick an arena layout, auto-play). New battlefield rules land there first; climbing is next.
+- Today there's one beta feature: **Battlefield tester** (`hex_battlefield/`): the battlefield with tester controls for setting up scenarios (add enemies or mercenaries, heal, pick an arena layout, auto-play). New battlefield rules land there first.
 
-**The battlefield** (main game): every fight is on a hex arena with pillars and a layout rolled at random: flat, hills, a stepped ziggurat, or raised ledges with ramps. High ground matters: you can only strike 1 level up or down, attacking up is harder, attacking down hits harder, and throwing down reaches farther. Climbing a level costs extra movement: Strength makes climbing cheaper, Dexterity makes you faster and surer going down, and heavy armor slows you unless you're strong enough to carry it. Too-high cliffs must be gone around, and you can jump down a drop at the cost of falling damage. Move and attack an adjacent enemy, or throw any weapon you carry at one in range; each weapon is one throw per fight, so five daggers are five throws. Daggers and Throwing Axes fly best; a two-handed sword barely flies at all. You gather everything up after each fight, and you can carry any number of weapons. Bows and crossbows come later.
+**The battlefield** (main game): every fight is on a hex arena with pillars and a layout rolled at random: flat, hills, a stepped ziggurat, or raised ledges with ramps. High ground matters: you can only strike 1 level up or down, attacking up is harder, attacking down hits harder, and throwing down reaches farther. Climbing a level costs extra movement: Strength makes climbing cheaper, Dexterity makes you faster and surer going down, and heavy armor slows you unless you're strong enough to carry it. Too-high cliffs must be gone around, and you can jump down a drop at the cost of falling damage. Monsters move their own way: spiders walk up walls, dragons fly over them, giants step up them. Move and attack an adjacent enemy, or throw any weapon you carry at one in range; each weapon is one throw per fight, so five daggers are five throws. Daggers and Throwing Axes fly best; a two-handed sword barely flies at all. You gather everything up after each fight, and you can carry any number of weapons. Bows and crossbows come later.
 
 ## Run locally
 
@@ -48,7 +48,6 @@ The test pages report PASS or FAIL lines. The playthroughs drive the real screen
 - `DESIGN.md`: design notes and decisions.
 - `TODO.md`: ideas that are decided but not built yet, and open findings from code reviews.
 - `Todo_ranged.md`: the design for ranged attacks on the battlefield. Throwing (any weapon you carry) is built; bows, crossbows and monsters that throw are not.
-- `todo_terrain.md`: the design for multi-level terrain on the hex battlefield. Terrain generation, its display on the board, and the melee high-ground rules are built; movement doesn't use levels yet.
 
 ## Credits
 

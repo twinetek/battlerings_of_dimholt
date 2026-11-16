@@ -148,6 +148,7 @@ Archer AI:
 1. If an enemy is adjacent, step 1 hex away if possible (taking the shoot-then-move rule into account); else stab with the dagger.
 2. Otherwise shoot your target if it's in line of sight and range, else the enemy with the best hit chance.
 3. If no shot is possible, move to the nearest hex that has one.
+4. **High ground:** of equally good spots to shoot from, prefer the highest (the same rule `advance` already uses for melee strike spots; see `DESIGN.md`, "Movement across levels"). Archer mercenaries follow it too.
 
 ## Where it goes in the code
 

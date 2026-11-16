@@ -59,6 +59,19 @@ function recoverLine(e) {
 // "Dagger" -> "Daggers", "Dagger +1" -> "Daggers +1".
 const plural = name => name.replace(/^(.*?)( \+\d)?$/, (_, base, plus = '') => `${base}s${plus}`);
 
+// "You jump down and land hard: 6 damage." / "The Orc jumps down and lands on its feet."
+function fallLine(e) {
+  if (!e.name) {
+    return e.dmg
+      ? { text: `You jump down and land hard: ${e.dmg} damage${e.saved ? ', halved as you roll with the fall' : ''}.`, cls: 'bad' }
+      : { text: `You jump down and land on your feet${e.saved ? ', rolling with the fall' : ''}.`, cls: 'muted' };
+  }
+  const who = e.enemy ? `The ${e.name}` : e.name;
+  return e.dmg
+    ? { text: `${who} jumps down and lands hard: ${e.dmg} damage.`, cls: e.enemy ? 'good' : 'bad' }
+    : { text: `${who} jumps down and lands on its feet.`, cls: 'muted' };
+}
+
 function attackLine(e) {
   if (e.ranged) {
     const hexes = `${e.distance} hex${e.distance === 1 ? '' : 'es'}`;
@@ -126,9 +139,7 @@ export function describe(e) {
     case 'draw': return { text: e.weapon ? `You draw your ${e.weapon}.` : 'You fight on with your fists.', cls: 'sys' };
     case 'throwsRecovered': return recoverLine(e);
     case 'move': return null; // shown by the battlefield, not the log
-    case 'fall': return e.dmg
-      ? { text: `You jump down and land hard: ${e.dmg} damage${e.saved ? ', halved as you roll with the fall' : ''}.`, cls: 'bad' }
-      : { text: `You jump down and land on your feet${e.saved ? ', rolling with the fall' : ''}.`, cls: 'muted' };
+    case 'fall': return fallLine(e);
     case 'loot': return { text: `The ${e.from} leaves behind a ${e.item} (potency ${e.potency})!`, cls: 'win' };
     case 'venom': return venomLine(e);
     case 'venomImmune': return { text: `The venom on your blade does nothing to the ${e.target}.`, cls: 'muted' };

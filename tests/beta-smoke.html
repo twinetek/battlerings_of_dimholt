@@ -16,6 +16,7 @@ import { createCharacter } from '../js/rules/character.js';
 import { buyWeapon, buyArmor } from '../js/rules/town.js';
 import { newGameState } from '../js/engine/state.js';
 import { rangeProfile } from '../js/rules/ranged.js';
+import { moveStats } from '../js/rules/character.js';
 
 const out = document.getElementById('out');
 const frame = document.getElementById('game');
@@ -136,6 +137,57 @@ frame.addEventListener('load', async () => {
       'tester can rebuild the arena as a ziggurat, and the board shows its levels');
       await rebuildAs('ledges');
       log(d.querySelectorAll('.cliff').length > 0 && q('#tester-terrain').value === 'ledges', 'ledges show cliff edges, and the picker keeps the layout');
+
+      // Climb the Ziggurat through the real screen: each turn, move to the highest blue hex you can reach (nearest the middle).
+      await rebuildAs('ziggurat');
+      const cellLevel = k => st().combat.grid.height[k] ?? 0;
+      const fromMiddle = k => { const [kq, kr] = k.split(',').map(Number); return (Math.abs(kq) + Math.abs(kr) + Math.abs(kq + kr)) / 2; };
+      let climbed = 0;
+      for (let turn = 0; turn < 6 && !st().combat.over && climbed < 1; turn++) {
+        await click('[data-action="heal"]');
+        await wait(150);
+        const options = [...d.querySelectorAll('.cell.reach')].map(c => c.dataset.key)
+          .sort((a, b) => cellLevel(b) - cellLevel(a) || fromMiddle(a) - fromMiddle(b));
+        if (options.length) {
+          await click(`[data-key="${options[0]}"]`);
+          await wait(300);
+        }
+        const at = st().combat.grid.pos.you;
+        climbed = cellLevel(`${at.q},${at.r}`);
+        if (!climbed && !st().combat.over) {
+          await click('[data-action="endTurn"]');
+          await wait(400);
+        }
+      }
+      log(climbed >= 1 || st().combat.over, `you climb onto the Ziggurat within a few turns (level ${climbed})`);
+
+      // Climbing through the real screen: a flat floor, a hill painted beside you, the move preview, then the climb.
+      await rebuildAs('flat');
+      const me = st().combat.grid.pos.you;
+      const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+      const besideMe = DIRS.map(([dq, dr]) => `${me.q + dq},${me.r + dr}`).filter(k => q(`.cell.reach[data-key="${k}"]`));
+      const hill = besideMe[0];
+      await click('[data-action="paint"][data-mode="raise"]');
+      await click(`[data-key="${hill}"]`);
+      await click('[data-action="paint"][data-mode=""]');
+      log(st().combat.grid.height[hill] === 1 && !!q(`.level-shade`), 'the Paint height tool raises a hex');
+      const m = moveStats(st().character);
+      q(`[data-key="${hill}"]`).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      await wait(150);
+      const preview = q('#hint').textContent;
+      log(preview.includes(`Moving here costs ${1 + m.climbCost} of your ${m.mp} movement`), `hovering the hill previews the climb's cost (${preview})`);
+      await click(`[data-key="${hill}"]`);
+      await wait(300);
+      const at = st().combat.grid.pos.you;
+      log(`${at.q},${at.r}` === hill && st().combat.turn.moved, 'clicking it climbs onto the hill');
+      // A neighbor painted 2 levels above the hill: a thin dashed edge if you can climb 2 levels a step (Str 18+), else a full cliff.
+      const ledge = DIRS.map(([dq, dr]) => `${at.q + dq},${at.r + dr}`).find(k => q(`[data-key="${k}"]`) && !q(`[data-key="${k}"]`).classList.contains('pillar') && k !== `${me.q},${me.r}`);
+      await click('[data-action="paint"][data-mode="raise"]');
+      for (let i = 0; i < 3; i++) await click(`[data-key="${ledge}"]`);
+      await click('[data-action="paint"][data-mode=""]');
+      log(st().combat.grid.height[ledge] === 3 && d.querySelectorAll('.cliff').length > 0
+        && (d.querySelectorAll('.cliff.climbable').length > 0) === (m.climbMax >= 2),
+      `a 2-level edge is drawn as ${m.climbMax >= 2 ? 'climbable' : 'a cliff'} for your Str ${st().character.stats.str}`);
     }
     await click('[data-action="speed"][data-speed="instant"]');
     await click('[data-action="autoFight"]');
