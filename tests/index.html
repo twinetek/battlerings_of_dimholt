@@ -28,7 +28,7 @@ import * as Terrain from '../js/rules/terrain.js';
 import { heightMods, inReach, enemyTurn, monsterSaveLevel } from '../js/rules/combat.js';
 import * as Ranged from '../js/rules/ranged.js';
 import { dexMissile, strRange, saveTarget, CLIMB_COST, DROP_COST, MOVE_TRAITS } from '../js/rules/tables.js';
-import { WEAPONS, WEAPON_BY_ID, UNARMED } from '../js/data/equipment.js';
+import { WEAPONS, WEAPON_BY_ID, UNARMED, AMMO, AMMO_BY_ID, ammoEffect } from '../js/data/equipment.js';
 import { describe } from '../js/ui/presenter.js';
 import { glandPotency, coatingStrength, applyVenom, sellLoot, rollLoot, endArenaVisit, advanceClock, liveCoatings } from '../js/rules/loot.js';
 import { readSlot, deleteSlot } from '../js/engine/save.js';
@@ -1222,8 +1222,9 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
     slingStats({}).aim === 4 && slingStats({}).dmgBonus === 1 && slingStats({}).toHit === 0);
   check('Str 18 slings 1 hex farther and +3 damage; Dex 17 adds +2 to hit',
     slingStats({ str: 18 }).aim === 5 && slingStats({ str: 18 }).dmgBonus === 3 && slingStats({ dex: 17 }).toHit === 2);
-  check('a dagger doesn\'t shoot; the sling, bow and crossbow do',
-    Ranged.shootStats(thrower({}, []).character, WEAPON_BY_ID.dagger) === null && WEAPONS.filter(w => w.ranged).map(w => w.id).join() === 'sling,bow,crossbow');
+  check('a dagger doesn\'t shoot; the sling, bows and crossbow do',
+    Ranged.shootStats(thrower({}, []).character, WEAPON_BY_ID.dagger) === null
+    && WEAPONS.filter(w => w.ranged).map(w => w.id).join() === 'sling,bow,long-bow,composite-short-bow,composite-long-bow,crossbow,heavy-crossbow');
   st = thrower({}, ['sling', 'dagger']);
   check('a sling in hand: the next attack shoots it', st.character.equipped === 0 && Ranged.shooterInHand(st)?.id === 'sling'
     && Ranged.pickShot(st, 'e1') === 0 && Ranged.canShoot(st));
@@ -1289,7 +1290,7 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
     shooterStats('crossbow', { str: 18 }).aim === 4 && shooterStats('crossbow', { str: 18 }).dmgBonus === 0
     && [15, 17, 18, 3].map(dex => shooterStats('crossbow', { dex }).toHit).join() === '1,2,2,0');
   check('a bow takes arrows and a crossbow bolts; a sling needs nothing',
-    Ranged.ammoKinds(WEAPON_BY_ID.bow).map(a => a.id).join() === 'arrow' && Ranged.ammoKinds(WEAPON_BY_ID.crossbow).map(a => a.id).join() === 'bolt'
+    Ranged.ammoKinds(WEAPON_BY_ID.bow)[0].id === 'arrow' && Ranged.ammoKinds(WEAPON_BY_ID.bow).every(a => a.for === 'arrow') && Ranged.ammoKinds(WEAPON_BY_ID.crossbow)[0].id === 'bolt'
     && !Ranged.needsAmmo(WEAPON_BY_ID.sling) && Ranged.ammoLeft({ ammo: {} }, WEAPON_BY_ID.sling) === Infinity);
   check('the character sheet uses the same numbers: a bow +0 to hit and damage at Dex 15, Str 16; a crossbow +1 to hit',
     toHitBonus(thrower({}, []).character, WEAPON_BY_ID.bow) === 0 && damageBonus(thrower({}, []).character, WEAPON_BY_ID.bow) === 0
@@ -1345,7 +1346,7 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   st.character.ammo = { bolt: 5 };
   const bolt = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
   check('a crossbow bolt at 4 hexes: +1 to hit, a d8 rolls 5, no Strength bonus, one bolt used',
-    Ranged.rangeProfile(st, 'e1').toHit === 1 && bolt?.shot === 'bolt' && bolt.weapon === 'Crossbow' && bolt.dmg === 5 && st.character.ammo.bolt === 4);
+    Ranged.rangeProfile(st, 'e1').toHit === 1 && bolt?.shot === 'bolt' && bolt.weapon === 'Light Crossbow' && bolt.dmg === 5 && st.character.ammo.bolt === 4);
   st.character.ammo.bolt = 0;
   check('out of bolts, the next attack throws your spare dagger instead', Ranged.pickShot(st, 'e1') === 1 && Ranged.rangeProfile(st, 'e1').shoot === false);
   st = thrower({}, ['bow']);
@@ -1357,6 +1358,300 @@ check('tome of con raises max hp retroactively', maxHp(c) === before + 2 && c.st
   st.character.weapons[0].coatings = [];
   st.character.loot.push({ id: 'spider-venom', potency: 4, gotAt: st.clock });
   check('a bow can\'t be coated either', !applyVenom(st, 0, 0).ok);
+
+  // Shooting modifiers: engaged, quick draw, point blank, armor piercing. Shots only; throws never.
+  // (A thrower at (0,4) with Str 16, Dex 15, and a centipede, AC 9, as above.)
+  const shooter = (weapon, stats = {}) => {
+    const s2 = thrower(stats, [weapon, 'dagger']);
+    s2.character.ammo = { arrow: 20, bolt: 20 };
+    return s2;
+  };
+  const besideMe = { q: 1, r: 3 };
+  const addAdjacent = s2 => {
+    BF.testerAddEnemy(s2, 'kobold');
+    const k = s2.combat.enemies.at(-1);
+    s2.combat.grid.pos[k.uid] = besideMe;
+    k.hp = 999;
+  };
+  st = shooter('sling');
+  check('nobody beside you: not engaged', !Ranged.engaged(st));
+  addAdjacent(st);
+  let mp = profileAt(st, 4);
+  check('a kobold beside you engages you: a sling shot at the centipede 4 hexes off is at -4',
+    Ranged.engaged(st) && mp.ok && mp.toHit === -4 && mp.parts.some(([n, v]) => n === 'engaged' && v === -4));
+  st = shooter('sling');
+  st.combat.grid.pos.e1 = besideMe;
+  check('shooting the enemy beside you is engaged too', profileAt(st, 1).toHit === -4);
+  check('throwing isn\'t affected: the dagger beside you is at +0', Ranged.rangeProfile(st, 'e1', 1).toHit === 0);
+  st = shooter('bow', { dex: 18 });
+  addAdjacent(st);
+  check('quick draw: from Dex 18 a bow pays only -2 (Dex +3, so +1)', profileAt(st, 4).toHit === 3 - 2);
+  st = shooter('sling', { dex: 18 });
+  addAdjacent(st);
+  check('...and a sling', profileAt(st, 4).toHit === 3 - 2);
+  st = shooter('crossbow', { dex: 18 });
+  addAdjacent(st);
+  check('...but never a crossbow: half Dex (+1), its own +1, engaged -4', profileAt(st, 4).toHit === 1 + 1 - 4);
+  st = shooter('bow', { dex: 17 });
+  addAdjacent(st);
+  check('Dex 17 is no quick draw: Dex +2, engaged -4', profileAt(st, 4).toHit === 2 - 4);
+
+  st = shooter('bow');
+  mp = profileAt(st, 3);
+  check('point blank: a bow (full power to 5) within 3 hexes gets +1 to hit and +1 damage',
+    mp.toHit === 1 && mp.dmgBonus === 1 && mp.parts.some(([n, v]) => n === 'point blank' && v === 1));
+  check('...not at 4 hexes', profileAt(st, 4).toHit === 0 && profileAt(st, 4).dmgBonus === 0);
+  st.combat.grid.pos.e1 = ahead(3);
+  const pbArrow = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
+  check('a point-blank arrow hits for 5 (a d6 rolls 4, +1)', pbArrow?.hit && pbArrow.dmg === 5);
+  st = shooter('crossbow');
+  check('a crossbow (full power to 4) is point blank within 2 hexes: +1 of its own, +1', profileAt(st, 2).toHit === 2 && profileAt(st, 3).toHit === 1);
+  check('point blank reaches at least 2 hexes, even with a short full-power range',
+    Ranged.shotMods(st.character, WEAPON_BY_ID.bow, { isEngaged: false, distance: 2, aim: 1, ac: 9 }).pointBlank === 1
+    && Ranged.shotMods(st.character, WEAPON_BY_ID.bow, { isEngaged: false, distance: 3, aim: 1, ac: 9 }).pointBlank === 0);
+  st = shooter('bow');
+  addAdjacent(st);
+  check('no point blank while engaged: a bow at 2 hexes is just -4', profileAt(st, 2).toHit === -4 && profileAt(st, 2).dmgBonus === 0);
+  st = shooter('sling');
+  check('a sling gets no point blank', profileAt(st, 2).toHit === 0 && profileAt(st, 2).dmgBonus === 1);
+  st = thrower({}, ['dagger', 'dagger']);
+  st.character.equipped = -1;
+  check('a throw gets no point blank', profileAt(st, 2).toHit === 0);
+
+  st = shooter('crossbow');
+  st.combat.enemies[0].monsterId = 'storm-giant'; // AC 1
+  check('armor piercing: a crossbow gets +2 against AC 3 or better (here AC 1)', profileAt(st, 4).toHit === 1 + 2
+    && profileAt(st, 4).parts.some(([n, v]) => n === 'pierce' && v === 2));
+  st.combat.enemies[0].monsterId = 'giant-scorpion'; // AC 3
+  check('...including AC 3', profileAt(st, 4).toHit === 3);
+  st.combat.enemies[0].monsterId = 'hill-giant'; // AC 4
+  check('...not AC 4', profileAt(st, 4).toHit === 1);
+  st = shooter('bow');
+  st.combat.enemies[0].monsterId = 'storm-giant';
+  check('a bow doesn\'t pierce', profileAt(st, 4).toHit === 0);
+
+  // Bow families: self bows need Strength (strMin), composite bows add it up to their pull.
+  const bowStats = (id, stats) => Ranged.shootStats(thrower(stats, []).character, WEAPON_BY_ID[id]);
+  check('the Bow is a self bow needing Str 9: at Str 8 it\'s -1 to hit and 1 hex shorter',
+    bowStats('bow', { str: 8 }).aim === 4 && bowStats('bow', { str: 8 }).toHit === -1 && bowStats('bow', { str: 8 }).shortfall === 1
+    && bowStats('bow', { str: 9 }).aim === 5 && bowStats('bow', { str: 9 }).toHit === 0);
+  check('a Long Bow needs Str 12: Str 10 shoots to 4 hexes at -2; Str 12 and Str 18 both to 6, with no damage bonus',
+    bowStats('long-bow', { str: 10 }).aim === 4 && bowStats('long-bow', { str: 10 }).toHit === -2
+    && bowStats('long-bow', { str: 12 }).aim === 6 && bowStats('long-bow', { str: 18 }).aim === 6 && bowStats('long-bow', { str: 18 }).dmgBonus === 0);
+  check('a Composite Long Bow (pull 18) adds Str: Str 18 reaches 8 hexes at +3 damage, Str 16 7 at +1, Str 10 6 at +0',
+    bowStats('composite-long-bow', { str: 18 }).aim === 8 && bowStats('composite-long-bow', { str: 18 }).dmgBonus === 3
+    && bowStats('composite-long-bow', { str: 16 }).aim === 7 && bowStats('composite-long-bow', { str: 16 }).dmgBonus === 1
+    && bowStats('composite-long-bow', { str: 10 }).aim === 6 && bowStats('composite-long-bow', { str: 10 }).dmgBonus === 0);
+  check('...but never takes any away: Str 4 is +0 damage, no penalty to hit',
+    bowStats('composite-long-bow', { str: 4 }).dmgBonus === 0 && bowStats('composite-long-bow', { str: 4 }).toHit === 0 && bowStats('composite-long-bow', { str: 4 }).aim === 6);
+  check('a Composite Short Bow (pull 17) gives a Str 18 archer only Str 17\'s +2 damage and +1 range',
+    bowStats('composite-short-bow', { str: 18 }).dmgBonus === 2 && bowStats('composite-short-bow', { str: 18 }).aim === 5);
+  check('every bow shoots arrows', WEAPONS.filter(Ranged.isBow).every(w => Ranged.ammoKinds(w)[0]?.id === 'arrow') && WEAPONS.filter(Ranged.isBow).length === 4);
+
+  // The design's worked example: two level 5 gladiators shoot a Gnoll (AC 5) 8 hexes away.
+  const example = (id, stats) => {
+    const s2 = thrower(stats, [id]);
+    s2.character.level = 5;
+    s2.character.ammo = { arrow: 10 };
+    s2.combat.enemies[0].monsterId = 'gnoll';
+    return profileAt(s2, 8);
+  };
+  const strong = example('composite-long-bow', { str: 18, dex: 17 });
+  const average = example('long-bow', { str: 10, dex: 10 });
+  check('strong archer (Str 18, Dex 17, Composite Long Bow): full power to 8, +2 to hit (needs a 9), 1d6+3 at full damage',
+    strong.ok && strong.aim === 8 && strong.toHit === 2 && strong.dmgBonus === 3 && strong.dmgMult === 1);
+  check('average gladiator (Str 10, Dex 10, Long Bow): full power to 4, -2 too weak and -4 range (needs a 17), half damage',
+    average.ok && average.aim === 4 && average.toHit === -6 && average.dmgBonus === 0 && average.dmgMult === 0.5
+    && average.parts.some(([n, v]) => n === 'too weak' && v === -2));
+
+  // Families and the shooting modifiers: composite bows are bows.
+  st = thrower({ str: 18 }, ['composite-long-bow']);
+  st.character.ammo = { arrow: 10 };
+  mp = profileAt(st, 4);
+  check('a composite bow gets point blank too: within 4 of its 8 hexes, +1 to hit and +1 damage on top of Str +3',
+    mp.toHit === 1 && mp.dmgBonus === 4);
+  st = thrower({ str: 18, dex: 18 }, ['composite-long-bow']);
+  st.character.ammo = { arrow: 10 };
+  addAdjacent(st);
+  check('...and quick draw at Dex 18', profileAt(st, 6).toHit === 3 - 2);
+  st = thrower({ str: 18 }, ['composite-long-bow']);
+  st.character.ammo = { arrow: 10 };
+  const compHit = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
+  check('a composite bow\'s hit at 4 hexes: a d6 rolls 4, Str +3, point blank +1: 8', compHit?.hit && compHit.dmg === 8);
+  check('the character sheet agrees: a Str 8 archer\'s Bow is -1 to hit', toHitBonus(thrower({ str: 8 }, []).character, WEAPON_BY_ID.bow) === -1);
+
+  // The Heavy Crossbow: harder-hitting, +2 of its own, and it reloads (a shot, then a round without one).
+  const nextRound = s2 => { s2.combat.round++; newTurn(s2); };
+  check('the basic crossbow is now the Light Crossbow (same id, so saves keep it)', WEAPON_BY_ID.crossbow.name === 'Light Crossbow' && !WEAPON_BY_ID.crossbow.ranged.reload);
+  st = thrower({}, ['heavy-crossbow']);
+  st.character.ammo = { bolt: 10 };
+  mp = profileAt(st, 4);
+  check('a Heavy Crossbow at 4 hexes: full power to 5, +2 of its own, no point blank (that\'s within 3)', mp.ok && mp.aim === 5 && mp.toHit === 2);
+  check('...and point blank within 3', profileAt(st, 3).toHit === 3);
+  st.combat.enemies[0].monsterId = 'storm-giant';
+  check('...and it pierces like the light one: +2 against AC 1', profileAt(st, 4).toHit === 4);
+  st.combat.enemies[0].monsterId = 'giant-centipede';
+  st.combat.grid.pos.e1 = ahead(4);
+  const round1 = st.combat.round;
+  const heavyShot = BF.actYou(st, { type: 'fight', target: 'e1' }).events.filter(e => e.t === 'attack');
+  check('it hits for 6 (a d10 rolls 6) and starts reloading', heavyShot.length === 1 && heavyShot[0].dmg === 6 && heavyShot[0].shot === 'bolt'
+    && heavyShot[0].weapon === 'Heavy Crossbow' && st.combat.reloadReady === round1 + 2 && Ranged.reloading(st));
+  nextRound(st);
+  check('next round it\'s still reloading: no shot, and it says so',
+    Ranged.reloading(st) && !Ranged.readyShooter(st) && /Reloading: your Heavy Crossbow is ready again next round/.test(Ranged.rangeProfile(st, 'e1', 0).reason)
+    && /Reloading.*nothing to throw/.test(BF.actYou(st, { type: 'fight', target: 'e1' }).msg));
+  st.combat.grid.pos.e1 = ahead(1);
+  const reloadPunch = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
+  check('...but beside an enemy you can punch', reloadPunch && !reloadPunch.ranged && reloadPunch.weapon === 'Fists');
+  st.combat.grid.pos.e1 = ahead(4);
+  nextRound(st);
+  check('the round after, it shoots again', !Ranged.reloading(st) && BF.actYou(st, { type: 'fight', target: 'e1' }).events.some(e => e.shot === 'bolt'));
+  st = thrower({}, ['heavy-crossbow', 'dagger']);
+  st.character.ammo = { bolt: 10 };
+  BF.actYou(st, { type: 'fight', target: 'e1' });
+  nextRound(st);
+  const reloadThrow = BF.actYou(st, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
+  check('while reloading, attacks throw a spare weapon instead', reloadThrow?.ranged && !reloadThrow.shot && reloadThrow.weapon === 'Dagger');
+  st = thrower({}, ['heavy-crossbow']);
+  st.character.ammo = { bolt: 10 };
+  st.character.level = 13; // 2 attacks a round
+  check('even with 2 attacks a round, a Heavy Crossbow shoots once', BF.actYou(st, { type: 'fight', target: 'e1' }).events.filter(e => e.t === 'attack').length === 1);
+  st = thrower({}, ['crossbow']);
+  st.character.ammo = { bolt: 10 };
+  st.character.level = 13;
+  check('...while a Light Crossbow shoots twice, and never reloads',
+    BF.actYou(st, { type: 'fight', target: 'e1' }).events.filter(e => e.t === 'attack').length === 2 && !Ranged.reloading(st));
+  st = thrower({}, ['heavy-crossbow']);
+  st.character.ammo = { bolt: 10 };
+  st.combat.grid.pos.e1 = ahead(7);
+  BF.actYou(st, { type: 'fight', target: 'e1' });
+  nextRound(st);
+  const holdEv = BF.autoYou(st).events;
+  check('auto-play holds its ground while reloading', !holdEv.some(e => e.t === 'move' && e.uid === 'you') && st.combat.grid.pos.you.r === 4);
+
+  // Enchanted ammunition: seeking, flaming, exploding, each also +1; for arrows, bolts and sling stones.
+  // (An 11 hits AC 9; every die rolls its middle: a d6 4, a d100 51, so nothing breaks.)
+  const quiver = (weapon, ammo, stats = {}) => {
+    const s2 = thrower(stats, [weapon]);
+    s2.character.ammo = { ...ammo };
+    return s2;
+  };
+  const firstShot = s2 => BF.actYou(s2, { type: 'fight', target: 'e1' }).events.find(e => e.t === 'attack');
+  check('23 kinds: plain arrows and bolts, and 7 enchanted kinds each of arrows, bolts and stones (plain stones are free)',
+    AMMO.length === 23 && !AMMO_BY_ID.stone && !!AMMO_BY_ID['stone-1'] && !!AMMO_BY_ID['exploding-bolt-1']
+    && ['arrow', 'bolt', 'stone'].every(k => AMMO.filter(a => a.for === k && (a.enchant || a.plus)).length === 7));
+  check('prices for 5: seeking 40, flaming 60, +1 100, flaming +1 160, exploding +1 300; plain arrows still 10 for 1',
+    AMMO_BY_ID['seeking-arrow'].cost === 40 && AMMO_BY_ID['flaming-bolt'].cost === 60 && AMMO_BY_ID['arrow-1'].cost === 100
+    && AMMO_BY_ID['flaming-arrow-1'].cost === 160 && AMMO_BY_ID['exploding-stone-1'].cost === 300 && AMMO_BY_ID['seeking-arrow'].bundle === 5
+    && AMMO_BY_ID.arrow.cost === 1 && AMMO_BY_ID.arrow.bundle === 10);
+  check('names and effects read naturally', AMMO_BY_ID['flaming-arrow-1'].name === 'Flaming Arrow +1' && AMMO_BY_ID['flaming-arrow-1'].plural === 'Flaming Arrows +1'
+    && /\+1 to hit and damage, and counts as magic\. \+1d6 fire damage/.test(ammoEffect(AMMO_BY_ID['flaming-arrow-1'])));
+  st = quiver('bow', {});
+  const gold0 = st.character.gold;
+  check('buy enchanted ammunition 5 at a time', buyAmmo(st.character, 'flaming-arrow').ok && st.character.ammo['flaming-arrow'] === 5 && st.character.gold === gold0 - 60);
+
+  // Choosing what to shoot.
+  st = quiver('bow', { arrow: 5, 'flaming-arrow': 5 });
+  check('on Auto you shoot plain arrows first', Ranged.rangeProfile(st, 'e1').ammo === 'arrow');
+  check('pick a kind and you shoot it', BF.setAmmoPick(st, 'flaming-arrow').ok && Ranged.rangeProfile(st, 'e1').ammo === 'flaming-arrow');
+  check('...but not ammunition that doesn\'t fit', !BF.setAmmoPick(st, 'bolt').ok && st.combat.ammoPick === 'flaming-arrow');
+  st = quiver('bow', { arrow: 5, 'arrow-1': 5 });
+  st.combat.enemies[0].monsterId = 'gargoyle';
+  mp = Ranged.rangeProfile(st, 'e1');
+  check('at a gargoyle (only magic hurts it), Auto shoots +1 arrows: +1 to hit and damage, magic 1',
+    mp.ammo === 'arrow-1' && mp.magic === 1 && mp.toHit === 1 && mp.dmgBonus === 1 && mp.parts.some(([n, v]) => n === 'arrow +1' && v === 1));
+  const natural20 = s2 => { setRng(seq(0.97, 0.5, 0.5, 0.5)); const a = firstShot(s2); setRng(() => 0.5); return a; }; // a 20 always hits; then middles
+  const gargHit = natural20(st);
+  check('...and it hurts it: a d6 4, +1', gargHit?.hit && gargHit.dmg === 5 && st.character.ammo['arrow-1'] === 4);
+  st = quiver('bow', { arrow: 5 });
+  st.combat.enemies[0].monsterId = 'gargoyle';
+  check('plain arrows can\'t, and the log says what would', BF.actYou(st, { type: 'fight', target: 'e1' }).events.some(e => e.t === 'immune')
+    && st.character.ammo.arrow === 5 && /or \+1 ammunition/.test(describe({ t: 'immune', weapon: 'Bow', req: 1, target: 'Gargoyle' }).text));
+
+  // Seeking: no range, cover or moving-first penalty to hit; damage still falls off.
+  st = quiver('bow', { arrow: 5, 'seeking-arrow': 5 });
+  const plain8 = profileAt(st, 8);
+  BF.setAmmoPick(st, 'seeking-arrow');
+  const seek8 = profileAt(st, 8);
+  check('at 8 hexes (3 past full power) a plain arrow is -3; a seeking one +0, at the same 5/8 damage',
+    plain8.toHit === -3 && seek8.toHit === 0 && seek8.dmgMult === plain8.dmgMult && plain8.dmgMult === 0.625);
+  st.combat.turn.movedHexes = 3;
+  check('moving first costs a seeking arrow nothing', profileAt(st, 4).toHit === 0);
+  BF.setAmmoPick(st, null);
+  check('...but a plain one -3', profileAt(st, 4).toHit === -3);
+  st = quiver('bow', { 'seeking-arrow': 5 });
+  BF.testerAddEnemy(st, 'kobold');
+  st.combat.grid.pos[st.combat.enemies.at(-1).uid] = ahead(2);
+  st.combat.enemies.at(-1).hp = 999;
+  check('a fighter in the way gives no cover against it', profileAt(st, 4).toHit === 0);
+  st.combat.grid.pos.e1 = ahead(4);
+  check('seeking arrows break like plain ones, so a hit one comes back', firstShot(st)?.hit && st.combat.ammoOut['seeking-arrow'] === 1);
+
+  // Flaming: +1d6 fire on a hit, stops a troll regenerating, burns up hit or miss.
+  st = quiver('bow', { 'flaming-arrow': 5 });
+  const flame = firstShot(st);
+  check('a flaming arrow hits for 8: a d6 4, and 4 fire', flame?.hit && flame.dmg === 8 && flame.fire === 4 && flame.shot === 'flaming arrow');
+  check('...and burns up: it isn\'t gathered up', st.character.ammo['flaming-arrow'] === 4 && !st.combat.ammoOut?.['flaming-arrow'] && !st.combat.ammoBroken?.['flaming-arrow']);
+  newTurn(st);
+  setRng(() => 0.02);
+  firstShot(st);
+  setRng(() => 0.5);
+  check('a miss burns up too', st.character.ammo['flaming-arrow'] === 3 && !st.combat.ammoOut?.['flaming-arrow']);
+  st = quiver('bow', { 'flaming-arrow': 5 });
+  st.combat.enemies[0].monsterId = 'fire-giant';
+  const giantFlame = natural20(st);
+  check('a fire giant is unharmed by the fire: just the arrow\'s 4', giantFlame?.hit && giantFlame.dmg === 4 && giantFlame.fireImmune && !giantFlame.fire);
+  st = quiver('bow', { 'flaming-arrow': 5 });
+  st.combat.enemies[0].monsterId = 'troll';
+  natural20(st);
+  check('a troll it hits stops regenerating', st.combat.enemies[0].regenBlocked === true);
+  check('the log names the fire', describe({ t: 'attack', by: 'player', ranged: true, shot: 'flaming arrow', weapon: 'Bow', target: 'Troll', distance: 4, dmgMult: 1, hit: true, dmg: 8, fire: 4 }).text
+    === 'Your Bow sends a flaming arrow into the Troll (4 hexes) for 8 damage, 4 of it fire.');
+
+  // Exploding: +2d6 on a hit; a miss is a dud; used up either way.
+  st = quiver('bow', { 'exploding-arrow': 5 });
+  const boom = firstShot(st);
+  check('an exploding arrow hits for 12: a d6 4, and 8 from the blast (2d6)', boom?.hit && boom.dmg === 12 && boom.blast === 8 && !st.combat.ammoOut?.['exploding-arrow']);
+  newTurn(st);
+  setRng(() => 0.02);
+  const dud = firstShot(st);
+  setRng(() => 0.5);
+  check('a miss is a dud, and it\'s gone', dud && !dud.hit && dud.dud && st.character.ammo['exploding-arrow'] === 3);
+  check('the log says so', /lands without exploding/.test(describe(dud).text)
+    && /for 12 damage, 8 of it from the explosion/.test(describe(boom).text));
+  st = quiver('bow', { 'exploding-arrow-1': 5 });
+  const boom1 = firstShot(st);
+  check('+1 combines with an enchantment: an Exploding Arrow +1 hits for 13 (+1 to hit too)', boom1?.dmg === 13 && st.character.ammo['exploding-arrow-1'] === 4);
+
+  // Running out of the kind you picked: back to Auto.
+  st = quiver('bow', { arrow: 5, 'flaming-arrow': 1 });
+  BF.setAmmoPick(st, 'flaming-arrow');
+  const lastFlame = BF.actYou(st, { type: 'fight', target: 'e1' }).events;
+  check('shooting the last of the kind you picked says so and goes back to Auto',
+    lastFlame.some(e => e.t === 'ammoKindSpent' && e.ammo === 'flaming arrow') && st.combat.ammoPick === null && Ranged.rangeProfile(st, 'e1').ammo === 'arrow');
+  check('...in the log', describe({ t: 'ammoKindSpent', ammo: 'flaming arrow' }).text === "You've shot your last flaming arrow.");
+
+  // Sling stones: plain ones free, enchanted ones counted.
+  st = quiver('sling', { 'flaming-stone': 2, 'stone-1': 2 });
+  check('a sling on Auto shoots plain stones, even carrying enchanted ones', Ranged.rangeProfile(st, 'e1').ammo === null && firstShot(st)?.shot === 'stone'
+    && st.character.ammo['flaming-stone'] === 2);
+  newTurn(st);
+  BF.setAmmoPick(st, 'flaming-stone');
+  const flameStone = firstShot(st);
+  check('pick flaming stones and you sling one: 3 + Str 1 + 4 fire', flameStone?.shot === 'flaming stone' && flameStone.dmg === 8 && st.character.ammo['flaming-stone'] === 1);
+  st = quiver('sling', { 'stone-1': 2 });
+  st.combat.enemies[0].monsterId = 'gargoyle';
+  check('at a gargoyle, Auto slings a +1 stone', Ranged.rangeProfile(st, 'e1').ammo === 'stone-1' && natural20(st)?.hit);
+  st = quiver('sling', {});
+  check('a sling never runs out, enchanted stones or not', Ranged.ammoLeft(st.character, WEAPON_BY_ID.sling) === Infinity && !Ranged.needsAmmo(WEAPON_BY_ID.sling));
+
+  // Bolts too, and gathering up enchanted ammunition.
+  st = quiver('crossbow', { 'seeking-bolt-1': 5 });
+  check('a Seeking Bolt +1: +1 of the crossbow, +1 of the bolt', profileAt(st, 4).toHit === 2 && profileAt(st, 4).ammo === 'seeking-bolt-1');
+  firstShot(st);
+  const backUp = playRound(st, { type: 'surrender' }).find(e => e.t === 'ammoRecovered');
+  check('the one you shot comes back after the fight, and the log names it', st.character.ammo['seeking-bolt-1'] === 5
+    && describe(backUp).text === 'You gather up 1 seeking bolt +1.');
 
   // Classic fights: no throwing.
   st = newGameState(createCharacter('Classic', { str: 16, int: 10, wis: 10, dex: 15, con: 15, cha: 10 }));

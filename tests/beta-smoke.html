@@ -251,9 +251,15 @@ frame.addEventListener('load', async () => {
       await click('[data-to="weapons"]');
       log(/Ammunition/.test(q('#screen').textContent) && /Bow.*Shoots arrows \(sold below\)/.test(q('#screen').textContent.replace(/\s+/g, ' ')),
         'the weaponsmith sells bows, crossbows and ammunition');
+      const smith = q('#screen').textContent.replace(/\s+/g, ' ');
+      log(/Long Bow.*Needs Str 12/.test(smith) && /Composite Long Bow.*Adds your Str damage and range, up to Str 18/.test(smith),
+        "the weaponsmith shows each bow family's Strength rule");
+      log(/Light Crossbow/.test(smith) && /Heavy Crossbow.*Reloads: shoots every other round/.test(smith), 'the weaponsmith sells light and heavy crossbows');
       await click('[data-action="buy"][data-id="bow"]');
       await click('[data-action="buyAmmo"][data-id="arrow"]');
       await click('[data-action="buyAmmo"][data-id="arrow"]');
+      log(/Flaming Arrows.*\+1d6 fire damage on a hit/.test(q('#screen').textContent.replace(/\s+/g, ' ')), 'the weaponsmith sells enchanted ammunition and says what it does');
+      await click('[data-action="buyAmmo"][data-id="flaming-arrow"]');
       const bowAt = st().character.weapons.findIndex(x => x.id === 'bow');
       await click(`[data-action="equip"][data-index="${bowAt}"]`);
       log(st().character.ammo.arrow === 20 && st().character.equipped === bowAt, 'bought a bow and 20 arrows, and took the bow in hand');
@@ -265,7 +271,12 @@ frame.addEventListener('load', async () => {
       q('#tester-terrain').value = 'flat';
       await click('[data-action="rebuild"]');
       await wait(300);
-      log(/Shoot your Bow, 20 arrows/.test(q('.throw-pick')?.textContent ?? ''), 'the picker shows the bow and its arrows');
+      log(/Shoot your Bow, 25 arrows/.test(q('.throw-pick')?.textContent ?? ''), 'the picker shows the bow and all its arrows (20 plain, 5 flaming)');
+      log(/Arrows:.*Auto.*Arrow ×20.*Flaming Arrow ×5/.test(q('.ammo-pick')?.textContent.replace(/\s+/g, ' ') ?? ''), 'the ammunition picker lists what you carry');
+      await click('[data-action="ammoPick"][data-id="flaming-arrow"]');
+      const flamingPicked = st().combat.ammoPick === 'flaming-arrow' && q('[data-action="ammoPick"][data-id="flaming-arrow"]').classList.contains('on');
+      await click('[data-action="ammoPick"][data-id=""]');
+      log(flamingPicked && st().combat.ammoPick === null, 'you can pick flaming arrows, and go back to Auto');
       let fired = 0;
       for (let turn = 0; turn < 6 && !st().combat.over && fired < 2; turn++) {
         const shotAt = q('.cell.throwable');
@@ -282,8 +293,10 @@ frame.addEventListener('load', async () => {
         if (!st().combat.over) { await click('[data-action="endTurn"]'); await wait(500); }
       }
       const arrowLog = q('#combat-log').textContent;
-      log(/Your Bow sends an arrow into the Kobold|Your Bow's arrow whistles past the Kobold/.test(arrowLog) && st().character.ammo.arrow < 20,
-        `clicking a dashed enemy shoots an arrow, and uses it (${20 - st().character.ammo.arrow} shot)`);
+      // If an arrow killed the kobold, the fight is won and the arrows are already gathered up again.
+      const wonByArrow = st().combat.result === 'victory' && /You gather up \d+ arrows?|that hit broke/.test(arrowLog);
+      log(/Your Bow sends an arrow into the Kobold|Your Bow's arrow whistles past the Kobold/.test(arrowLog) && (st().character.ammo.arrow < 20 || wonByArrow),
+        `clicking a dashed enemy shoots an arrow, and uses it (${wonByArrow ? 'it won the fight' : `${20 - st().character.ammo.arrow} shot`})`);
       // What's out on the field: shot and not broken (if the fight is already won, they're back already).
       const before = st();
       const out = before.combat.over ? 0 : (before.combat.ammoOut?.arrow ?? 0);

@@ -35,7 +35,7 @@ import {
   MELEE_HEIGHT_REACH, TALL_HEIGHT_REACH, UPHILL_TO_HIT, DOWNHILL_DMG, HIGH_GROUND_SAVE,
 } from './tables.js';
 import { levelOf } from './terrain.js';
-import { rangeProfile, rangedDamage, throwsLeft, pickShot, ammoLeft } from './ranged.js';
+import { rangeProfile, rangedDamage, throwsLeft, pickShot, ammoLeft, enchantOf } from './ranged.js';
 import { weaponOf, weaponEntry, armorClass, rollToHit, gainXp, drainLevel, heal } from './character.js';
 import { rollLoot, liveCoatings, venomName } from './loot.js';
 import { LOOT_BY_ID } from '../data/loot.js';
@@ -291,6 +291,9 @@ function playerTurn(state, action, ev) {
 // coatings with it; shots carry none, and the shooter stays in hand. Each
 // arrow or bolt is used up as it's shot; a hit breaks it with its AMMO
 // breakChance, and the rest are gathered up after the fight (cb.ammoOut).
+// Enchanted ammunition (data/equipment.js ENCHANTS): flaming adds fire damage
+// on a hit (stopping regeneration), exploding adds blast damage on a hit (a
+// miss is a dud); both are always used up. Seeking works in rangeProfile.
 function rangedTurn(state, ev) {
   const c = state.character;
   const cb = state.combat;
@@ -305,13 +308,16 @@ function rangedTurn(state, ev) {
     const entry = c.weapons[p.index];
     const w = WEAPON_BY_ID[entry.id];
     const m = MONSTER_BY_ID[e.monsterId];
-    if (w.plus < m.magicReq) {
+    if (p.magic < m.magicReq) {
       ev.push({ t: 'immune', weapon: w.name, req: m.magicReq, target: e.name });
       return;
     }
     if (!p.shoot) (cb.thrown ??= []).push(p.index);
     const ammo = p.ammo ? AMMO_BY_ID[p.ammo] : null;
+    const magic = enchantOf(ammo);
     if (ammo) c.ammo[ammo.id]--;
+    if (ammo && !c.ammo[ammo.id] && cb.ammoPick === ammo.id) cb.ammoPick = null;
+    if (p.shoot && w.ranged.reload) cb.reloadReady = cb.round + 2; // a Heavy Crossbow: one shot, then a round to reload
     const need = thac0(c.level) - m.ac - p.toHit;
     const r = die(20);
     const hit = r === 20 || (r !== 1 && r >= need);
@@ -319,22 +325,32 @@ function rangedTurn(state, ev) {
       t: 'attack', by: 'player', ranged: true, weapon: w.name, distance: p.distance, dmgMult: p.dmgMult,
       ...(p.shoot ? { shot: ammo ? ammo.name.toLowerCase() : w.ranged.thing } : {}),
     };
-    // An arrow or bolt that hits may break; anything else shot is gathered up later.
-    const broke = !!ammo && hit && die(100) <= ammo.breakChance;
-    if (ammo) {
+    // A piece that hits may break; flaming and exploding ones are always used
+    // up; anything else shot is gathered up later.
+    const broke = !!ammo && hit && !magic.consumed && die(100) <= ammo.breakChance;
+    if (ammo && !magic.consumed) {
       const pile = broke ? (cb.ammoBroken ??= {}) : (cb.ammoOut ??= {});
       pile[ammo.id] = (pile[ammo.id] ?? 0) + 1;
     }
     if (!hit) {
-      ev.push({ ...base, hit: false, target: e.name });
+      ev.push({ ...base, hit: false, target: e.name, ...(magic.blast ? { dud: true } : {}) });
     } else {
-      hurtEnemy(state, e, rangedDamage(roll(w.dmg), p), ev, { ...base, hit: true, ...(broke ? { broke: true } : {}) }, PLAYER);
+      const extra = {};
+      let dmg = rangedDamage(roll(w.dmg), p);
+      if (magic.fire) {
+        if (m.special.regen) e.regenBlocked = true;
+        if (m.immune.includes('fire')) extra.fireImmune = true;
+        else { extra.fire = resisted(m, 'fire', roll(magic.fire)); dmg += extra.fire; }
+      }
+      if (magic.blast) { extra.blast = roll(magic.blast); dmg += extra.blast; }
+      hurtEnemy(state, e, dmg, ev, { ...base, hit: true, ...extra, ...(broke ? { broke: true } : {}) }, PLAYER);
       if (e.hp > 0 && !p.shoot) envenom(state, e, ev, 0, entry);
     }
     if (ammo && ammoLeft(c, w) === 0) {
-      ev.push({ t: 'ammoSpent', ammo: ammo.plural.toLowerCase(), weapon: w.name });
+      ev.push({ t: 'ammoSpent', ammo: ammoKindsName(w), weapon: w.name });
       return;
     }
+    if (ammo && !c.ammo[ammo.id]) ev.push({ t: 'ammoKindSpent', ammo: ammo.name.toLowerCase() });
     if (p.shoot) continue;
     if (p.index === c.equipped) drawWeapon(state, ev);
     if (throwsLeft(state) === 0) ev.push({ t: 'throwsSpent' });
@@ -391,12 +407,15 @@ function recoverAmmo(state, ev) {
   for (const id of kinds) {
     const back = cb.ammoOut?.[id] ?? 0;
     c.ammo[id] = (c.ammo[id] ?? 0) + back;
-    lines.push({ ammo: AMMO_BY_ID[id].name, back, broken: cb.ammoBroken?.[id] ?? 0 });
+    lines.push({ ammo: AMMO_BY_ID[id].name, plural: AMMO_BY_ID[id].plural, back, broken: cb.ammoBroken?.[id] ?? 0 });
   }
   ev.push({ t: 'ammoRecovered', ammo: lines });
   cb.ammoOut = {};
   cb.ammoBroken = {};
 }
+
+// "arrows": what a weapon shoots, by its plain kind's name.
+const ammoKindsName = w => `${w.ranged.ammo}s`;
 
 // Your target if you can throw at it, else the nearest enemy you can.
 export function rangedTarget(state) {

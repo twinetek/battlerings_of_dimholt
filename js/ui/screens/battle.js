@@ -4,15 +4,15 @@
 
 import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
 import { MERCS, MERC_BY_ID } from '../../data/mercs.js';
-import { ITEM_BY_ID, WEAPON_BY_ID, UNARMED } from '../../data/equipment.js';
+import { ITEM_BY_ID, WEAPON_BY_ID, UNARMED, ammoEffect } from '../../data/equipment.js';
 import { maxHp, armorClass, weaponEntry, weaponOf, rollToHit, moveStats } from '../../rules/character.js';
 import { playRound, setTarget, openingEvents, inReach, heightMods, PLAYER } from '../../rules/combat.js';
 import {
   DEFAULT_FIELD, boardHexes, isPillar, livingUnits, occupant, reachableFor, threatZone, moveOf,
-  moveYou, actYou, endTurn, autoYou, setThrowPick, fallRange, moveStatsOf, testerPaint, testerAddEnemy, testerAddMerc, testerHeal, testerRebuild,
+  moveYou, actYou, endTurn, autoYou, setThrowPick, setAmmoPick, fallRange, moveStatsOf, testerPaint, testerAddEnemy, testerAddMerc, testerHeal, testerRebuild,
 } from '../../rules/battlefield.js';
 import { TERRAINS, TERRAIN_BY_ID, RANDOM, MAX_HEIGHT, levelOf, cliffEdges } from '../../rules/terrain.js';
-import { rangeProfile, throwGroups, canShoot, shooterInHand, readyShooter, pickShot, needsAmmo, ammoLeft, ammoKinds } from '../../rules/ranged.js';
+import { rangeProfile, throwGroups, canShoot, shooterInHand, readyShooter, pickShot, needsAmmo, ammoLeft, ammoKinds, ammoCarried, reloading, reloadReason } from '../../rules/ranged.js';
 import * as H from '../../engine/hex.js';
 import { COMBAT_LOG_LIMIT, thac0 } from '../../rules/tables.js';
 import { toLines, describeAll, SUMMARIZE_ABOVE } from '../presenter.js';
@@ -181,8 +181,10 @@ function throwNote(s, uid, m) {
 }
 
 // "Out of arrows for your Bow: beside an enemy you fight with your fists."
+// Or, for a Heavy Crossbow shot last round, that it's reloading.
 function ammoNote(s) {
   const w = shooterInHand(s);
+  if (reloading(s)) return `${reloadReason(w).replace(/\.$/, '')}: meanwhile you can throw a spare weapon, or punch an enemy beside you`;
   return `Out of ${ammoKinds(w)[0].plural.toLowerCase()} for your ${w.name}: beside an enemy you fight with your fists`;
 }
 
@@ -192,6 +194,24 @@ function shooterLabel(s, w) {
   const n = ammoLeft(s.character, w);
   const kind = ammoKinds(w)[0];
   return `${esc(w.name)}, ${n} ${(n === 1 ? kind.name : kind.plural).toLowerCase()}`;
+}
+
+// Which ammunition the weapon in your hand shoots: "Auto" (plain first, magic
+// at a monster only magic can hurt), or a kind you carry. Shown only when
+// you carry an enchanted kind, or more than one kind.
+function ammoPicker(s) {
+  const w = shooterInHand(s);
+  if (!w?.ranged.ammo) return '';
+  const carried = ammoCarried(s.character, w);
+  const plainFree = !needsAmmo(w);
+  if (!carried.length || (carried.length === 1 && !plainFree && !carried[0].a.enchant && !carried[0].a.plus)) return '';
+  const cb = s.combat;
+  const pick = carried.some(x => x.a.id === cb.ammoPick) ? cb.ammoPick : null;
+  const opt = (label, id, title) => button(label, 'ammoPick', { id: id ?? '' }, { cls: `link${pick === id ? ' on' : ''}`, disabled: busy, title });
+  const kinds = `${w.ranged.ammo.charAt(0).toUpperCase()}${w.ranged.ammo.slice(1)}s`;
+  return `<p class="muted small row ammo-pick">${kinds}:
+    ${opt('Auto', null, plainFree ? 'Plain stones, or magic ones at a monster only magic can hurt' : 'The cheapest you carry, or magic at a monster only magic can hurt')}
+    ${carried.map(x => opt(`${esc(x.a.name)} ×${x.count}`, x.a.id, ammoEffect(x.a))).join(' ')}</p>`;
 }
 
 // Which kind of weapon you'll throw next: "Best spare" lets the game choose
@@ -205,6 +225,7 @@ function throwPicker(s) {
   const groups = throwGroups(s);
   if (!groups.length) {
     if (sling) return `<p class='muted small'>Shoot: your ${shooterLabel(s, sling)}.</p>`;
+    if (!(s.combat.thrown ?? []).length) return empty; // nothing you carry can be thrown
     return `${empty}<p class='muted small'>Throw: you've thrown everything you carry. You'll gather it up after the fight.</p>`;
   }
   const pick = groups.some(g => g.id === cb.throwPick) ? cb.throwPick : null;
@@ -298,11 +319,12 @@ function hintText(s) {
   if (t.moved && t.acted) return 'You have moved and acted. End your turn.';
   const thrower = canShoot(s);
   const sling = readyShooter(s);
+  const wait = reloading(s) && !t.acted ? `${reloadReason(shooterInHand(s))} ` : '';
   const attack = sling ? `shoot your ${sling.name} at an enemy in range (dashed)`
     : thrower ? 'attack an adjacent enemy (red) or throw at one in range (dashed)' : 'attack an adjacent enemy (red)';
-  if (t.moved) return `${attack.charAt(0).toUpperCase()}${attack.slice(1)}, use an item, or end your turn.`;
+  if (t.moved) return `${wait}${attack.charAt(0).toUpperCase()}${attack.slice(1)}, use an item, or end your turn.`;
   if (t.acted) return t.shot ? 'After a shot or throw you can still step 1 hex, then end your turn.' : 'You can still move (blue hexes), then end your turn.';
-  return `Move (blue hexes) and ${attack}, in either order. Click any enemy to make it your target.${thrower ? ` Moving before a ${sling ? 'shot' : 'throw'} costs accuracy.` : ''}`;
+  return `${wait}Move (blue hexes) and ${attack}, in either order. Click any enemy to make it your target.${thrower ? ` Moving before a ${sling ? 'shot' : 'throw'} costs accuracy.` : ''}`;
 }
 
 // ---- Render ----
@@ -344,6 +366,7 @@ export function render(ctx, params) {
         ${button('🧪 Use item', 'pickItem', {}, { disabled: busy || stuck || cb.turn.acted })}
         ${button(`🏳️ Surrender (${gp(Math.min(c.gold, m.fine))})`, 'surrender', {}, { cls: 'ghost', disabled: busy })}
       </div>
+      ${ammoPicker(s)}
       ${throwPicker(s)}`;
   }
 
@@ -482,6 +505,10 @@ export const actions = {
       if (!r.ok) break;
       if (!ctx.state.combat.over) await run(ctx, endTurn);
     }
+  },
+  ammoPick(ctx, d) {
+    if (busy) return;
+    ctx.commit(st => { setAmmoPick(st, d.id || null); });
   },
   throwPick(ctx, d) {
     if (busy) return;

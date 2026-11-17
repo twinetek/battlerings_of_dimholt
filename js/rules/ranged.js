@@ -21,17 +21,22 @@
 // combat.ammoOut    { ammo id: count } shot this fight and not broken, gathered
 //                   up after it (rules/combat.js recoverThrows)
 // combat.ammoBroken { ammo id: count } broken on a hit this fight, for the log
+// combat.ammoPick  the ammunition id you chose to shoot, or null to let the
+//                   game choose (nextAmmo: plain first, magic if the target needs it)
+// combat.reloadReady the round a reloading weapon (`ranged.reload`, the Heavy
+//                   Crossbow) can shoot again: set to the round after next by a shot
 //
 // Range: up to its aim range a throw is at full accuracy and damage. Each hex
 // beyond costs 1 to hit and 1/8 of the damage, down to half at the maximum
 // range (aim + FALLOFF_HEXES). Nothing here touches the DOM or rolls dice.
 
 import * as H from '../engine/hex.js';
-import { WEAPON_BY_ID, AMMO } from '../data/equipment.js';
+import { WEAPON_BY_ID, AMMO, ENCHANTS } from '../data/equipment.js';
 import { MONSTER_BY_ID } from '../data/monsters.js';
 import { levelOf, MAX_HEIGHT } from './terrain.js';
 import {
   strBonus, dexMissile, strRange, FALLOFF_HEXES, AIM_CAP, HEIGHT_AIM_MAX, COVER_PENALTY, STEADY_DEX,
+  ENGAGED_PENALTY, QUICK_DRAW_DEX, QUICK_DRAW_PENALTY, POINT_BLANK, POINT_BLANK_MIN, PIERCE_AC,
 } from './tables.js';
 
 const YOU = 'you';
@@ -49,21 +54,33 @@ export function throwStats(c, w) {
   };
 }
 
+// Bows, of either family (point blank and quick draw treat them alike).
+export const isBow = w => w?.ranged?.family === 'bow' || w?.ranged?.family === 'composite';
+
+// Points of Strength you lack for a self bow (`strMin`), each -1 to hit and
+// -1 aim; 0 for anything else.
+export const strShortfall = (c, w) => Math.max(0, (w?.ranged?.strMin ?? 0) - c.stats.str);
+
 // The same for a weapon that shoots (`ranged`), by its family. null otherwise.
-//   sling     Strength like a thrown weapon (damage and range), Dex to hit
-//   bow       Dex to hit; Strength adds nothing
-//   crossbow  half Dex's missile bonus (rounded toward 0); Strength adds nothing
-// All add magic and the weapon's own `hit`.
+//   sling      Strength like a thrown weapon (damage and range), Dex to hit
+//   bow        a self bow: Dex to hit; Strength adds nothing, but below its
+//              `strMin` each point lacking is -1 to hit and -1 aim
+//   composite  Dex to hit; Strength's damage and range bonus up to its
+//              `pull` (min(Str, pull)), never below 0
+//   crossbow   half Dex's missile bonus (rounded toward 0); Strength adds nothing
+// All add magic and the weapon's own `hit`. shortfall: see strShortfall.
 export function shootStats(c, w) {
   const r = w?.ranged;
   if (!r) return null;
-  const strong = r.family === 'sling';
+  const str = r.family === 'sling' ? c.stats.str : r.family === 'composite' ? Math.min(c.stats.str, r.pull) : null;
   const dex = dexMissile(c.stats.dex);
+  const shortfall = strShortfall(c, w);
   return {
-    aim: Math.min(AIM_CAP, r.aim + w.plus + (strong ? strRange(c.stats.str) : 0)),
-    toHit: (r.family === 'crossbow' ? Math.trunc(dex / 2) : dex) + w.plus + (r.hit ?? 0),
-    dmgBonus: w.plus + (strong ? strBonus(c.stats.str).dmg : 0),
+    aim: Math.max(1, Math.min(AIM_CAP, r.aim + w.plus + (str !== null ? strRange(str) : 0)) - shortfall),
+    toHit: (r.family === 'crossbow' ? Math.trunc(dex / 2) : dex) + w.plus + (r.hit ?? 0) - shortfall,
+    dmgBonus: w.plus + (str === null ? 0 : r.family === 'composite' ? Math.max(0, strBonus(str).dmg) : strBonus(str).dmg),
     steady: c.stats.dex >= STEADY_DEX,
+    shortfall,
   };
 }
 
@@ -79,20 +96,47 @@ export function shooterInHand(state) {
 
 // ---- Ammunition ----
 
-// The ammunition kinds a weapon shoots, best first (just one kind each so far).
+// The ammunition kinds a weapon shoots, cheapest (plain) first.
 export const ammoKinds = w => (w?.ranged?.ammo ? AMMO.filter(a => a.for === w.ranged.ammo) : []);
-export const needsAmmo = w => !!w?.ranged?.ammo;
+// Does it run out? A sling's plain stones never do.
+export const needsAmmo = w => !!w?.ranged?.ammo && !w.ranged.unlimited;
 // How many shots you have for it: Infinity for a sling.
 export const ammoLeft = (c, w) => (needsAmmo(w) ? ammoKinds(w).reduce((n, a) => n + (c.ammo?.[a.id] ?? 0), 0) : Infinity);
-// The kind the next shot uses, or null (a sling, or none left).
-export const nextAmmo = (c, w) => ammoKinds(w).find(a => (c.ammo?.[a.id] ?? 0) > 0) ?? null;
+// The kinds you carry for it: [{ a, count }], cheapest first.
+export const ammoCarried = (c, w) => ammoKinds(w).map(a => ({ a, count: c.ammo?.[a.id] ?? 0 })).filter(x => x.count > 0);
+
+// The kind the next shot uses, or null for a plain sling stone (or nothing
+// left): the kind you picked if you have one; else the cheapest you carry that
+// can hurt a target needing magic `need` (plain stones count as the sling's own
+// plus); else the cheapest you carry.
+export function nextAmmo(c, w, pick = null, need = 0) {
+  const have = ammoCarried(c, w).map(x => x.a);
+  const chosen = have.find(a => a.id === pick);
+  if (chosen) return chosen;
+  const hurts = a => w.plus + (a?.plus ?? 0) >= need;
+  if (w.ranged?.unlimited && hurts(null)) return null;
+  return have.find(hurts) ?? (w.ranged?.unlimited ? null : have[0] ?? null);
+}
+
+// What an enchantment does (data/equipment.js ENCHANTS), or {} for plain ammunition.
+export const enchantOf = a => (a?.enchant ? ENCHANTS[a.enchant] : {});
 
 // The weapon in your hand if it can shoot right now (a sling, or a bow or
 // crossbow with ammunition), else null.
 export function readyShooter(state) {
   const w = shooterInHand(state);
-  return w && ammoLeft(state.character, w) > 0 ? w : null;
+  return w && ammoLeft(state.character, w) > 0 && !reloading(state) ? w : null;
 }
+
+// Is the weapon in your hand still reloading (a Heavy Crossbow shot last round)?
+export function reloading(state) {
+  const w = shooterInHand(state);
+  const cb = state.combat;
+  return !!w?.ranged.reload && !!cb && (cb.reloadReady ?? 0) > cb.round;
+}
+
+// "Reloading: your Heavy Crossbow is ready again next round."
+export const reloadReason = w => `Reloading: your ${w.name} is ready again next round.`;
 
 // ---- What you have to throw ----
 
@@ -199,11 +243,41 @@ export function lineOfSight(state, from, to) {
 
 // ---- The shot ----
 
+// Is a living enemy beside you?
+export function engaged(state) {
+  const cb = state.combat;
+  const me = cb.grid?.pos[YOU];
+  return !!me && cb.enemies.some(e => e.hp > 0 && cb.grid.pos[e.uid] && H.adjacent(me, cb.grid.pos[e.uid]));
+}
+
+// The shooting modifiers for weapon `w` shot (never thrown) at a target
+// `distance` hexes away with armor class `ac`, with full-power range `aim`:
+// { engaged, pointBlank, pierce }, each a to-hit change (pointBlank adds damage too).
+//   engaged     an enemy beside you: -ENGAGED_PENALTY; from Dex QUICK_DRAW_DEX,
+//               -QUICK_DRAW_PENALTY with a bow (either family) or sling (not a crossbow)
+//   pointBlank  a bow (either family) or crossbow, not engaged, the target within half the
+//               full-power range (rounded up, at least POINT_BLANK_MIN): +POINT_BLANK
+//   pierce      the weapon's `pierce` against AC PIERCE_AC or better
+export function shotMods(c, w, { isEngaged, distance, aim, ac }) {
+  const r = w.ranged;
+  const quick = c.stats.dex >= QUICK_DRAW_DEX && r.family !== 'crossbow';
+  const close = Math.max(POINT_BLANK_MIN, Math.ceil(aim / 2));
+  return {
+    engaged: isEngaged ? -(quick ? QUICK_DRAW_PENALTY : ENGAGED_PENALTY) : 0,
+    pointBlank: !isEngaged && (isBow(w) || r.family === 'crossbow') && distance <= close ? POINT_BLANK : 0,
+    pierce: ac <= PIERCE_AC ? (r.pierce ?? 0) : 0,
+  };
+}
+
 // Everything about throwing weapon `index` (default: pickShot), or shooting
 // it if it's the shooter in your hand (shoot: true), at `targetUid` from
 // where you stand:
-// { ok, reason, index, shoot, ammo, distance, aim, max, toHit, dmgMult, dmgBonus, parts }.
-// ammo: the AMMO kind the shot uses, or null (a sling, or a throw).
+// { ok, reason, index, shoot, ammo, magic, distance, aim, max, toHit, dmgMult, dmgBonus, parts }.
+// Shots (not throws) add the shooting modifiers (shotMods).
+// ammo: the AMMO kind the shot uses, or null (a plain sling stone, or a throw).
+// Its +1 adds to hit and damage; a seeking one ignores the range, cover and
+// moving-first penalties to hit. magic: the weapon's plus plus the ammunition's,
+// for monsters only magic can hurt.
 // toHit is the whole bonus (stats, range, cover, moving); parts lists each
 // piece for tooltips, e.g. [['Dex', 2], ['range', -1]].
 export function rangeProfile(state, targetUid, index = pickShot(state, targetUid)) {
@@ -213,15 +287,19 @@ export function rangeProfile(state, targetUid, index = pickShot(state, targetUid
   if (!cb.grid) return no('Ranged attacks need the battlefield.');
   const w = WEAPON_BY_ID[c.weapons[index]?.id];
   const shoot = index >= 0 && index === c.equipped && !!w?.ranged;
+  if (shoot && reloading(state)) return no(reloadReason(w));
   if (!shoot) {
     const empty = shooterInHand(state);
+    if (throwsLeft(state) <= 0 && empty && reloading(state)) return no(`${reloadReason(empty)} You have nothing to throw.`);
     if (throwsLeft(state) <= 0 && empty && needsAmmo(empty)) {
       return no(`You're out of ${ammoKinds(empty)[0].plural.toLowerCase()} for your ${empty.name}, and have nothing to throw.`);
     }
     if (throwsLeft(state) <= 0) return no(c.weapons.length ? "You've thrown every weapon you carry this fight." : 'You have nothing to throw.');
     if (index < 0) return no('The only weapon you have left is the one in your hand. Choose it under Throw to throw it anyway.');
   }
-  const ammo = shoot ? nextAmmo(c, w) : null;
+  const target = cb.enemies.find(e => e.uid === targetUid);
+  const need = target ? MONSTER_BY_ID[target.monsterId].magicReq : 0;
+  const ammo = shoot ? nextAmmo(c, w, cb.ammoPick, need) : null;
   if (shoot && needsAmmo(w) && !ammo) return no(`You're out of ${ammoKinds(w)[0].plural.toLowerCase()} for your ${w.name}.`);
   const stats = shoot ? shootStats(c, w) : throwStats(c, w);
   if (!stats || (!shoot && (cb.thrown ?? []).includes(index))) return no("You can't throw that.");
@@ -237,22 +315,34 @@ export function rangeProfile(state, targetUid, index = pickShot(state, targetUid
   if (!sight.clear) return no('Something blocks your line of sight.');
 
   const over = Math.max(0, distance - aim);
+  const seeking = !!enchantOf(ammo).seeking;
+  const mods = shoot
+    ? shotMods(c, w, { isEngaged: engaged(state), distance, aim, ac: target ? MONSTER_BY_ID[target.monsterId].ac : 10 })
+    : { engaged: 0, pointBlank: 0, pierce: 0 };
   const moved = cb.turn?.movedHexes ?? 0;
-  const movePenalty = stats.steady ? Math.ceil(moved / 2) : moved;
+  const movePenalty = seeking ? 0 : stats.steady ? Math.ceil(moved / 2) : moved;
+  const rangePenalty = seeking ? 0 : over;
+  const coverPenalty = seeking ? 0 : COVER_PENALTY * sight.cover;
+  const ammoPlus = ammo?.plus ?? 0;
   const parts = [];
   const part = (name, n) => { if (n) parts.push([name, n]); };
   const dex = dexMissile(c.stats.dex);
   part('Dex', shoot && w.ranged.family === 'crossbow' ? Math.trunc(dex / 2) : dex);
   part('magic', w.plus);
+  part(ammo ? ammo.name.toLowerCase() : 'ammunition', ammoPlus);
+  part('too weak', shoot ? -stats.shortfall : 0);
   part('weapon', shoot ? (w.ranged.hit ?? 0) : w.throw.hit);
-  part('range', -over);
-  part('cover', -COVER_PENALTY * sight.cover);
+  part('range', -rangePenalty);
+  part('cover', -coverPenalty);
   part('moved', -movePenalty);
+  part('engaged', mods.engaged);
+  part('point blank', mods.pointBlank);
+  part('pierce', mods.pierce);
   return {
-    ok: true, reason: null, index, shoot, ammo: ammo?.id ?? null, distance, aim, max,
-    toHit: stats.toHit - over - COVER_PENALTY * sight.cover - movePenalty,
+    ok: true, reason: null, index, shoot, ammo: ammo?.id ?? null, magic: w.plus + ammoPlus, distance, aim, max,
+    toHit: stats.toHit + ammoPlus - rangePenalty - coverPenalty - movePenalty + mods.engaged + mods.pointBlank + mods.pierce,
     dmgMult: 1 - 0.5 * over / FALLOFF_HEXES,
-    dmgBonus: stats.dmgBonus,
+    dmgBonus: stats.dmgBonus + ammoPlus + mods.pointBlank,
     parts,
   };
 }

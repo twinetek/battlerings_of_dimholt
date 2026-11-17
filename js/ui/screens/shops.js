@@ -1,7 +1,7 @@
 // The weaponsmith, the armorer, and the magic shop.
 
-import { WEAPONS, WEAPON_BY_ID, ARMOR, ITEMS, ITEM_BY_ID, AMMO } from '../../data/equipment.js';
-import { FALLOFF_HEXES } from '../../rules/tables.js';
+import { WEAPONS, WEAPON_BY_ID, ARMOR, ITEMS, ITEM_BY_ID, AMMO, ENCHANTS, ammoEffect } from '../../data/equipment.js';
+import { FALLOFF_HEXES, PIERCE_AC } from '../../rules/tables.js';
 import { rangedStats } from '../../rules/ranged.js';
 import { LOOT_BY_ID } from '../../data/loot.js';
 import { coatingLabel, glandPotency, glandValue, freshness, sellLoot } from '../../rules/loot.js';
@@ -24,18 +24,36 @@ export function throwText(c, w) {
   if (!r) return '';
   const own = w.ranged ? (w.ranged.hit ?? 0) : w.throw.hit;
   const hit = own ? `, ${signed(own)} to hit` : '';
-  const kind = w.ranged?.ammo ? AMMO.find(a => a.for === w.ranged.ammo) : null;
+  const kind = w.ranged?.ammo && !w.ranged.unlimited ? AMMO.find(a => a.for === w.ranged.ammo) : null;
   const how = !w.ranged ? 'Thrown' : kind ? `Shoots ${kind.plural.toLowerCase()} (sold below)` : `Shoots ${w.ranged.thing}s (never runs out)`;
-  return `<span class="muted small block">${how}: full power to ${r.aim} hex${r.aim === 1 ? '' : 'es'}, reaches ${r.aim + FALLOFF_HEXES}${hit}${w.ranged ? ". Can't strike in melee" : ''}</span>`;
+  return `<span class="muted small block">${how}: full power to ${r.aim} hex${r.aim === 1 ? '' : 'es'}, reaches ${r.aim + FALLOFF_HEXES}${hit}${w.ranged?.pierce ? `, ${signed(w.ranged.pierce)} to hit against AC ${PIERCE_AC} or better` : ''}${w.ranged ? ". Can't strike in melee" : ''}${w.ranged?.reload ? '. Reloads: shoots every other round' : ''}${strNote(c, w)}</span>`;
 }
 
-// The arrows and bolts for sale, with how many you carry.
+// A bow's Strength rule: "Needs Str 12" (a warning if you lack it) for a self
+// bow, "Adds your Str damage and range, up to Str 18" for a composite bow.
+function strNote(c, w) {
+  const r = w.ranged;
+  if (r?.strMin) {
+    const lack = c.stats.str < r.strMin;
+    return lack
+      ? ` <span class="tag bad" title="Each point of Strength you lack is -1 to hit and -1 hex of range">needs Str ${r.strMin}</span>`
+      : `. Needs Str ${r.strMin}`;
+  }
+  if (r?.pull) return `. Adds your Str damage and range, up to Str ${r.pull}`;
+  return '';
+}
+
+// The ammunition for sale, plain and enchanted, with how many you carry.
+// Sling stones come free; only enchanted ones are sold.
 function ammoPanel(c) {
   const rows = AMMO.map(a => {
     const have = c.ammo?.[a.id] ?? 0;
+    const consumed = a.enchant && ENCHANTS[a.enchant].consumed;
+    const fate = consumed ? '' : `${a.breakChance}% break on a hit; the rest you gather up after a fight`;
+    const what = [ammoEffect(a), fate].filter(Boolean).join('. ');
     return `
       <tr>
-        <td>${esc(a.plural)} <span class="muted small block">${a.breakChance}% break on a hit; the rest you gather up after a fight</span></td>
+        <td>${a.enchant || a.plus ? `<span class="magic">${esc(a.plural)}</span>` : esc(a.plural)} <span class="muted small block">${esc(what)}</span></td>
         <td class="num">${a.bundle}</td>
         <td class="num">${gp(a.cost)}</td>
         <td class="num">${have}</td>
@@ -48,6 +66,8 @@ function ammoPanel(c) {
   return `
     <div class="panel">
       <h3>Ammunition</h3>
+      <p class="muted small">Arrows for bows, bolts for crossbows, stones for slings (plain stones are free). In a fight, pick which
+        to shoot under the battle buttons; otherwise you shoot plain ones first, or magic ones at a monster only magic can hurt.</p>
       <div class="table-wrap"><table>
         <thead><tr><th>Kind</th><th class="num">Bundle</th><th class="num">Cost</th><th class="num">You have</th><th></th></tr></thead>
         <tbody>${rows}</tbody>

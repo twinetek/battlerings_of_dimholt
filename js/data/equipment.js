@@ -14,13 +14,22 @@
 //          you gather them up afterward.
 // ranged:  a weapon that shoots, from your hand: { family, aim, hit?, thing?, ammo? }
 //          family  which stats it uses (shootStats in rules/ranged.js):
-//                  'sling'     Str adds range and damage, Dex to hit
-//                  'bow'       Dex to hit; Str adds nothing
-//                  'crossbow'  half Dex to hit; Str adds nothing
+//                  'sling'      Str adds range and damage, Dex to hit
+//                  'bow'        a self bow: Dex to hit; Str adds nothing, but
+//                               below strMin you lose 1 to hit and 1 aim a point
+//                  'composite'  Dex to hit; Str adds range and damage up to pull
+//                  'crossbow'   half Dex to hit; Str adds nothing
+//          strMin  a self bow's minimum Strength
+//          pull    a composite bow's draw strength: the most Str it uses
+//          reload  after a shot it can't shoot again until the round after next
+//                  (combat.reloadReady; rules/ranged.js reloading)
 //          aim     hexes at full accuracy and damage (a sling's before Str)
 //          hit     built-in accuracy
+//          pierce  to hit against armor class PIERCE_AC (3) or better (rules/tables.js)
 //          thing   what it shoots, for the battle log, if it needs no ammo
-//          ammo    the AMMO kind it shoots, one per shot; none: unlimited
+//          ammo    the AMMO kind it shoots, one per shot
+//          unlimited  plain ammunition is free and never runs out (a sling's
+//                  stones); only enchanted kinds are counted
 //          It can't be thrown or strike in melee: on the battlefield every
 //          attack with it is a shot, even at an enemy beside you. Out of
 //          ammunition, you fight with your fists.
@@ -33,9 +42,14 @@ export const WEAPONS = [
   { id: 'dagger',          name: 'Dagger',             cost: 2,     speed: 2,  dmg: '1d4',   plus: 0, throw: MADE_TO_THROW },
   { id: 'throwing-axe',    name: 'Throwing Axe',       cost: 8,     speed: 4,  dmg: '1d6',   plus: 0, throw: MADE_TO_THROW },
   { id: 'javelin',         name: 'Javelin',            cost: 2,     speed: 4,  dmg: '1d6',   plus: 0, throw: { aim: 4, hit: 0 } },
-  { id: 'sling',           name: 'Sling',              cost: 1,     speed: 6,  dmg: '1d4',   plus: 0, ranged: { family: 'sling', aim: 3, thing: 'stone' } },
-  { id: 'bow',             name: 'Bow',                cost: 30,    speed: 7,  dmg: '1d6',   plus: 0, ranged: { family: 'bow', aim: 5, ammo: 'arrow' } },
-  { id: 'crossbow',        name: 'Crossbow',           cost: 35,    speed: 7,  dmg: '1d8',   plus: 0, ranged: { family: 'crossbow', aim: 4, hit: 1, ammo: 'bolt' } },
+  { id: 'sling',           name: 'Sling',              cost: 1,     speed: 6,  dmg: '1d4',   plus: 0, ranged: { family: 'sling', aim: 3, thing: 'stone', ammo: 'stone', unlimited: true } },
+  { id: 'bow',             name: 'Bow',                cost: 30,    speed: 7,  dmg: '1d6',   plus: 0, ranged: { family: 'bow', aim: 5, strMin: 9, ammo: 'arrow' } },
+  { id: 'long-bow',        name: 'Long Bow',           cost: 75,    speed: 8,  dmg: '1d6',   plus: 0, ranged: { family: 'bow', aim: 6, strMin: 12, ammo: 'arrow' } },
+  { id: 'composite-short-bow', name: 'Composite Short Bow', cost: 100, speed: 6, dmg: '1d6', plus: 0, ranged: { family: 'composite', aim: 4, pull: 17, ammo: 'arrow' } },
+  { id: 'composite-long-bow',  name: 'Composite Long Bow',  cost: 250, speed: 7, dmg: '1d6', plus: 0, ranged: { family: 'composite', aim: 6, pull: 18, ammo: 'arrow' } },
+  // The Light Crossbow keeps the id 'crossbow' it had as the basic Crossbow, so saves need no change.
+  { id: 'crossbow',        name: 'Light Crossbow',     cost: 35,    speed: 7,  dmg: '1d8',   plus: 0, ranged: { family: 'crossbow', aim: 4, hit: 1, pierce: 2, ammo: 'bolt' } },
+  { id: 'heavy-crossbow',  name: 'Heavy Crossbow',     cost: 50,    speed: 10, dmg: '1d10',  plus: 0, ranged: { family: 'crossbow', aim: 5, hit: 2, pierce: 2, reload: true, ammo: 'bolt' } },
   { id: 'hand-axe',        name: 'Hand Axe',           cost: 4,     speed: 4,  dmg: '1d6',   plus: 0, throw: HANDY },
   { id: 'short-sword',     name: 'Short Sword',        cost: 10,    speed: 3,  dmg: '1d6',   plus: 0, throw: AWKWARD },
   { id: 'mace',            name: 'Mace',               cost: 8,     speed: 7,  dmg: '1d6+1', plus: 0, throw: AWKWARD },
@@ -55,15 +69,68 @@ export const WEAPONS = [
   { id: 'two-handed-sword-3', name: 'Two-Handed Sword +3', cost: 18000, speed: 10, dmg: '2d6', plus: 3, throw: CLUMSY },
 ];
 
-// Ammunition for bows and crossbows, carried as character.ammo { id: count }.
-// Sold in bundles. Each shot uses one; a hit breaks it with breakChance (in
-// percent), and every other one fired is gathered up after a fight you survive.
-// Later kinds (magic or flaming arrows) are new entries with the same `for`.
-// for:  the `ranged.ammo` it fits
-export const AMMO = [
-  { id: 'arrow', name: 'Arrow', plural: 'Arrows', for: 'arrow', bundle: 10, cost: 1, breakChance: 50 },
-  { id: 'bolt',  name: 'Bolt',  plural: 'Bolts',  for: 'bolt',  bundle: 10, cost: 2, breakChance: 25 },
+// Ammunition enchantments (rules/ranged.js rangeProfile, rules/combat.js
+// rangedTurn). Each piece has at most one, and may also be +1.
+//   consumed  used up by the shot, hit or miss (never gathered up)
+//   fire      extra fire damage on a hit (none against fire-immune monsters;
+//             it stops a regenerating monster healing for the rest of the fight)
+//   blast     extra damage on a hit; a miss is a dud (no blast radius yet)
+//   seeking   ignores cover, and the to-hit penalties for range and moving
+//             first (it still needs line of sight; damage still falls off)
+export const ENCHANTS = {
+  seeking:   { name: 'Seeking',   cost: 40,  seeking: true,
+    effect: 'Ignores cover, and the to-hit penalties for range and for moving first' },
+  flaming:   { name: 'Flaming',   cost: 60,  fire: '1d6', consumed: true,
+    effect: '+1d6 fire damage on a hit, and a troll it hits stops regenerating. Burns up, hit or miss' },
+  exploding: { name: 'Exploding', cost: 200, blast: '2d6', consumed: true,
+    effect: '+2d6 damage on a hit. A miss is a dud. Used up either way' },
+};
+export const MAGIC_AMMO_COST = 100;  // +1, per bundle of ENCHANTED_BUNDLE (on top of any enchantment)
+export const ENCHANTED_BUNDLE = 5;
+
+// The plain kinds. A sling's plain stones are free and unlimited, so they
+// aren't sold or counted; only enchanted stones are.
+const AMMO_BASES = [
+  { for: 'arrow', name: 'Arrow', plural: 'Arrows', bundle: 10, cost: 1, breakChance: 50 },
+  { for: 'bolt',  name: 'Bolt',  plural: 'Bolts',  bundle: 10, cost: 2, breakChance: 25 },
+  { for: 'stone', name: 'Stone', plural: 'Stones', breakChance: 25, free: true },
 ];
+
+// Ammunition, carried as character.ammo { id: count }. Sold in bundles at the
+// Weaponsmith. Each shot uses one; a hit breaks it with breakChance (in
+// percent), and every other one shot is gathered up after a fight you
+// survive, unless its enchantment is consumed. Every kind of ammunition comes
+// plain and in each enchantment, each with or without +1, cheapest first:
+// 'arrow', 'arrow-1', 'seeking-arrow', 'flaming-bolt-1', 'exploding-stone' ...
+// for:      the `ranged.ammo` it fits
+// enchant:  an ENCHANTS id, or null
+// plus:     0 or 1: adds to hit and damage, and counts as magic (magicReq)
+export const AMMO = AMMO_BASES.flatMap(b => [null, ...Object.keys(ENCHANTS)].flatMap(enchant => [0, 1].map(plus => {
+  if (!enchant && !plus) {
+    return b.free ? null : { id: b.for, name: b.name, plural: b.plural, for: b.for, bundle: b.bundle, cost: b.cost, breakChance: b.breakChance, enchant: null, plus: 0 };
+  }
+  const pre = enchant ? `${ENCHANTS[enchant].name} ` : '';
+  const post = plus ? ' +1' : '';
+  return {
+    id: `${enchant ? `${enchant}-` : ''}${b.for}${plus ? '-1' : ''}`,
+    name: `${pre}${b.name}${post}`,
+    plural: `${pre}${b.plural}${post}`,
+    for: b.for,
+    bundle: ENCHANTED_BUNDLE,
+    cost: (enchant ? ENCHANTS[enchant].cost : 0) + (plus ? MAGIC_AMMO_COST : 0),
+    breakChance: b.breakChance,
+    enchant,
+    plus,
+  };
+})).filter(Boolean).sort((x, y) => x.cost - y.cost));
+
+// What a kind of ammunition does, for the shop and the Guide.
+export function ammoEffect(a) {
+  const parts = [];
+  if (a.plus) parts.push(`+${a.plus} to hit and damage, and counts as magic`);
+  if (a.enchant) parts.push(ENCHANTS[a.enchant].effect);
+  return parts.join('. ');
+}
 
 // Fists can't be thrown.
 export const UNARMED = { id: 'fists', name: 'Fists', cost: 0, speed: 1, dmg: '1d2', plus: 0 };

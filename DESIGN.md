@@ -354,7 +354,7 @@ Multi-level terrain is complete: every fight's arena is **generated** from a ran
 
 **Ranged attacks: throwing any weapon, javelins, the sling, and bows and crossbows**
 
-The full ranged design (bows, crossbows, giants throwing boulders, archer mercenaries) is in `Todo_ranged.md`. So far **throwing**, the **sling**, and a basic **bow** and **crossbow** with **arrows and bolts** are built, by you only, along with the rules every later ranged attack will share. Weapons in `data/equipment.js` are melee weapons (with `throw`) or true ranged weapons (with `ranged`): the Sling, Bow and Crossbow.
+The full ranged design (bows, crossbows, giants throwing boulders, archer mercenaries) is in `Todo_ranged.md`. So far **throwing**, the **sling**, **bows** of two families and **light and heavy crossbows**, with **arrows and bolts**, are built, by you only, along with the rules every later ranged attack will share. Weapons in `data/equipment.js` are melee weapons (with `throw`) or true ranged weapons (with `ranged`).
 
 - **Any weapon you carry can be thrown, once per fight each.** Five daggers, two Daggers +1 and two Throwing Axes are nine throws. A thrown weapon stays on the field until the fight ends.
   - **No weapon limit:** the original's 6-weapon cap (`MAX_WEAPONS`) is gone, in the main game too, so you can carry as many spares as you can pay for. The Weaponsmith and the Equipment screen stack identical weapons ("Dagger ×5"; "Sell one"). The weapon in your hand, and any with venom on it, get a row of their own.
@@ -391,15 +391,39 @@ The full ranged design (bows, crossbows, giants throwing boulders, archer mercen
   - **Initiative** rolls with the sling's speed. **Magic-only monsters** ignore plain stones.
   - **Classic fights** (no grid): `toHitBonus` aims a ranged weapon with Dex instead of Str, so a sling in an old classic fight still uses the right stat.
   - **Shown:** the Weaponsmith and Equipment screen ("Shoots stones (never runs out): full power to 4 hexes, reaches 8. Can't strike in melee"), dashed red hexes for every enemy in range (beside you too), the hover note ("Shoot your Sling: …"), the hint, and the log ("Your Sling sends a stone into the Kobold (4 hexes) for 4 damage." / "Your Sling's stone whistles past the Kobold (6 hexes).").
-- **The Bow and the Crossbow** (`ranged.family` `'bow'` and `'crossbow'`), basic versions that better and magic ones will build on:
+- **Bows and crossbows** (`ranged.family` `'bow'` for self bows, `'composite'` and `'crossbow'`). Better and magic ones will build on these:
 
   | Weapon | Cost | Speed | Damage | Full power to | To hit | Strength | Shoots |
   |---|---|---|---|---|---|---|---|
-  | Bow | 30 | 7 | 1d6 | 5 hexes | Dex missile bonus | adds nothing | arrows |
-  | Crossbow | 35 | 7 | 1d8 | 4 hexes | half the Dex missile bonus (rounded toward 0), +1 of its own | adds nothing | bolts |
+  | Bow (self) | 30 | 7 | 1d6 | 5 hexes | Dex missile bonus | needs 9 (`strMin`); adds nothing | arrows |
+  | Long Bow (self) | 75 | 8 | 1d6 | 6 hexes | Dex missile bonus | needs 12; adds nothing | arrows |
+  | Composite Short Bow | 100 | 6 | 1d6 | 4 hexes | Dex missile bonus | adds damage and range up to Str 17 (`pull`) | arrows |
+  | Composite Long Bow | 250 | 7 | 1d6 | 6 hexes | Dex missile bonus | adds damage and range up to Str 18 | arrows |
+  | Light Crossbow | 35 | 7 | 1d8 | 4 hexes | half the Dex missile bonus (rounded toward 0), +1 of its own | adds nothing | bolts |
+  | Heavy Crossbow | 50 | 10 | 1d10 | 5 hexes | half the Dex missile bonus, +2 of its own | adds nothing | bolts; **reloads** |
 
-  - `shootStats` reads the family: a sling takes Strength's range and damage; a bow and crossbow don't. `toHitBonus` and `damageBonus` in `rules/character.js` use `shootStats` for any shooter, so the Character screen matches.
+  - **The Light Crossbow** was the basic "Crossbow"; it keeps the id `crossbow`, so saves need no change.
+  - **Reloading** (`ranged.reload`, the Heavy Crossbow): a shot sets `combat.reloadReady` to the round after next (`rangedTurn`), so it shoots one round in two, and only once a round even with extra attacks. While `reloading(state)`, `readyShooter` is null: your attacks throw a spare weapon if you have one, and beside an enemy you punch. `rangeProfile` gives "Reloading: your Heavy Crossbow is ready again next round." The hint and the picker say so, and auto-play holds its ground instead of walking into melee. The Weaponsmith says "Reloads: shoots every other round".
+
+  - `shootStats` reads the family: a sling takes Strength's range and damage; a crossbow takes none.
+  - **Self bows** (`'bow'`): each point of Str below `strMin` is −1 to hit and −1 aim (`strShortfall`; shown as "too weak" in the hover note, and as a red "needs Str 12" tag at the Weaponsmith). Strength above it adds nothing.
+  - **Composite bows** (`'composite'`): `strBonus(min(Str, pull)).dmg` (never below 0) and `strRange(min(Str, pull))`. A Str 18 archer gets +3 damage and +2 hexes from a pull-18 bow, but only +2 and +1 from a pull-17 one.
+  - **Both are bows** (`isBow`): point blank and quick draw treat them alike, and they shoot arrows.
+  - **The design's worked example** is a test: at 8 hexes from a Gnoll, a Str 18 / Dex 17 archer with a Composite Long Bow reaches 8 hexes at +2 to hit and 1d6+3; a Str 10 / Dex 10 one with a Long Bow reaches 4, at −6 and half damage. `toHitBonus` and `damageBonus` in `rules/character.js` use `shootStats` for any shooter, so the Character screen matches.
   - Everything else is as for the sling: the range profile, a shot every attack (beside an enemy too), the dashed hexes, no venom and no coating, `SHOT_MOVE` after a shot.
+- **Shooting modifiers** (`shotMods` in `rules/ranged.js`, numbers in `rules/tables.js`), for shots from a sling, bow or crossbow, never for throws. `rangeProfile` adds them to `toHit` (and point blank to `dmgBonus`) and lists them in `parts`, so the hover note shows them ("engaged −4", "point blank +1", "pierce +2"):
+
+  | Modifier | When | Effect |
+  |---|---|---|
+  | **Engaged** | Any living enemy in a hex beside you, whatever its height (`engaged(state)`) | −`ENGAGED_PENALTY` (4) to hit |
+  | **Quick draw** | Engaged, Dex `QUICK_DRAW_DEX` (18) or more, with a bow or sling | The engaged penalty is only −`QUICK_DRAW_PENALTY` (2). Never for a crossbow |
+  | **Point blank** | A bow or crossbow, not engaged, the target within half the full-power range (rounded up, at least `POINT_BLANK_MIN` 2 hexes; the full-power range includes height) | +`POINT_BLANK` (1) to hit and +1 damage |
+  | **Armor piercing** | A weapon with `ranged.pierce` (both crossbows, +2) against AC `PIERCE_AC` (3) or better | +`pierce` to hit |
+
+  - **The sling** isn't in the design's point-blank rule, so it gets none; it does pay the engaged penalty (it's a true ranged weapon) and gets quick draw like a bow.
+  - **Shooting the enemy beside you** is engaged too, so a bow or crossbow is a poor weapon at arm's length.
+  - **Classic fights** have no grid, so none of these apply there (and `toHitBonus` leaves pierce out).
+  - **Shown:** the Weaponsmith's crossbow lines ("+2 to hit against AC 3 or better") and the Guide's "Bows and crossbows" entry, which lists all four.
 - **Ammunition** (`AMMO` in `data/equipment.js`): arrows (10 for 1 gold, **50%** break on a hit) and bolts (10 for 2 gold, **25%**).
   - **Carried** as `character.ammo` `{ id: count }`, any number. Saves from before it have no `ammo` field; every read defaults it to empty, so the save version is unchanged.
   - **Bought and sold** at the Weaponsmith's Ammunition panel, a bundle at a time (`buyAmmo`, `sellAmmo` in `rules/town.js`; selling pays half). The Character screen lists what you carry.
@@ -408,6 +432,18 @@ The full ranged design (bows, crossbows, giants throwing boulders, archer mercen
   - **Gathered up** when a fight you survive ends (`recoverAmmo`, called from `recoverThrows`): "You gather up 7 arrows (3 broke)." Dying loses them with everything else.
   - **Running out:** "You've shot your last arrow." ends your shots that round. `readyShooter` is then null: the next attack throws a spare weapon if you have one (`pickShot`), and beside an enemy you **fight with your fists**, since a bow can't strike (`playerTurn` uses `UNARMED` for a shooter on the grid). Clicking a distant enemy says "You're out of arrows for your Bow, and have nothing to throw."
   - **Shown:** the picker reads "Shoot or throw: Shoot your Bow, 17 arrows · Dagger ×2", or notes you're out; the Weaponsmith says "Shoots arrows (sold below)"; the log says "Your Bow sends an arrow into the Orc (5 hexes) for 4 damage. The arrow breaks."
+- **Enchanted ammunition** (`ENCHANTS` and the generated `AMMO` list in `data/equipment.js`). Arrows, bolts and sling stones each come in three enchantments, each with or without +1, and plain +1: 7 enchanted kinds per base, plus plain arrows and bolts (23 kinds). Plain sling stones stay free and unlimited (the Sling's `ranged.unlimited`), so only enchanted stones are counted. Ids read `'flaming-arrow-1'`, `'seeking-bolt'`, `'stone-1'`; names "Flaming Arrow +1".
+
+  | Enchantment | Effect | After the shot | 5 cost |
+  |---|---|---|---|
+  | **+1** (alone or with any other) | +1 to hit and damage; counts as magic: the shot's `magic` is the weapon's plus plus the ammunition's | as its enchantment, or as plain | +100 |
+  | **Seeking** | Ignores cover and the to-hit penalties for range and moving first; still needs line of sight, and damage still falls off | breaks like plain | 40 |
+  | **Flaming** | +1d6 fire on a hit (`resisted`; none against fire-immune monsters, logged "unharmed by the fire"); a regenerating monster it hits stops regenerating for the rest of the fight, like the Wand of Fire | always used up | 60 |
+  | **Exploding** | +2d6 on a hit; a miss is a dud ("lands without exploding"). No blast radius yet: only the target is hurt | always used up | 200 |
+
+  - **Which piece you shoot** (`nextAmmo(c, w, pick, need)` in `rules/ranged.js`): the kind you picked (`combat.ammoPick`, set by `setAmmoPick` in `rules/battlefield.js` from the battle screen's ammunition picker) if you have any left; else, on **Auto**, the cheapest you carry that can hurt the target (plain first; with a sling, plain stones), or the cheapest you carry. When your pick runs out, the log says "You've shot your last flaming arrow." and you're back on Auto. A gargoyle on Auto gets your +1 arrows.
+  - **Effects** live in `rangeProfile` (+1 and seeking) and `rangedTurn` (fire, blast, used up: consumed kinds never go into `ammoOut` or `ammoBroken`). Log: "Your Bow sends a flaming arrow into the Troll (4 hexes) for 8 damage, 4 of it fire."; "…for 12 damage, 8 of it from the explosion."; "You gather up 1 seeking bolt +1."; the immune line adds "or +1 ammunition".
+  - **Shown:** the Weaponsmith's Ammunition panel lists every kind with what it does and its fate; the battle screen's picker ("Arrows: Auto · Arrow ×20 · Flaming Arrow ×5", shown when you carry more than plain); the Guide's "Enchanted ammunition" entry; the Character screen's quiver.
 - **State:** `combat.thrown` (indices into `character.weapons`), `combat.throwPick`, `combat.handBefore`. Save version 5 turns the old beta sets into single weapons: Throwing Daggers into 3 Daggers (the first keeps any venom), Throwing Axes into 2 Throwing Axes.
 - **Where it lives:** `js/rules/ranged.js`, which is pure: no DOM, no dice.
   - `throwStats(c, weapon)` and `shootStats(c, weapon)`: the character's numbers with that weapon, anywhere; `rangedStats` is whichever applies. `shooterInHand` and `canShoot` say whether you have a sling in hand, or anything to shoot or throw.
@@ -455,6 +491,10 @@ The full ranged design (bows, crossbows, giants throwing boulders, archer mercen
 - **Tests:**
   - **Unit checks:** hex lines; the Dex and Str tables; `throwStats` per weapon profile and with magic; counting, grouping and picking throws (including magic for a gargoyle); falloff at aim, aim + 1 and max; height; pillars, hills and cover from above; moving first; and a fixed-roll throw.
   - **Throwing in play:** throwing every spare; choosing the weapon in hand and drawing (another of its kind, the long sword, fists); recovery and putting your weapon back; melee beside an enemy; throwing up a cliff; the gargoyle; venom on a thrown dagger; auto-play; classic fights; the log; the version 4 save migration.
+  - **Enchanted ammunition:** the 23 kinds, names, effects and prices; buying 5; Auto plain first, picking a kind, refusing one that doesn't fit; +1 arrows chosen at a gargoyle, hurting it, and plain ones not; seeking against range, moving first and cover, and coming back; flaming damage, burning up hit or miss, a fire giant unharmed, a troll's regeneration stopped; exploding damage, a dud on a miss, +1 combined; running out of a picked kind; sling stones plain on Auto, flaming when picked, +1 at a gargoyle, never running out; a Seeking Bolt +1 and its recovery line. The beta playthrough buys flaming arrows, checks the shop text and the picker, and picks them and Auto.
+  - **Heavy Crossbow:** the rename; its range, accuracy, point blank and pierce; a 1d10 hit that starts reloading; no shot the next round (and the messages), a punch instead, and a shot the round after; throwing a spare while reloading; one shot a round at level 13 where the Light Crossbow shoots twice; auto-play holding its ground. The beta playthrough checks the Weaponsmith sells both crossbows.
+  - **Bow families:** the Bow's and Long Bow's Strength minimum and shortfall; composite bows by Str (18, 16, 10, 4) and the pull-17 cap; all four bows shoot arrows; the worked example; point blank, quick draw and a point-blank hit with a composite bow; the Character screen's to-hit for a weak archer. The beta playthrough checks the Weaponsmith shows each family's Strength rule.
+  - **Shooting modifiers:** engaged by an enemy beside you (shooting it or another), throws unaffected; quick draw for a bow and a sling at Dex 18, not a crossbow, not Dex 17; point blank for a bow within 3 hexes and not 4, a crossbow within 2, the 2-hex minimum, none while engaged, none for a sling or a throw, and a point-blank arrow's damage; pierce against AC 1 and 3 but not 4, and not for a bow.
   - **Bows and crossbows:** their numbers by Str and Dex (half Dex for crossbows, rounded toward 0); which ammunition each takes; buying and selling bundles, also on a save without `ammo`; a shot using an arrow; a seeded break and a miss that doesn't break; the last arrow; fists beside an enemy when out; gathering up after a surrender, and the log lines; bolts; falling back to a spare dagger; auto-play; no coating. A Node simulation of 2,000 shots each measured the break rates at 50.1% and 25.0%.
   - **Javelins and the sling:** the javelin's numbers, the picker throwing it first, a 5-hex javelin hit; sling numbers by Str and Dex; a shot at 4 hexes and out of range at 9; six shots in a row with nothing used up; the step after a shot; shooting an enemy beside you; picking a dagger to throw with the sling in hand, then shooting again; a sling with nothing else; no venom and no coating; the gargoyle; auto-play beside and far away; Dex to-hit for classic fights; the log line.
   - **The beta playthrough** buys two Throwing Axes, rebuilds without pillars, walks up, picks axes in the Throw picker and throws one through the real board. Later it buys a Javelin and a Sling, takes the sling in hand, checks the shop, Guide, hint and picker, and shoots a kobold through the real board. Then it buys a Bow and 20 arrows, checks the picker's count, shoots, and checks the arrows that didn't break come back after the fight.

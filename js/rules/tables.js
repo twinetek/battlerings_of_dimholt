@@ -152,6 +152,13 @@ export const HEIGHT_AIM_MAX = 2;     // aim range gained shooting down (1 per le
 export const COVER_PENALTY = 2;      // to hit, per fighter on the line of fire
 export const SHOT_MOVE = 1;          // movement left after a ranged attack: one step
 export const STEADY_DEX = 17;        // from this Dex, moving before a shot costs half
+// Shooting modifiers, for weapons that shoot (`ranged`), never for throws.
+export const ENGAGED_PENALTY = 4;    // to hit, shooting with an enemy beside you
+export const QUICK_DRAW_DEX = 18;    // from this Dex, a bow or sling shot while engaged costs only...
+export const QUICK_DRAW_PENALTY = 2; // ...this (crossbows always pay the full penalty)
+export const POINT_BLANK = 1;        // to hit and damage for a bow or crossbow within half its full-power range, not engaged
+export const POINT_BLANK_MIN = 2;    // point blank reaches at least this many hexes
+export const PIERCE_AC = 3;          // a weapon's `pierce` bonus applies against this armor class or better
 
 // Missile to-hit bonus from Dexterity, following AD&D. 19-25 only with Tomes.
 export function dexMissile(d) {

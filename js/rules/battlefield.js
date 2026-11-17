@@ -26,7 +26,7 @@ import { MONSTER_BY_ID } from '../data/monsters.js';
 import { MERC_BY_ID } from '../data/mercs.js';
 import { WEAPON_BY_ID } from '../data/equipment.js';
 import { maxHp, moveStats } from './character.js';
-import { rangeProfile, throwsLeft, readyShooter } from './ranged.js';
+import { rangeProfile, throwsLeft, readyShooter, reloading, ammoKinds } from './ranged.js';
 import {
   SHOT_MOVE, BASE_MOVE, CLIMB_COST, CLIMB_MAX, DROP_COST, SAFE_DROP, JUMP_EXTRA, FALL_DIE, MOVE_TRAITS, AI_FALL_SHARE,
   conHp, saveTarget,
@@ -383,6 +383,15 @@ export function actYou(state, action) {
 
 // Choose which kind of weapon to throw next (a weapon id), or null to let
 // the game choose. Changing your mind doesn't use up your turn.
+// Choose which ammunition the weapon in your hand shoots (an AMMO id), or
+// null to let the game choose (plain first; magic if the target needs it).
+export function setAmmoPick(state, id) {
+  const w = WEAPON_BY_ID[state.character.weapons[state.character.equipped]?.id];
+  if (id && !ammoKinds(w).some(a => a.id === id)) return fail("That doesn't fit the weapon in your hand.");
+  state.combat.ammoPick = id || null;
+  return ok([]);
+}
+
 export function setThrowPick(state, id) {
   if (id && !WEAPON_BY_ID[id]?.throw) return fail("You can't throw that.");
   state.combat.throwPick = id || null;
@@ -454,6 +463,8 @@ export function autoYou(state) {
     if (r.ok) ev.push(...r.events);
   };
   tryThrow();
+  // Reloading a Heavy Crossbow: hold your ground rather than walk into melee.
+  if (!cb.turn.moved && !cb.over && reloading(state)) cb.turn.moved = true;
   if (!cb.turn.moved && !cb.over) {
     advance(state, PLAYER, ev, cb.target);
     cb.turn.moved = true;

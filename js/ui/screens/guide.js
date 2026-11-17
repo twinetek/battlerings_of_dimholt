@@ -2,13 +2,14 @@
 // data and rule files, so the guide stays correct when balance changes.
 
 import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
-import { WEAPONS, WEAPON_BY_ID, ARMOR, ITEMS, AMMO } from '../../data/equipment.js';
+import { WEAPONS, WEAPON_BY_ID, ARMOR, ITEMS, AMMO, ENCHANTS, MAGIC_AMMO_COST, ENCHANTED_BUNDLE } from '../../data/equipment.js';
 import {
   STATS, strBonus, dexAc, conHp, XP_FOR_LEVEL, MAX_LEVEL, FIRST_LEVEL_HP, HIT_DIE, HP_AFTER_NINE,
   thac0, attacksLabel, saveTarget, STARTING_GOLD, INN_PRICE, GLAND_DECAY_TICKS, MAX_COATINGS,
   NATURAL_MAX, TOME_MAX, STAT_POINT_EVERY, ITEM_SPEED,
   MELEE_HEIGHT_REACH, TALL_HEIGHT_REACH, UPHILL_TO_HIT, DOWNHILL_DMG, HIGH_GROUND_SAVE,
-  FALLOFF_HEXES, HEIGHT_AIM_MAX, COVER_PENALTY, STEADY_DEX, CLIMB_COST, CLIMB_MAX, DROP_COST,
+  FALLOFF_HEXES, HEIGHT_AIM_MAX, COVER_PENALTY, STEADY_DEX,
+  ENGAGED_PENALTY, QUICK_DRAW_DEX, QUICK_DRAW_PENALTY, POINT_BLANK, POINT_BLANK_MIN, PIERCE_AC, CLIMB_COST, CLIMB_MAX, DROP_COST,
   BASE_MOVE, MIN_MOVE, JUMP_EXTRA, FALL_DIE, dexMove, dexDrop, strClimb, strCarry,
 } from '../../rules/tables.js';
 import { earnsStatPoint } from '../../rules/stats.js';
@@ -17,6 +18,7 @@ import { button, esc, gp, signed, d20Chance } from '../format.js';
 import { specialText } from './arena.js';
 import { poisonTotal } from '../../rules/poison.js';
 import { betaOn } from '../../config.js';
+import { isBow } from '../../rules/ranged.js';
 import { MERC_MOVE, moveFor } from '../../rules/battlefield.js';
 import { TERRAINS, MAX_HEIGHT, terrainChance } from '../../rules/terrain.js';
 import { MERCS } from '../../data/mercs.js';
@@ -169,6 +171,7 @@ function battlefieldSection() {
           </ul></li>
         <li><strong>Slings.</strong> ${slingText()}</li>
         <li><strong>Bows and crossbows.</strong> ${bowText()}</li>
+        <li><strong>Enchanted ammunition.</strong> ${enchantText()}</li>
       </ul>`;
 }
 
@@ -281,18 +284,45 @@ function slingText() {
     in melee, equip another weapon before you go to the arena.`;
 }
 
+// Enchanted arrows, bolts and stones, from their data.
+function enchantText() {
+  const rows = Object.values(ENCHANTS).map(en => `<li><strong>${esc(en.name)}</strong> (${gp(en.cost)} for ${ENCHANTED_BUNDLE}): ${esc(en.effect)}.</li>`).join('');
+  return `The Weaponsmith sells arrows, bolts and sling stones, ${ENCHANTED_BUNDLE} at a time, in three enchantments, each also as +1
+    (${gp(MAGIC_AMMO_COST)} more for ${ENCHANTED_BUNDLE}; +1 alone is ${gp(MAGIC_AMMO_COST)}). A +1 piece adds 1 to hit and damage and counts as
+    magic, so a plain bow can hurt a Gargoyle or Wight with it; the bow's own magic and the arrow's add up.
+    <ul>${rows}</ul>
+    Pick what to shoot in a fight under the battle buttons. On <strong>Auto</strong> you shoot plain ones first (with a sling, plain stones),
+    or the cheapest magic ones at a monster only magic can hurt; when the kind you picked runs out you go back to Auto. Seeking ammunition
+    breaks like plain; flaming and exploding are always used up. Exploding ammunition blasts only the target for now.`;
+}
+
 // The bow and crossbow rules, from their data.
 function bowText() {
   const bow = WEAPONS.find(x => x.ranged?.family === 'bow');
   const xbow = WEAPONS.find(x => x.ranged?.family === 'crossbow');
-  const ammo = AMMO.map(a => `${a.plural.toLowerCase()} ${a.breakChance}%`).join(', ');
-  return `A ${esc(bow.name)} (${bow.dmg}, full power to ${bow.ranged.aim} hexes) aims with your full Dexterity bonus; a
+  const heavy = WEAPONS.find(x => x.ranged?.reload);
+  const ammo = AMMO.filter(a => !a.enchant && !a.plus).map(a => `${a.plural.toLowerCase()} ${a.breakChance}%`).join(', ');
+  const bows = WEAPONS.filter(x => isBow(x) && !x.plus).map(x => `${esc(x.name)} (full power to ${x.ranged.aim} hexes, ${x.ranged.strMin ? `needs Str ${x.ranged.strMin}` : `pull ${x.ranged.pull}`})`).join(', ');
+  return `There are two kinds of bow. <strong>Self bows</strong> need a minimum Strength: each point you lack costs 1 to hit and 1 hex of
+    full-power range, but Strength above it adds nothing. <strong>Composite bows</strong> are built to a draw strength (their pull): they add
+    your Strength damage and range bonus, up to that of the pull, but never take any away. All bows shoot arrows: ${bows}.
+    A ${esc(bow.name)} (${bow.dmg}, full power to ${bow.ranged.aim} hexes) aims with your full Dexterity bonus; a
     ${esc(xbow.name)} (${xbow.dmg}, full power to ${xbow.ranged.aim} hexes) is built to be accurate (${signed(xbow.ranged.hit)} to hit) but
-    takes only half your Dexterity bonus. Strength adds neither range nor damage to either. Otherwise they work like a sling: the same range,
+    takes only half your Dexterity bonus, and needs no Strength. A ${esc(heavy.name)} (${heavy.dmg}, full power to ${heavy.ranged.aim} hexes,
+    ${signed(heavy.ranged.hit)} to hit) hits harder but <strong>reloads</strong>: after a shot it can't shoot again until the round after next.
+    Meanwhile you can throw a spare weapon, or punch an enemy beside you. Otherwise they work like a sling: the same range,
     height, line-of-sight and moving rules, every attack a shot, and no striking in melee. Each shot uses one arrow (bow) or bolt (crossbow),
     sold in bundles at the Weaponsmith. A hit may break it (${ammo}); every other one you shoot, hits and misses, you gather up after a fight you
     survive. The picker under the battle buttons shows how many you have left. Out of ammunition, beside an enemy you fight with your fists,
-    and you can still throw any other weapons you carry.`;
+    and you can still throw any other weapons you carry.
+    <ul>
+      <li><strong>Engaged.</strong> Shooting a sling, bow or crossbow with an enemy beside you costs ${ENGAGED_PENALTY} to hit
+        (${QUICK_DRAW_PENALTY} with a bow or sling from Dex ${QUICK_DRAW_DEX}: a quick draw; a crossbow is slow to load whatever your Dex).
+        Throwing isn't affected. Mercenaries who keep enemies off you are worth their pay.</li>
+      <li><strong>Point blank.</strong> A bow or crossbow gets +${POINT_BLANK} to hit and +${POINT_BLANK} damage against a target within half
+        its full-power range (rounded up, at least ${POINT_BLANK_MIN} hexes), unless you're engaged.</li>
+      <li><strong>Armor piercing.</strong> Crossbows get ${signed(xbow.ranged.pierce)} to hit against armor class ${PIERCE_AC} or better.</li>
+    </ul>`;
 }
 
 function weaponTable() {

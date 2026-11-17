@@ -74,8 +74,8 @@ function fallLine(e) {
 
 // "You gather up 7 arrows (3 broke)." / "All 2 bolts you hit with broke."
 function ammoLine(e) {
-  const parts = e.ammo.map(({ ammo, back, broken }) => {
-    const word = n => `${n} ${ammo.toLowerCase()}${n === 1 ? '' : 's'}`;
+  const parts = e.ammo.map(({ ammo, plural = `${ammo}s`, back, broken }) => {
+    const word = n => `${n} ${(n === 1 ? ammo : plural).toLowerCase()}`;
     if (!back) return `all ${word(broken)} that hit broke`;
     return `${word(back)}${broken ? ` (${broken} broke)` : ''}`;
   });
@@ -90,9 +90,13 @@ function attackLine(e) {
     const hexes = `${e.distance} hex${e.distance === 1 ? '' : 'es'}`;
     if (e.shot) {
       const a = /^[aeiou]/.test(e.shot) ? 'an' : 'a';
+      const extra = [
+        e.fire ? `${e.fire} of it fire` : '',
+        e.blast ? `${e.blast} of it from the explosion` : '',
+      ].filter(Boolean).join(', ');
       return e.hit
-        ? { text: `Your ${e.weapon} sends ${a} ${e.shot} into the ${e.target} (${hexes}) for ${e.dmg} damage${e.dmgMult < 1 ? ', weakened by the distance' : ''}.${e.broke ? ` The ${e.shot} breaks.` : ''}`, cls: 'good' }
-        : { text: `Your ${e.weapon}'s ${e.shot} whistles past the ${e.target} (${hexes}).`, cls: 'muted' };
+        ? { text: `Your ${e.weapon} sends ${a} ${e.shot} into the ${e.target} (${hexes}) for ${e.dmg} damage${extra ? `, ${extra}` : ''}${e.dmgMult < 1 ? ', weakened by the distance' : ''}.${e.fireImmune ? ` The ${e.target} is unharmed by the fire.` : ''}${e.broke ? ` The ${e.shot} breaks.` : ''}`, cls: 'good' }
+        : { text: `Your ${e.weapon}'s ${e.shot} whistles past the ${e.target} (${hexes})${e.dud ? ' and lands without exploding' : ''}.`, cls: 'muted' };
     }
     return e.hit
       ? { text: `You throw your ${e.weapon} at the ${e.target} (${hexes}) and hit for ${e.dmg} damage${e.dmgMult < 1 ? ', weakened by the distance' : ''}.`, cls: 'good' }
@@ -132,7 +136,7 @@ export function describe(e) {
     case 'hired': return { text: `Fighting at your side: ${e.crew}. You paid ${e.wages} gold in wages.`, cls: 'sys' };
     case 'round': return { text: `Round ${e.n}`, cls: 'round' };
     case 'initiative': return null; // implied by the order of the lines that follow
-    case 'immune': return { text: `Your ${e.weapon} has no effect on the ${e.target}. You need a +${e.req} weapon!`, cls: 'warn' };
+    case 'immune': return { text: `Your ${e.weapon} has no effect on the ${e.target}. You need a +${e.req} weapon${e.req === 1 ? ', or +1 ammunition' : ''}!`, cls: 'warn' };
     case 'allyImmune': return { text: `${e.actor}'s weapon can't harm the ${e.target}.`, cls: 'muted' };
     case 'heads': return { text: `The ${e.actor} has ${e.left} head${e.left === 1 ? '' : 's'} left.`, cls: 'sys' };
     case 'breath': return { text: breathText(e), cls: 'bad' };
@@ -157,6 +161,7 @@ export function describe(e) {
     case 'throwsSpent': return { text: "You've thrown every weapon you carry. You'll gather them up after the fight.", cls: 'sys' };
     case 'draw': return { text: e.weapon ? `You draw your ${e.weapon}.` : 'You fight on with your fists.', cls: 'sys' };
     case 'throwsRecovered': return recoverLine(e);
+    case 'ammoKindSpent': return { text: `You've shot your last ${e.ammo}.`, cls: 'sys' };
     case 'ammoSpent': return { text: `You've shot your last ${e.ammo.replace(/s$/, '')}. Beside an enemy you'll fight with your fists.`, cls: 'sys' };
     case 'ammoRecovered': return ammoLine(e);
     case 'move': return null; // shown by the battlefield, not the log
