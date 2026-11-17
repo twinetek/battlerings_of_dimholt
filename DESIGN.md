@@ -632,7 +632,7 @@ Design docs for work not built yet sit next to this file: `TODO.md` (decided ide
 
 **Rules are pure; combat emits events.** `playRound(state, action)` changes state and returns a list of events, such as `{ t: 'attack', who: 'player', hit: true, dmg: 6, monsterHp: 3 }`. The rules never render anything. The UI hands the events to a **presenter**:
 
-- v0.1's `TextPresenter` turns each event into a log line, updates the hp bars, and waits a moment.
+- v0.1's `TextPresenter` turns each event into a log line, updates the hp bars, and waits a moment. On the battlefield the view also has a `move(uid, hex)` hook, and the presenter walks each `move` event's unit along its path between the log lines. Both fight screens share it, along with `DELAYS`, `trimLog` and `logHtml` from `ui/presenter.js`; the battle screen also reuses the classic screen's item picker and end-of-fight buttons (`itemPicker`, `endButtons` in `screens/combat.js`).
 - A future `SpritePresenter` implements the same `play(events, view)` and plays a swing, hit flash, or breath animation for each event before logging it. Neither the rules nor the save format change.
 
 **Screens are tiny modules.** Each exports `render(ctx, params)` returning HTML, plus `actions` for its `data-action` buttons and optional `keys` and `mount`. Swapping the town's button grid for a drawn, clickable city map (as in the original) only changes `screens/town.js`.

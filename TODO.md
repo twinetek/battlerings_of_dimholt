@@ -46,9 +46,3 @@ From a full review of the repo. All three test pages passed at the time (110 rul
 ### Balance
 
 - **Hiring help against the Giant Scorpion loses XP.** The hiring simulation shows −80 XP per win with one Knight: the arena's step-down helper is a Wight (`ARENA_STEP_DOWN` = 3 places weaker), and its level drain costs more than the fight earns. It's already noted under "Arena step-down surprises" in `DESIGN.md`; this puts a number on it. Options: skip drainers when stepping down, or pick the nearest weaker monster without `special.drain`.
-
-### Cleanup
-
-- **`js/ui/screens/battle.js` repeats code from `js/ui/screens/combat.js` and the presenter:** wages (use `crewCost`), the usable-items list, `trimLog`, `DELAYS`, `sleep`, the end-of-fight buttons, and its own animation loop instead of `TextPresenter`.
-- **Unused imports:** `startCombat` in `js/ui/screens/arena.js` and `js/ui/screens/combat.js`; `crewSize` in `js/ui/screens/combat.js`.
-- **The classic fight screen's `mount` would throw with no fight in progress** (`ctx.state.combat?.log.length` is `undefined`, then it pushes to `s.combat.log`). Nothing routes there today; `battle.js` already guards with `s.combat &&`.

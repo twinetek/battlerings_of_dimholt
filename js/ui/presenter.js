@@ -2,18 +2,32 @@
 //
 // toLines() maps events to log lines, each carrying the hit-point changes it
 // covers. TextPresenter plays those lines into a view one at a time and
-// updates the hp bars as it goes. A future graphical presenter only has to
-// implement play(events, view), for example by running a sprite animation per
-// event before logging it.
+// updates the hp bars as it goes; on the battlefield it also walks units along
+// their paths (view.move). A future graphical presenter only has to implement
+// play(events, view), for example by running a sprite animation per event
+// before logging it. Both fight screens (screens/combat.js, screens/battle.js)
+// share it, with DELAYS, trimLog and logHtml.
 //
 // With a large crew (more than SUMMARIZE_ABOVE mercenaries), each run of
 // mercenary attacks is condensed into one line.
 
-import { STATS } from '../rules/tables.js';
+import { STATS, COMBAT_LOG_LIMIT } from '../rules/tables.js';
+import { esc } from './format.js';
 
 export const SUMMARIZE_ABOVE = 3;
 
+// Pause per log line at each combat speed, in milliseconds.
+export const DELAYS = { instant: 0, fast: 60, normal: 160 };
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// The saved combat log keeps only its last COMBAT_LOG_LIMIT lines.
+export function trimLog(cb) {
+  if (cb.log.length > COMBAT_LOG_LIMIT) cb.log.splice(0, cb.log.length - COMBAT_LOG_LIMIT);
+}
+
+// Log lines as <li> items.
+export const logHtml = lines => lines.map(l => `<li class="${l.cls}">${esc(l.text)}</li>`).join('');
 const statName = key => STATS.find(([k]) => k === key)?.[1] ?? key;
 const article = name => (/^[AEIOU]/.test(name) ? 'an' : 'a');
 
@@ -241,15 +255,35 @@ export const describeAll = (events, opts) => toLines(events, opts).map(({ text, 
 export class TextPresenter {
   constructor() { this.skipping = false; }
 
+  // Finish the current playback without pauses (a click while it plays).
   skip() { this.skipping = true; }
 
-  // view: { log(line), setHp(uid, hp), delay, summarize }
+  // view: { log(line), setHp(uid, hp), delay, summarize, move?(uid, hex) }
+  // With view.move, each 'move' event walks its unit along its path, a step
+  // at a time, between the log lines before and after it.
   async play(events, view) {
     this.skipping = false;
-    for (const line of toLines(events, { summarize: view.summarize })) {
-      for (const { uid, hp } of line.hp) view.setHp(uid, hp);
-      view.log(line);
-      if (view.delay && !this.skipping) await sleep(line.cls === 'round' ? view.delay / 2 : view.delay);
+    const pause = ms => (view.delay && !this.skipping ? sleep(ms) : null);
+    const lines = async chunk => {
+      for (const line of toLines(chunk, { summarize: view.summarize })) {
+        for (const { uid, hp } of line.hp) view.setHp(uid, hp);
+        view.log(line);
+        await pause(line.cls === 'round' ? view.delay / 2 : view.delay);
+      }
+    };
+    let chunk = [];
+    for (const e of events) {
+      if (e.t !== 'move' || !view.move) {
+        chunk.push(e);
+        continue;
+      }
+      await lines(chunk);
+      chunk = [];
+      for (const h of e.path) {
+        view.move(e.uid, h);
+        await pause(Math.max(50, view.delay * 0.6));
+      }
     }
+    await lines(chunk);
   }
 }

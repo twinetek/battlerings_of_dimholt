@@ -6,13 +6,13 @@
 
 import { MONSTER_BY_ID } from '../../data/monsters.js';
 import { ITEM_BY_ID } from '../../data/equipment.js';
-import { MERC_BY_ID, crewCost, crewSize } from '../../data/mercs.js';
+import { MERC_BY_ID, crewCost } from '../../data/mercs.js';
 import { weaponOf, weaponEntry, armorClass, maxHp, damageBonus } from '../../rules/character.js';
 import { endArenaVisit } from '../../rules/loot.js';
-import { playRound, startCombat, headsLeft, setTarget, openingEvents, PLAYER } from '../../rules/combat.js';
-import { attacksLabel, COMBAT_LOG_LIMIT } from '../../rules/tables.js';
+import { playRound, headsLeft, setTarget, openingEvents, PLAYER } from '../../rules/combat.js';
+import { attacksLabel } from '../../rules/tables.js';
 import { rangeText } from '../../engine/dice.js';
-import { TextPresenter, describeAll, SUMMARIZE_ABOVE } from '../presenter.js';
+import { TextPresenter, describeAll, SUMMARIZE_ABOVE, DELAYS, trimLog, logHtml } from '../presenter.js';
 import { button, esc, bar, gp } from '../format.js';
 import { itemLabel, coatingTag } from './shops.js';
 import { beginFight } from '../fight.js';
@@ -27,19 +27,44 @@ export function confirmPoisoned(c) {
 }
 let busy = false;
 
-const DELAYS = { instant: 0, fast: 60, normal: 160 };
-
-function logHtml(lines) {
-  return lines.map(l => `<li class="${l.cls}">${esc(l.text)}</li>`).join('');
-}
-
 function usableItems(c) {
   return c.items
     .map((entry, index) => ({ entry, index, it: ITEM_BY_ID[entry.id] }))
     .filter(x => x.it.use === 'combat' || x.it.use === 'any');
 }
 
-const summarize = cb => cb.hired > SUMMARIZE_ABOVE;
+// The "Use which item?" panel, shared with the battle screen. note: an extra line under the title.
+export function itemPicker(c, note = '') {
+  const items = usableItems(c);
+  return `
+      <div class="panel use-list">
+        <h3>Use which item?</h3>
+        ${note ? `<p class="muted small">${note}</p>` : ''}
+        ${items.length
+          ? `<ul class="list">${items.map(x => `<li><span>${itemLabel(x.entry)} <span class="muted small">${esc(x.it.effect)}</span></span>${button('Use', 'use', { index: x.index }, { cls: 'small' })}</li>`).join('')}</ul>`
+          : '<p class="muted">You have nothing you can use in combat.</p>'}
+        ${button('Cancel', 'cancelUse', {}, { cls: 'ghost' })}
+      </div>`;
+}
+
+// The buttons once a fight is over: leave, or fight the same monster again
+// (alone, or with the same crew at its wages). Shared with the battle screen.
+export function endButtons(s) {
+  const c = s.character;
+  const cb = s.combat;
+  const m = MONSTER_BY_ID[cb.monsterId];
+  const next = cb.result === 'death' ? 'dead' : cb.result === 'victory' && s.flags.captain && !s.flags.captainSeen ? 'captain' : 'town';
+  const label = cb.result === 'death' ? 'Continue' : cb.result === 'victory' ? 'Collect your winnings' : 'Leave the arena';
+  const cost = crewCost(cb.crew);
+  return `
+      <div class="row">
+        ${button(label, 'leave', { to: next }, { cls: 'primary' })}
+        ${cb.result !== 'death' ? button(`Fight another ${esc(m.name)}${cost ? ' alone' : ''}`, 'again', { crew: 'none' }, { cls: 'ghost' }) : ''}
+        ${cb.result !== 'death' && cost ? button(`…with the same crew (${gp(cost)})`, 'again', { crew: 'same' }, { cls: 'ghost', disabled: c.gold < cost }) : ''}
+      </div>`;
+}
+
+export const summarize = cb => cb.hired > SUMMARIZE_ABOVE;
 
 function maxHpOf(s, uid) {
   if (uid === PLAYER) return maxHp(s.character);
@@ -115,25 +140,9 @@ export function render(ctx, params) {
 
   let controls;
   if (cb.over) {
-    const next = cb.result === 'death' ? 'dead' : cb.result === 'victory' && s.flags.captain && !s.flags.captainSeen ? 'captain' : 'town';
-    const label = cb.result === 'death' ? 'Continue' : cb.result === 'victory' ? 'Collect your winnings' : 'Leave the arena';
-    const cost = crewCost(cb.crew);
-    controls = `
-      <div class="row">
-        ${button(label, 'leave', { to: next }, { cls: 'primary' })}
-        ${cb.result !== 'death' ? button(`Fight another ${esc(m.name)}${cb.hired ? ' alone' : ''}`, 'again', { crew: 'none' }, { cls: 'ghost' }) : ''}
-        ${cb.result !== 'death' && cb.hired ? button(`…with the same crew (${gp(cost)})`, 'again', { crew: 'same' }, { cls: 'ghost', disabled: c.gold < cost }) : ''}
-      </div>`;
+    controls = endButtons(s);
   } else if (params.picking) {
-    const items = usableItems(c);
-    controls = `
-      <div class="panel use-list">
-        <h3>Use which item?</h3>
-        ${items.length
-          ? `<ul class="list">${items.map(x => `<li><span>${itemLabel(x.entry)} <span class="muted small">${esc(x.it.effect)}</span></span>${button('Use', 'use', { index: x.index }, { cls: 'small' })}</li>`).join('')}</ul>`
-          : '<p class="muted">You have nothing you can use in combat.</p>'}
-        ${button('Cancel', 'cancelUse', {}, { cls: 'ghost' })}
-      </div>`;
+    controls = itemPicker(c);
   } else {
     const paralyzed = cb.paralyzed > 0;
     controls = `
@@ -169,10 +178,6 @@ export function render(ctx, params) {
         ${['instant', 'fast', 'normal'].map(sp => button(sp, 'speed', { speed: sp }, { cls: `link${s.settings.combatSpeed === sp ? ' on' : ''}` })).join(' ')}
       </p>
     </section>`;
-}
-
-function trimLog(cb) {
-  if (cb.log.length > COMBAT_LOG_LIMIT) cb.log.splice(0, cb.log.length - COMBAT_LOG_LIMIT);
 }
 
 // Play a round: rules first (state is saved immediately), then the presenter
@@ -267,7 +272,7 @@ export const keys = {
 export function mount(ctx, root) {
   const logEl = root.querySelector('#combat-log');
   if (logEl) logEl.scrollTop = logEl.scrollHeight;
-  if (!ctx.state.combat?.log.length) {
+  if (ctx.state.combat && !ctx.state.combat.log.length) {
     // First render of a new fight: log the opening lines.
     ctx.mutate(s => { s.combat.log.push(...describeAll(openingEvents(s))); });
     logEl?.insertAdjacentHTML('beforeend', logHtml(ctx.state.combat.log));

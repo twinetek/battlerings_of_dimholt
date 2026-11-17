@@ -2,7 +2,7 @@
 
 import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
 import { weaponOf, armorClass, rollToHit, maxHp } from '../../rules/character.js';
-import { startCombat, canHurt, summonKind } from '../../rules/combat.js';
+import { canHurt, summonKind } from '../../rules/combat.js';
 import { MERCS, crewCost, crewSize, crewText } from '../../data/mercs.js';
 import { LOOT_BY_ID } from '../../data/loot.js';
 import { rangeText } from '../../engine/dice.js';

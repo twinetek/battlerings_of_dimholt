@@ -4,7 +4,7 @@
 
 import { MONSTERS, MONSTER_BY_ID } from '../../data/monsters.js';
 import { MERCS, MERC_BY_ID } from '../../data/mercs.js';
-import { ITEM_BY_ID, WEAPON_BY_ID, UNARMED, ammoEffect } from '../../data/equipment.js';
+import { WEAPON_BY_ID, UNARMED, ammoEffect } from '../../data/equipment.js';
 import { maxHp, armorClass, weaponEntry, weaponOf, rollToHit, moveStats } from '../../rules/character.js';
 import { playRound, setTarget, openingEvents, inReach, heightMods, PLAYER } from '../../rules/combat.js';
 import {
@@ -14,23 +14,20 @@ import {
 import { TERRAINS, TERRAIN_BY_ID, RANDOM, MAX_HEIGHT, levelOf, cliffEdges } from '../../rules/terrain.js';
 import { rangeProfile, throwGroups, canShoot, shooterInHand, readyShooter, pickShot, needsAmmo, ammoLeft, ammoKinds, ammoCarried, reloading, reloadReason } from '../../rules/ranged.js';
 import * as H from '../../engine/hex.js';
-import { COMBAT_LOG_LIMIT, thac0 } from '../../rules/tables.js';
-import { toLines, describeAll, SUMMARIZE_ABOVE } from '../presenter.js';
+import { thac0 } from '../../rules/tables.js';
+import { TextPresenter, describeAll, DELAYS, trimLog, logHtml } from '../presenter.js';
 import { button, esc, gp } from '../format.js';
 import { betaOn } from '../../config.js';
-import { itemLabel, coatingTag } from './shops.js';
-import { actions as combatActions } from './combat.js';
+import { coatingTag } from './shops.js';
+import { actions as combatActions, itemPicker, endButtons, summarize } from './combat.js';
 
 const SIZE = 30;
-const DELAYS = { instant: 0, fast: 60, normal: 160 };
+const presenter = new TextPresenter();
 let busy = false;
-let skipping = false;
 let paint = null; // tester paint tool: null, 'raise' or 'lower'
 
-const sleep = ms => new Promise(r => setTimeout(r, ms));
 const field = s => s.settings.battle ?? DEFAULT_FIELD;
 const showThreat = s => s.settings.battleThreat ?? true;
-const summarize = cb => cb.hired > SUMMARIZE_ABOVE;
 
 function unitInfo(s, uid) {
   const c = s.character;
@@ -338,26 +335,9 @@ export function render(ctx, params) {
 
   let controls;
   if (cb.over) {
-    const next = cb.result === 'death' ? 'dead' : cb.result === 'victory' && s.flags.captain && !s.flags.captainSeen ? 'captain' : 'town';
-    const label = cb.result === 'death' ? 'Continue' : cb.result === 'victory' ? 'Collect your winnings' : 'Leave the arena';
-    const wages = Object.entries(cb.crew).reduce((sum, [id, n]) => sum + MERC_BY_ID[id].wage * n, 0);
-    controls = `
-      <div class="row">
-        ${button(label, 'leave', { to: next }, { cls: 'primary' })}
-        ${cb.result !== 'death' ? button(`Fight another ${esc(m.name)}${wages ? ' alone' : ''}`, 'again', { crew: 'none' }, { cls: 'ghost' }) : ''}
-        ${cb.result !== 'death' && wages ? button(`…with the same crew (${gp(wages)})`, 'again', { crew: 'same' }, { cls: 'ghost', disabled: c.gold < wages }) : ''}
-      </div>`;
+    controls = endButtons(s);
   } else if (params.picking) {
-    const items = c.items.map((entry, index) => ({ entry, index, it: ITEM_BY_ID[entry.id] })).filter(x => x.it.use === 'combat' || x.it.use === 'any');
-    controls = `
-      <div class="panel use-list">
-        <h3>Use which item?</h3>
-        <p class="muted small">Wands and the fiery potion reach your target (🎯) anywhere on the field.</p>
-        ${items.length
-          ? `<ul class="list">${items.map(x => `<li><span>${itemLabel(x.entry)} <span class="muted small">${esc(x.it.effect)}</span></span>${button('Use', 'use', { index: x.index }, { cls: 'small' })}</li>`).join('')}</ul>`
-          : '<p class="muted">You have nothing you can use in combat.</p>'}
-        ${button('Cancel', 'cancelUse', {}, { cls: 'ghost' })}
-      </div>`;
+    controls = itemPicker(c, 'Wands and the fiery potion reach your target (🎯) anywhere on the field.');
   } else {
     const stuck = cb.paralyzed > 0;
     controls = `
@@ -379,7 +359,7 @@ export function render(ctx, params) {
           <div class="board-wrap">${boardSvg(s, params)}</div>
           <p class="hint" id="hint">${esc(hoverHint(s, params) ?? hintText(s))}</p>
           ${controls}
-          <ol class="log" id="combat-log" aria-live="polite">${cb.log.map(l => `<li class="${l.cls}">${esc(l.text)}</li>`).join('')}</ol>
+          <ol class="log" id="combat-log" aria-live="polite">${logHtml(cb.log)}</ol>
           <p class="muted small row">Speed:
             ${['instant', 'fast', 'normal'].map(sp => button(sp, 'speed', { speed: sp }, { cls: `link${s.settings.combatSpeed === sp ? ' on' : ''}` })).join(' ')}</p>
         </div>
@@ -396,50 +376,35 @@ export function render(ctx, params) {
 
 // ---- Playing events on the board ----
 
-function trimLog(cb) {
-  if (cb.log.length > COMBAT_LOG_LIMIT) cb.log.splice(0, cb.log.length - COMBAT_LOG_LIMIT);
-}
-
-async function play(s, events) {
-  const delay = DELAYS[s.settings.combatSpeed] ?? 0;
-  const opts = { summarize: summarize(s.combat) };
+// Animate events on the board: the shared TextPresenter logs them, shrinks
+// hp bars and walks units along their paths.
+function play(s, events) {
   const logEl = document.getElementById('combat-log');
-  const flush = async chunk => {
-    for (const line of toLines(chunk, opts)) {
-      for (const { uid, hp } of line.hp) {
-        const bar = document.getElementById(`hpbar-${uid}`);
-        if (!bar) continue;
-        const full = Number(bar.previousElementSibling.getAttribute('width'));
-        const max = uid === PLAYER ? maxHp(s.character) : [...s.combat.allies, ...s.combat.enemies].find(u => u.uid === uid)?.maxHp ?? 1;
-        bar.setAttribute('width', String(full * Math.max(0, hp) / max));
-      }
-      logEl?.insertAdjacentHTML('beforeend', `<li class="${line.cls}">${esc(line.text)}</li>`);
+  return presenter.play(events, {
+    summarize: summarize(s.combat),
+    delay: DELAYS[s.settings.combatSpeed] ?? 0,
+    log(line) {
+      logEl?.insertAdjacentHTML('beforeend', logHtml([line]));
       if (logEl) logEl.scrollTop = logEl.scrollHeight;
-      if (delay && !skipping) await sleep(line.cls === 'round' ? delay / 2 : delay);
-    }
-  };
-  let chunk = [];
-  for (const e of events) {
-    if (e.t !== 'move') {
-      chunk.push(e);
-      continue;
-    }
-    await flush(chunk);
-    chunk = [];
-    const g = document.getElementById(`unit-${e.uid}`);
-    for (const h of e.path) {
+    },
+    setHp(uid, hp) {
+      const bar = document.getElementById(`hpbar-${uid}`);
+      if (!bar) return;
+      const full = Number(bar.previousElementSibling.getAttribute('width'));
+      const max = uid === PLAYER ? maxHp(s.character) : [...s.combat.allies, ...s.combat.enemies].find(u => u.uid === uid)?.maxHp ?? 1;
+      bar.setAttribute('width', String(full * Math.max(0, hp) / max));
+    },
+    move(uid, h) {
       const p = H.toPixel(h, SIZE);
-      g?.setAttribute('transform', `translate(${p.x},${p.y})`);
-      if (delay && !skipping) await sleep(Math.max(50, delay * 0.6));
-    }
-  }
-  await flush(chunk);
+      document.getElementById(`unit-${uid}`)?.setAttribute('transform', `translate(${p.x},${p.y})`);
+    },
+  });
 }
 
 // Run a rules call, log its events, animate them, then re-render.
 async function run(ctx, fn) {
   if (busy) {
-    skipping = true;
+    presenter.skip();
     return { ok: false };
   }
   const s = ctx.state;
@@ -460,7 +425,6 @@ async function run(ctx, fn) {
     return r;
   }
   busy = true;
-  skipping = false;
   document.querySelectorAll('.battle button').forEach(b => { b.disabled = true; });
   await play(s, r.events);
   busy = false;
@@ -560,7 +524,7 @@ export function mount(ctx, root) {
   if (logEl) logEl.scrollTop = logEl.scrollHeight;
   if (s.combat && !s.combat.log.length) {
     ctx.mutate(st => { st.combat.log.push(...describeAll([...openingEvents(st), { t: 'round', n: st.combat.round }])); });
-    logEl?.insertAdjacentHTML('beforeend', s.combat.log.map(l => `<li class="${l.cls}">${esc(l.text)}</li>`).join(''));
+    logEl?.insertAdjacentHTML('beforeend', logHtml(s.combat.log));
   }
   // Hovering a hex you can reach previews the path.
   root.querySelector('#board')?.addEventListener('mouseover', e => {

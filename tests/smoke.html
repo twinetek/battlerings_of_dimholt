@@ -171,7 +171,11 @@ frame.addEventListener('load', async () => {
       await click('#nav [data-to="town"]');
       log(screen() === 'town' && !navLink(), 'top bar link returns to town');
 
-      // Hire a mercenary for a fight.
+      // Hire a mercenary for a fight. Rest first: the save edit above made you level 4 on level-1 hit points,
+      // and a death here would end the playthrough early.
+      await click('[data-to="inn"]');
+      await click('[data-action="full"]');
+      await click('[data-to="town"]');
       await click('[data-to="arena"]');
       await click('tr[data-id="kobold"]');
       await click('[data-action="more"][data-merc="militia"]');
@@ -184,7 +188,8 @@ frame.addEventListener('load', async () => {
       log(q('#combat-log').textContent.includes('Fighting at your side'), 'log names the crew');
       log(!q('[data-action="addMerc"]'), 'no way to add mercenaries mid-fight');
       await playFight();
-      log(!!q('[data-action="leave"]'), 'fight with a mercenary finishes');
+      log(!!q('[data-action="leave"]') && JSON.parse(w.localStorage.getItem('dimholt.save.auto')).state.combat.result !== 'death',
+        `fight with a mercenary finishes (${JSON.parse(w.localStorage.getItem('dimholt.save.auto')).state.combat?.result})`);
       await click('[data-action="leave"]');
 
       // Lingering poison: warning on the Battlerings screen, a confirm before fighting, and the opening log line.
