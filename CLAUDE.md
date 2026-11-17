@@ -7,6 +7,7 @@ A browser gladiator game in plain HTML, CSS and ES modules: no build step, no se
 - `DESIGN.md`: the reference for everything built, including the hex battlefield (where every fight is played, on a random terrain layout) and the tester beta. Multi-level terrain is complete and documented there ("Terrain"): layouts in `js/rules/terrain.js`, movement, traits, jumping and the AI in `js/rules/battlefield.js`, your movement stats in `moveStats` (`js/rules/character.js`), melee height in `js/rules/combat.js`.
 - `TODO.md`: decided-but-unbuilt ideas, plus open code-review findings (bugs, save safety, cleanup).
 - `Todo_ranged.md`: the design for ranged attacks on the battlefield. Throwing any carried weapon, javelins, the sling, a basic bow and crossbow with arrows and bolts, and the shared range rules are built (`js/rules/ranged.js`); its "Build order" lists what's next.
+- `Area_Effects.md`: considerations for area effects (blasts, cones, lines, lingering clouds). Nothing built yet; its "Decisions to make" come first.
 
 When you build part of a design doc, document it in `DESIGN.md` and mark it built in the design doc. When a rule's behavior changes, update the player Guide prose in `js/ui/screens/guide.js` as well. The Guide's tables come from `data/` and `rules/` automatically.
 

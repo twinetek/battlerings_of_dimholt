@@ -48,6 +48,7 @@ The test pages report PASS or FAIL lines. The playthroughs drive the real screen
 - `DESIGN.md`: design notes and decisions.
 - `TODO.md`: ideas that are decided but not built yet, and open findings from code reviews.
 - `Todo_ranged.md`: the design for ranged attacks on the battlefield. Throwing (any weapon you carry), javelins, the sling, and a basic bow and crossbow with arrows and bolts are built; better and magic bows and ammunition, and monsters that shoot, are not.
+- `Area_Effects.md`: considerations for area effects on the battlefield: blasts, cones, lines and lingering clouds. Not designed or built yet.
 
 ## Credits
 

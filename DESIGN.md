@@ -221,7 +221,7 @@ Code: `data/loot.js` (loot items), `rules/loot.js` (clock, decay, applying and s
 
 - **Initiative:** should it decide move order, per side or per fighter, instead of you always moving first?
 - **Zone of control:** should leaving a hex next to an enemy end your movement or provoke a free attack?
-- **Reach and ranged attacks:** halberds and dragon breath could have reach 2, and breath could hit a cone or line.
+- **Reach and ranged attacks:** halberds and dragon breath could have reach 2, and breath could hit a cone or line (see `Area_Effects.md` for all area effects).
 - **Mercenary orders:** "guard me", "attack target", "hold", "hold the high ground".
 - **Big monsters** occupying several hexes: giants, dragons, the Hydra.
 - **Arena features:** pits, water and mud (levels below the floor, hexes that cost extra movement), fire, and walls of the ring, plus spawn points for reinforcements. Raised ground is built; see "Terrain" below.
